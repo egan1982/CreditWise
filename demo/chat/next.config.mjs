@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'export',
+  distDir: 'dist',
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -8,14 +10,6 @@ const nextConfig = {
   },
   images: {
     unoptimized: true,
-  },
-  async rewrites() {
-    return [
-      {
-        source: '/api/sop/:path*',
-        destination: 'http://127.0.0.1:8200/sop/:path*',
-      },
-    ]
   },
 }
 

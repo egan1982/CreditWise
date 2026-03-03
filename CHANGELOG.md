@@ -4,6 +4,35 @@
 
 ---
 
+## [1.0.0] - 2025-03-02
+
+### 发布说明
+
+🎉 DeepAnalyze v1.0.0 首个稳定版本发布！
+
+### 新增功能
+
+- **Agentic LLM**: 自主数据科学分析，最小化人工干预
+- **多提供商支持**: OpenAI, DeepSeek, Claude, Google AI 等
+- **集成 LLM Manager**: Web UI 配置和监控
+- **Task SOP 系统**: 结构化数据分析工作流
+- **Docker 支持**: 便捷部署
+
+### API
+
+- Chat API with code execution
+- SOP Task management API
+- File workspace management
+- Model configuration API
+
+### 部署
+
+- FastAPI backend with auto-generated docs
+- Next.js frontend with hot reload
+- Docker deployment support
+
+---
+
 ## 〇、最新更新
 
 ### 2025-12-19 系统提示词优化与文档重构
