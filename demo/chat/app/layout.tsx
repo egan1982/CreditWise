@@ -9,9 +9,8 @@ import { Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "v0 App",
-  description: "Created with v0",
-  generator: "v0.app",
+  title: "DeepAnalyze_CreditWise",
+  description: "AI-Powered Credit Risk Management Platform",
 };
 
 export default function RootLayout({
