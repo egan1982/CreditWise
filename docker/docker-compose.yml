@@ -1,0 +1,36 @@
+# Docker Compose configuration for DeepAnalyze API service
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  api:
+    # Use pre-built image from Docker Hub or locally built image
+    image: deepanalyze-env:latest
+    # Or pull from Docker Hub:
+    # image: yourusername/deepanalyze-env:latest
+    
+    container_name: deepanalyze-api
+    
+    # Port mapping
+    ports:
+      - "8200:8200"  # API Server
+      - "3001:3001"  # Management UI
+    
+    # Volume mounts
+    volumes:
+      - ./workspace:/workspace
+      - ./llm_manager.db:/app/llm_manager.db
+    
+    # Environment variables
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - API_HOST=0.0.0.0
+      - API_PORT=8200
+    
+    # Startup command
+    command: python API/main.py
+    
+    # Restart policy
+    restart: unless-stopped

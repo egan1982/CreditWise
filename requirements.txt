@@ -1,0 +1,42 @@
+# Core dependencies
+numpy
+pandas
+pandas-stubs             # Type stubs for pandas
+scikit-learn
+scikit-learn-stubs       # Type stubs for scikit-learn
+seaborn
+matplotlib
+openpyxl                 # Excel文件读写支持
+python-docx              # Word文档读写支持
+tqdm                     # 进度条显示
+
+# Web UI and API
+requests
+websockets
+aiohttp                  # 异步HTTP客户端，用于LLM SOP模式
+httpx                    # HTTP客户端，用于API代理和通道测试
+python-multipart
+uvicorn
+fastapi
+openai
+python-dotenv
+
+# Scorecard and WOE/IV Analysis
+scorecardpy==0.1.9.7
+scipy>=1.7.0
+
+# Feature Correlation Analysis & Advanced Statistics
+statsmodels              # 偏相关、多变量回归、深度统计分析
+plotly                   # 交互式可视化
+kaleido                  # Plotly图表导出为静态图片（Word报告图表嵌入）
+
+# LLM Manager Backend - Fully integrated into DeepAnalyze
+# All LLM Manager functionality (backend + frontend) is now self-contained
+# Backend modules are in: llm_manager_integrated/
+# Frontend is in: API/static/
+# No external dependency needed!
+psutil
+requests-toolbelt
+sqlalchemy
+pydantic-settings
+cryptography
