@@ -1,0 +1,33 @@
+# System files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Python files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environment
+.venv/
+
+# IDE
+.idea/
+.cursor/
+.vscode/
+.trae/
+
+# Auto-generated files
+openapi.json
+
+# Database files (contain sensitive API keys)
+*.db
+llm_manager.db
+
+#other
+**/.claude/
+API/backend/workspace/
+**/CLAUDE.md

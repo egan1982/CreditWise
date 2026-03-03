@@ -1,0 +1,33 @@
+{
+    "pythonVersion": "3.13",
+    "pythonPath": "./.venv/Scripts/python.exe",
+    "typeCheckingMode": "basic",
+    "venvPath": "./.venv",
+    "include": ["API", "deepanalyze", "llm_manager_integrated"],
+    "exclude": [".venv", "__pycache__", "node_modules"],
+    "extraPaths": [
+        ".",
+        "./API",
+        "./llm_manager_integrated",
+        "./.venv/Lib/site-packages"
+    ],
+    "reportMissingImports": false,
+    "reportMissingTypeStubs": false,
+    "reportMissingModuleSource": false,
+    "reportUnknownVariableType": false,
+    "reportUnknownParameterType": false,
+    "reportUnknownMemberType": false,
+    "reportUnknownArgumentType": false,
+    "reportUnknownFunctionMemberAccess": false,
+    "reportUntypedFunctionDecorator": false,
+    "reportUnusedFunction": false,
+    "reportExplicitAny": false,
+    "reportAny": false,
+    "reportUnannotatedClassAttribute": false,
+    "reportImplicitStringConcatenation": false,
+    "reportUnusedCallResult": false,
+    "reportUnreachable": false,
+    "reportPrivateUsage": false,
+    "reportImplicitOverride": false,
+    "reportUnsafeMultipleInheritance": false
+}

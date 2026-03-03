@@ -1,0 +1,47 @@
+{
+  "name": "llm-api-manager-react-components",
+  "version": "1.0.0",
+  "description": "LLM API Manager React Components - 可集成组件库",
+  "main": "lib/index.js",
+  "module": "es/index.js",
+  "types": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "es",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm run build:lib && npm run build:es",
+    "build:lib": "babel src --out-dir lib --copy-files",
+    "build:es": "cross-env BABEL_ENV=es babel src --out-dir es --copy-files",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "react": "^16.8.0 || ^17.0.0 || ^18.0.0",
+    "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0"
+  },
+  "dependencies": {
+    "axios": "^0.21.0 || ^1.0.0",
+    "prop-types": "^15.7.0"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.0.0",
+    "@babel/core": "^7.0.0",
+    "@babel/preset-env": "^7.0.0",
+    "@babel/preset-react": "^7.0.0",
+    "cross-env": "^7.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/llm-api-manager/components"
+  },
+  "keywords": [
+    "react",
+    "components",
+    "llm",
+    "api",
+    "manager"
+  ],
+  "author": "LLM API Manager Team",
+  "license": "MIT"
+}

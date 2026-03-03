@@ -1,0 +1,397 @@
+<!-- 模型参数配置模态框 -->
+<div id="model-config-modal" class="modal">
+  <div class="modal-content large">
+    <div class="modal-header">
+      <h3>模型参数配置</h3>
+      <span class="model-context">通道：<span id="channel-name"></span> | 模型：<span id="model-name"></span></span>
+      <button class="modal-close" onclick="closeModelConfigModal()">×</button>
+    </div>
+    
+    <div class="modal-body">
+      <!-- 预设模板选择 -->
+      <div class="config-section">
+        <h4>场景预设</h4>
+        <div class="preset-description">
+          选择与您的使用场景最匹配的预设，将自动应用优化的参数和系统提示词
+        </div>
+        <div class="preset-buttons">
+          <button onclick="applyPreset('general_chat')" class="preset-btn" title="日常问答、数据咨询、概念解释等通用交互">
+            💬 通用对话
+          </button>
+          <button onclick="applyPreset('param_extraction')" class="preset-btn" title="从自然语言中提取SOP任务参数">
+            🎯 参数推断
+          </button>
+          <button onclick="applyPreset('result_explanation')" class="preset-btn" title="将分析结果转化为业务语言">
+            📊 结果解释
+          </button>
+        </div>
+        <div id="preset-info"></div>
+      </div>
+      
+      <!-- 基础参数 -->
+      <div class="config-section">
+        <h4>基础参数</h4>
+        <div class="param-grid">
+          <div class="param-item">
+            <label for="temperature">Temperature</label>
+            <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" 
+                   oninput="updateParameterDisplay('temperature')">
+            <span class="param-value" id="temperature-value">0.7</span>
+            <small class="param-desc">控制输出的随机性，值越低越确定</small>
+          </div>
+          
+          <div class="param-item">
+            <label for="top_p">Top P</label>
+            <input type="range" id="top_p" min="0" max="1" step="0.05" value="1.0"
+                   oninput="updateParameterDisplay('top_p')">
+            <span class="param-value" id="top_p-value">1.0</span>
+            <small class="param-desc">限制词汇选择范围</small>
+          </div>
+          
+          <div class="param-item">
+            <label for="max_tokens">Max Tokens</label>
+            <input type="number" id="max_tokens" min="1" max="32768" value="2000"
+                   oninput="updateParameterDisplay('max_tokens')">
+            <small class="param-desc">最大生成token数</small>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 高级参数 -->
+      <div class="config-section collapsible">
+        <h4 onclick="toggleSection('advanced')">高级参数 ▼</h4>
+        <div id="advanced-params" class="param-grid">
+          <div class="param-item">
+            <label for="frequency_penalty">Frequency Penalty</label>
+            <input type="range" id="frequency_penalty" min="-2" max="2" step="0.1" value="0"
+                   oninput="updateParameterDisplay('frequency_penalty')">
+            <span class="param-value" id="frequency_penalty-value">0</span>
+            <small class="param-desc">减少重复内容的生成</small>
+          </div>
+          
+          <div class="param-item">
+            <label for="presence_penalty">Presence Penalty</label>
+            <input type="range" id="presence_penalty" min="-2" max="2" step="0.1" value="0"
+                   oninput="updateParameterDisplay('presence_penalty')">
+            <span class="param-value" id="presence_penalty-value">0</span>
+            <small class="param-desc">鼓励谈论新话题</small>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 系统提示词 -->
+      <div class="config-section">
+        <h4>系统提示词</h4>
+        <div class="system-prompt-container">
+          <div class="prompt-actions">
+            <button type="button" class="btn btn-small" onclick="resetSystemPrompt()">恢复默认</button>
+            <button type="button" class="btn btn-small" onclick="expandSystemPrompt()">展开</button>
+            <button type="button" class="btn btn-small" onclick="shrinkSystemPrompt()">收起</button>
+          </div>
+          <textarea id="system_prompt" rows="8" placeholder="设置模型的系统提示词..." 
+                    oninput="updateCharCount()"></textarea>
+          <div class="char-count">
+            <span id="char-count">0</span> 字符
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" onclick="resetToDefaults()">恢复默认</button>
+      <button type="button" class="btn btn-secondary" onclick="closeModelConfigModal()">取消</button>
+      <button type="button" class="btn btn-primary" onclick="saveModelConfig()">
+        保存配置 <span id="save-spinner" class="spinner" style="display: none;"></span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+/* 模型配置模态框样式 */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal.active {
+  display: block;
+}
+
+.modal-content {
+  background-color: #fff;
+  margin: 5% auto;
+  padding: 0;
+  border-radius: 8px;
+  width: 80%;
+  max-width: 900px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-content.large {
+  width: 90%;
+  max-width: 1000px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 30px;
+  border-bottom: 1px solid #eee;
+  background-color: #f8f9fa;
+  border-radius: 8px 8px 0 0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+.model-context {
+  color: #666;
+  font-size: 0.9em;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #999;
+}
+
+.modal-close:hover {
+  color: #333;
+}
+
+.modal-body {
+  padding: 30px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 20px 30px;
+  border-top: 1px solid #eee;
+  background-color: #f8f9fa;
+  border-radius: 0 0 8px 8px;
+}
+
+/* 配置区域样式 */
+.config-section {
+  margin-bottom: 30px;
+}
+
+.config-section h4 {
+  margin-bottom: 15px;
+  color: #333;
+  font-size: 1.1em;
+}
+
+.preset-description {
+  margin-bottom: 15px;
+  color: #666;
+  font-size: 0.9em;
+}
+
+.preset-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.preset-btn {
+  background-color: #f0f2f5;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 10px 15px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.9em;
+}
+
+.preset-btn:hover {
+  background-color: #e3e6ea;
+  border-color: #bbb;
+}
+
+.preset-btn:active {
+  background-color: #d1d5db;
+  transform: translateY(1px);
+}
+
+.preset-info {
+  background-color: #e8f4fd;
+  border-left: 4px solid #2196F3;
+  padding: 10px 15px;
+  margin-top: 15px;
+  border-radius: 4px;
+}
+
+.preset-info h4 {
+  margin: 0 0 5px 0;
+  color: #1976D2;
+}
+
+.preset-info p {
+  margin: 0;
+  color: #333;
+  font-size: 0.9em;
+}
+
+/* 参数网格样式 */
+.param-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.param-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.param-item label {
+  font-weight: 600;
+  color: #333;
+}
+
+.param-item input[type="range"] {
+  width: 100%;
+}
+
+.param-item input[type="number"] {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1em;
+}
+
+.param-value {
+  font-weight: bold;
+  color: #2196F3;
+  margin-left: 5px;
+}
+
+.param-desc {
+  color: #666;
+  font-size: 0.85em;
+}
+
+/* 可折叠区域样式 */
+.collapsible .param-grid {
+  display: none;
+  margin-top: 15px;
+}
+
+.collapsible.expanded .param-grid {
+  display: grid;
+}
+
+/* 系统提示词样式 */
+.system-prompt-container {
+  position: relative;
+}
+
+.prompt-actions {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 10px;
+  justify-content: flex-end;
+}
+
+.btn-small {
+  padding: 5px 10px;
+  font-size: 0.8em;
+  background-color: #f0f2f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.system-prompt-container textarea {
+  width: 100%;
+  min-height: 200px;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+  resize: vertical;
+}
+
+.system-prompt-container textarea:focus {
+  border-color: #2196F3;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.2);
+}
+
+.char-count {
+  text-align: right;
+  margin-top: 5px;
+  color: #666;
+  font-size: 0.85em;
+}
+
+/* 按钮样式 */
+.btn {
+  padding: 10px 15px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: background-color 0.2s;
+}
+
+.btn-primary {
+  background-color: #2196F3;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #0d8aee;
+}
+
+.btn-secondary {
+  background-color: #f0f2f5;
+  color: #333;
+  border: 1px solid #ddd;
+}
+
+.btn-secondary:hover {
+  background-color: #e3e6ea;
+}
+
+/* 加载动画 */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 5px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 1s ease-in-out infinite;
+}
+
+.btn-secondary .spinner {
+  border-top-color: #333;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+</style>
