@@ -61,7 +61,7 @@ except (ValueError, TypeError):
 # Define constant once
 API_PORT = api_port_value
 
-API_TITLE = "DeepAnalyze OpenAI-Compatible API"
+API_TITLE = "DeepAnalyze_CreditWise API"
 API_VERSION = "1.0.0"
 
 # Integrated LLM Manager Backend - using class for better state management
