@@ -27,6 +27,23 @@ openapi.json
 *.db
 llm_manager.db
 
+# Environment variables (sensitive API keys)
+.env
+.env.local
+.env.*
+
+# Logs
+logs/
+*.log
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Workspace (user uploaded files)
+workspace/
+data/workspace/
+
 #other
 **/.claude/
 API/backend/workspace/
