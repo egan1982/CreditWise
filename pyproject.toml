@@ -4,9 +4,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "deepanalyze"
+name = "deepanalyze-creditwise"
 version = "1.0.0"
-description = "Agentic Large Language Models for Autonomous Data Science"
+description = "DeepAnalyze CreditWise - AI-Powered Credit Risk Management Platform"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -84,10 +84,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ruc-datalab/DeepAnalyze"
-Documentation = "https://github.com/ruc-datalab/DeepAnalyze#readme"
-Repository = "https://github.com/ruc-datalab/DeepAnalyze.git"
-"Bug Tracker" = "https://github.com/ruc-datalab/DeepAnalyze/issues"
+Homepage = "https://github.com/ruc-datalab/DeepAnalyze_CreditWise"
+Documentation = "https://github.com/ruc-datalab/DeepAnalyze_CreditWise#readme"
+Repository = "https://github.com/ruc-datalab/DeepAnalyze_CreditWise.git"
+"Bug Tracker" = "https://github.com/ruc-datalab/DeepAnalyze_CreditWise/issues"
 
 [project.scripts]
 deepanalyze = "deepanalyze:main"

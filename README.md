@@ -2,7 +2,9 @@
 <img src="assets/logo.png" alt="DeepAnalyze" style="width: 60%; min-width: 300px; display: block; margin: auto;">
 </p>
 
-# DeepAnalyze: Agentic Large Language Models for Autonomous Data Science
+# DeepAnalyze CreditWise: AI-Powered Credit Risk Management Platform
+
+> 基于 DeepAnalyze 的信贷风控专用版本，专注于规则挖掘、评分卡建模和策略分析
 
 ## 🚀 快速开始（使用外部API）
 
