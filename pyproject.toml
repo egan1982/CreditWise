@@ -1,0 +1,109 @@
+# pyproject.toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deepanalyze"
+version = "1.0.0"
+description = "Agentic Large Language Models for Autonomous Data Science"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Shaolei Zhang", email = "zhangshaolei@ruc.edu.cn"},
+    {name = "Ju Fan", email = "fanj@ruc.edu.cn"},
+]
+keywords = [
+    "llm",
+    "data-science",
+    "agent",
+    "ai",
+    "machine-learning",
+    "autonomous",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "pandas",
+    "pandas-stubs",
+    "scikit-learn",
+    "scikit-learn-stubs",
+    "seaborn",
+    "matplotlib",
+    "openpyxl",
+    "python-docx",
+    "tqdm",
+    "requests",
+    "websockets",
+    "aiohttp",
+    "httpx",
+    "python-multipart",
+    "uvicorn",
+    "fastapi",
+    "openai",
+    "python-dotenv",
+    "scorecardpy==0.1.9.7",
+    "scipy>=1.7.0",
+    "statsmodels",
+    "plotly",
+    "kaleido",
+    "psutil",
+    "requests-toolbelt",
+    "sqlalchemy",
+    "pydantic-settings",
+    "cryptography",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "black",
+    "isort",
+    "flake8",
+    "mypy",
+    "pre-commit",
+]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+]
+
+[project.urls]
+Homepage = "https://github.com/ruc-datalab/DeepAnalyze"
+Documentation = "https://github.com/ruc-datalab/DeepAnalyze#readme"
+Repository = "https://github.com/ruc-datalab/DeepAnalyze.git"
+"Bug Tracker" = "https://github.com/ruc-datalab/DeepAnalyze/issues"
+
+[project.scripts]
+deepanalyze = "deepanalyze:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["deepanalyze", "API", "llm_manager_integrated"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
