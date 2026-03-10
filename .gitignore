@@ -42,7 +42,6 @@ npm-debug.log*
 
 # Workspace (user uploaded files)
 workspace/
-data/workspace/
 
 # Deprecated files (contains test keys and hardcoded paths)
 deprecated_files/
@@ -54,5 +53,5 @@ task_results/
 
 #other
 **/.claude/
-API/backend/workspace/
+
 **/CLAUDE.md
