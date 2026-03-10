@@ -1,6 +1,7 @@
 """
 渠道管理路由
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -15,6 +16,8 @@ from ..dependencies import get_db
 from llm_manager_integrated.core.load_balancer import get_load_balancer, create_channel_from_config
 from llm_manager_integrated.core.config import settings
 # NOTE: invalidate_models_cache 延迟导入以避免循环导入
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -602,9 +605,10 @@ def create_channel(channel: schemas.ChannelCreate, db: Session = Depends(get_db)
             message="渠道创建成功"
         )
     except Exception as e:
+        logger.error(f"创建渠道失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=400,
-            detail=error_response(code=400, message=f"创建渠道失败: {str(e)}")
+            detail=error_response(code=400, message="创建渠道失败")
         )
 
 
@@ -632,9 +636,10 @@ def read_channels(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)
             message="获取渠道列表成功"
         )
     except Exception as e:
+        logger.error(f"获取渠道列表失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取渠道列表失败: {str(e)}")
+            detail=error_response(code=500, message="获取渠道列表失败")
         )
 
 
@@ -656,9 +661,10 @@ def get_active_channels(db: Session = Depends(get_db)):
             message="获取激活渠道成功"
         )
     except Exception as e:
+        logger.error(f"获取激活渠道失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取激活渠道失败: {str(e)}")
+            detail=error_response(code=500, message="获取激活渠道失败")
         )
 
 
@@ -699,9 +705,10 @@ def get_active_configs(db: Session = Depends(get_db)):
             message="获取激活配置成功"
         )
     except Exception as e:
+        logger.error(f"获取激活配置失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取激活配置失败: {str(e)}")
+            detail=error_response(code=500, message="获取激活配置失败")
         )
 
 
@@ -980,9 +987,10 @@ async def test_model_response(test_data: dict, db: Session = Depends(get_db)):
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
+        logger.error(f"测试过程中发生错误: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"测试过程中发生错误: {str(e)}")
+            detail=error_response(code=500, message="测试过程中发生错误")
         )
 
 
@@ -1095,28 +1103,29 @@ async def test_channel(channel_id: int, db: Session = Depends(get_db)):
         
         error_message = str(e)
         error_code = "UNKNOWN_ERROR"
+        display_message = "未知错误"
         
         if "401" in error_message or "unauthorized" in error_message.lower():
             error_code = "UNAUTHORIZED"
-            error_message = "API密钥无效或已过期"
+            display_message = "API密钥无效或已过期"
         elif "403" in error_message or "forbidden" in error_message.lower():
             error_code = "FORBIDDEN"
-            error_message = "API密钥权限不足"
+            display_message = "API密钥权限不足"
         elif "404" in error_message or "not found" in error_message.lower():
             error_code = "INVALID_ENDPOINT"
-            error_message = "API端点无效，请检查Base URL"
+            display_message = "API端点无效，请检查Base URL"
         elif "timeout" in error_message.lower():
             error_code = "TIMEOUT_ERROR"
-            error_message = "请求超时，请检查网络连接"
+            display_message = "请求超时，请检查网络连接"
         elif "connection" in error_message.lower() or "network" in error_message.lower():
             error_code = "CONNECTION_ERROR"
-            error_message = "网络连接失败，请检查Base URL是否正确"
+            display_message = "网络连接失败，请检查Base URL是否正确"
         
         raise HTTPException(
             status_code=400,
             detail={
                 "code": 400,
-                "message": error_message,
+                "message": display_message,
                 "data": {
                     "error_code": error_code,
                     "response_code": 400
@@ -1202,9 +1211,10 @@ def get_model_config(channel_id: int, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"获取模型配置失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取模型配置失败: {str(e)}")
+            detail=error_response(code=500, message="获取模型配置失败")
         )
 
 
@@ -1305,9 +1315,10 @@ def create_or_update_model_config(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"保存模型配置失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"保存模型配置失败: {str(e)}")
+            detail=error_response(code=500, message="保存模型配置失败")
         )
 
 
@@ -1337,9 +1348,10 @@ def delete_model_config(channel_id: int, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"删除模型配置失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"删除模型配置失败: {str(e)}")
+            detail=error_response(code=500, message="删除模型配置失败")
         )
 
 
@@ -1363,9 +1375,10 @@ def get_model_capabilities_api(model_name: str):
             message="获取模型能力配置成功"
         )
     except Exception as e:
+        logger.error(f"获取模型能力配置失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取模型能力配置失败: {str(e)}")
+            detail=error_response(code=500, message="获取模型能力配置失败")
         )
 
 
@@ -1391,9 +1404,10 @@ def list_model_capabilities():
             message="获取模型能力配置列表成功"
         )
     except Exception as e:
+        logger.error(f"获取模型能力配置列表失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取模型能力配置列表失败: {str(e)}")
+            detail=error_response(code=500, message="获取模型能力配置列表失败")
         )
 
 
@@ -1406,9 +1420,10 @@ def get_default_param_limits():
             message="获取默认参数范围配置成功"
         )
     except Exception as e:
+        logger.error(f"获取默认参数范围配置失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取默认参数范围配置失败: {str(e)}")
+            detail=error_response(code=500, message="获取默认参数范围配置失败")
         )
 
 
@@ -1544,7 +1559,7 @@ async def test_channel_via_proxy(channel_id: int, db: Session = Depends(get_db))
             status_code=500,
             detail={
                 "code": 500,
-                "message": f"代理测试异常: {str(e)}",
+                "message": "代理测试异常",
                 "data": {
                     "error_code": "PROXY_TEST_EXCEPTION",
                     "response_code": 500

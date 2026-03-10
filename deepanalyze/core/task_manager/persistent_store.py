@@ -99,7 +99,6 @@ class PersistentExecutionStore:
                 data_file_path=data_file_path,
             )
             session.add(state)
-            session.commit()
             
             logger.info(f"Created ExecutionState: {execution_id}")
             return execution_id
@@ -173,7 +172,6 @@ class PersistentExecutionStore:
                 state.state_file_path = state_file_path
             
             state.updated_at = datetime.now()
-            session.commit()
             
             logger.debug(f"Updated ExecutionState: {execution_id}, status={status}")
             return True
@@ -200,8 +198,6 @@ class PersistentExecutionStore:
             result = session.query(ExecutionState).filter_by(
                 execution_id=execution_id
             ).delete()
-            
-            session.commit()
             
             # 清理文件
             cls._cleanup_state_files(execution_id)
@@ -315,8 +311,6 @@ class PersistentExecutionStore:
                 )
                 session.add(checkpoint)
             
-            session.commit()
-            
             logger.info(f"Saved checkpoint: {execution_id}/{stage_id}")
             return f"{execution_id}_{stage_id}"
     
@@ -382,29 +376,29 @@ class PersistentExecutionStore:
         Returns:
             输出字典，不存在返回 None
         """
-        logger.warning(f"[RETRY-DEBUG] ========== Loading checkpoint outputs for {stage_id} ==========")
+        logger.debug(f"Loading checkpoint outputs for {stage_id}")
         checkpoint = cls.get_checkpoint(execution_id, stage_id)
         if not checkpoint:
-            logger.warning(f"[RETRY-DEBUG] No checkpoint found for {stage_id}")
+            logger.debug(f"No checkpoint found for {stage_id}")
             return None
         
         outputs_file_path = checkpoint.get("outputs_file_path")
-        logger.warning(f"[RETRY-DEBUG] outputs_file_path: {outputs_file_path}")
+        logger.debug(f"outputs_file_path: {outputs_file_path}")
         if not outputs_file_path or not os.path.exists(outputs_file_path):
-            logger.warning(f"[RETRY-DEBUG] outputs_file_path not exists or empty")
+            logger.debug(f"outputs_file_path not exists or empty")
             return None
         
         outputs = cls._load_outputs_from_file(outputs_file_path)
         if outputs:
-            logger.warning(f"[RETRY-DEBUG] Loaded outputs keys: {list(outputs.keys())}")
+            logger.debug(f"Loaded outputs keys: {list(outputs.keys())}")
             if "df_processed" in outputs:
                 df_val = outputs.get("df_processed")
-                logger.warning(f"[RETRY-DEBUG] df_processed is None: {df_val is None}, type: {type(df_val)}")
+                logger.debug(f"df_processed is None: {df_val is None}, type: {type(df_val)}")
                 if df_val is not None and hasattr(df_val, 'shape'):
-                    logger.warning(f"[RETRY-DEBUG] df_processed shape: {df_val.shape}")
+                    logger.debug(f"df_processed shape: {df_val.shape}")
         else:
-            logger.warning(f"[RETRY-DEBUG] Failed to load outputs from file")
-        logger.warning(f"[RETRY-DEBUG] ========== End loading checkpoint for {stage_id} ==========")
+            logger.debug(f"Failed to load outputs from file")
+        logger.debug(f"End loading checkpoint for {stage_id}")
         return outputs
     
     @classmethod
@@ -449,8 +443,6 @@ class PersistentExecutionStore:
             checkpoint.outputs_file_path = None
             checkpoint.started_at = None
             checkpoint.completed_at = None
-            
-            session.commit()
             
             logger.info(f"Reset checkpoint: {execution_id}/{stage_id}")
             return True
@@ -520,8 +512,6 @@ class PersistentExecutionStore:
             
             if ai_analysis_count > 0:
                 logger.info(f"Invalidated {ai_analysis_count} AI analysis results from {execution_id}/{stage_id}")
-            
-            session.commit()
             
             logger.info(f"Invalidated {count} checkpoints from {execution_id}/{stage_id}")
             return count
@@ -814,8 +804,6 @@ class PersistentExecutionStore:
                     logger.warning(
                         f"[PersistentStore] Paused but no state file: {state.execution_id}"
                     )
-            
-            session.commit()
         
         logger.info(f"[PersistentStore] Restored {restored_count} recoverable executions")
         return restored_count
@@ -866,8 +854,6 @@ class PersistentExecutionStore:
                 
                 cleaned_count += 1
                 logger.debug(f"[PersistentStore] Cleaned up: {execution_id}")
-            
-            session.commit()
         
         if cleaned_count > 0:
             logger.info(f"[PersistentStore] Cleaned up {cleaned_count} expired executions")

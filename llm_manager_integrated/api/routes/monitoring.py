@@ -58,7 +58,7 @@ async def get_stats(
             status_code=500,
             detail=error_response(
                 code=500,
-                message=f"获取统计数据失败: {str(e)}"
+                message="获取统计数据失败"
             )
         )
 
@@ -87,7 +87,7 @@ async def get_health(
             status_code=500,
             detail=error_response(
                 code=500,
-                message=f"获取健康状态失败: {str(e)}"
+                message="获取健康状态失败"
             )
         )
 
@@ -282,7 +282,8 @@ async def perform_channel_health_check(
     
     except Exception as e:
         is_healthy = False
-        message = f"健康检查异常: {str(e)}"
+        message = "健康检查异常"
+        logger.error(f"健康检查异常: {str(e)}", exc_info=True)
         response_time = 0.0
     
     return success_response(

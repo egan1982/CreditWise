@@ -1,6 +1,11 @@
 """
-Admin API for DeepAnalyze API Server
+[ARCHIVED] Admin API for DeepAnalyze API Server
 Handles administrative endpoints like thread cleanup and statistics
+
+NOTE: This router is NOT registered in create_app() and has no effect at runtime.
+      Thread cleanup and statistics endpoints (/v1/admin/*) were never deployed.
+      See docs/routing_architecture_guide.md for the authoritative route map.
+      Retained for reference only — do not import or register without review.
 """
 
 import time

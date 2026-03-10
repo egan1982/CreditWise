@@ -11,22 +11,22 @@ LLM API Manager - 大模型 API 管理和代理系统
 使用方式：
 
 # 1. 后端API集成
-from llm_api_manager.api import create_pure_api_app, mount_to_fastapi
+from llm_manager_integrated.api import create_pure_api_app, mount_to_fastapi
 app = FastAPI()
 llm_app = mount_to_fastapi(app, prefix="/api/llm-manager")
 
 # 2. React组件集成
-import { ChannelManager } from 'llm_api_manager/react-components'
+import { ChannelManager } from 'llm_manager_integrated/react-components'
 <ChannelManager apiEndpoint="/api/llm-manager/channels" />
 
 # 3. 使用集成适配器
-from llm_api_manager.integration.fastapi import integrate_llm_manager
+from llm_manager_integrated.integration.fastapi import integrate_llm_manager
 app = FastAPI()
 integrate_llm_manager(app)
 
 # 4. 编程接口使用
-from llm_api_manager.models.database import DatabaseManager
-from llm_api_manager.core import crud
+from llm_manager_integrated.models.database import DatabaseManager
+from llm_manager_integrated.core import crud
 db_manager = DatabaseManager("sqlite:///./my_db.db")
 db = db_manager.get_session()
 """

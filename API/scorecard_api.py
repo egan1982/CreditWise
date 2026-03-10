@@ -1,8 +1,14 @@
 """
-Scorecard API - WOE/IV Analysis Endpoints
+[ARCHIVED] Scorecard API - WOE/IV Analysis Endpoints
 
 Provides RESTful API endpoints for scorecard analysis, WOE calculation, 
 and feature importance evaluation.
+
+NOTE: This router is NOT registered in create_app() and has no effect at runtime.
+      Scorecard analysis is served via the SOP task pipeline (/sop/*).
+      The standalone /v1/scorecard/* endpoints here were never deployed.
+      See docs/routing_architecture_guide.md for the authoritative route map.
+      Retained for reference only — do not import or register without review.
 """
 
 import json
@@ -123,8 +129,8 @@ async def calculate_woe(request: WOECalculationRequest):
         }
         
     except Exception as e:
-        logger.error(f"WOE calculation error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"WOE calculation error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="WOE calculation failed")
 
 
 @router.post("/iv")
@@ -157,8 +163,8 @@ async def analyze_iv(request: IVAnalysisRequest):
         }
         
     except Exception as e:
-        logger.error(f"IV analysis error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"IV analysis error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="IV analysis failed")
 
 
 @router.post("/feature-selection")
@@ -190,8 +196,8 @@ async def select_features(request: FeatureSelectionRequest):
         }
         
     except Exception as e:
-        logger.error(f"Feature selection error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Feature selection error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Feature selection failed")
 
 
 @router.post("/binning")
@@ -223,8 +229,8 @@ async def bin_feature(request: FeatureBinningRequest):
         }
         
     except Exception as e:
-        logger.error(f"Feature binning error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Feature binning error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Feature binning failed")
 
 
 @router.post("/custom-binning")
@@ -255,8 +261,8 @@ async def custom_bin_feature(request: CustomBinningRequest):
         }
         
     except Exception as e:
-        logger.error(f"Custom binning error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Custom binning error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Custom binning failed")
 
 
 @router.post("/scorecard")
@@ -315,8 +321,8 @@ async def build_scorecard(request: ScorecardRequest):
         }
         
     except Exception as e:
-        logger.error(f"Scorecard building error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Scorecard building error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Scorecard building failed")
 
 
 @router.get("/health")

@@ -20,10 +20,50 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 from functools import partial
 
-from config import WORKSPACE_BASE_DIR, HTTP_SERVER_PORT
+from config import WORKSPACE_BASE_DIR, HTTP_SERVER_PORT, HTTP_SERVER_BASE
 
-# HTTP文件服务器基础地址（继承原始项目设计）
-HTTP_SERVER_BASE = f"http://localhost:{HTTP_SERVER_PORT}"
+# session_id / thread_id 合法字符正则（字母数字、下划线、连字符）
+_SAFE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+# P1-D1: 文件上传大小限制（默认 500MB，可通过环境变量覆盖）
+MAX_UPLOAD_SIZE_MB = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "500"))
+MAX_UPLOAD_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
+def check_upload_size(content: bytes, filename: str = "file") -> None:
+    """检查上传文件大小是否超限，超限则抛出 HTTPException(413)"""
+    if len(content) > MAX_UPLOAD_SIZE:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {len(content) / (1024*1024):.1f}MB exceeds limit of {MAX_UPLOAD_SIZE_MB}MB"
+        )
+
+
+def validate_session_id(session_id: str, param_name: str = "session_id") -> str:
+    """校验 session_id/thread_id 格式，防止路径遍历注入。
+    
+    在 API 入口层调用，不修改底层 get_session_workspace/get_thread_workspace，
+    以保证历史数据兼容和内部调用（恢复、GC 等）不受影响。
+    
+    Args:
+        session_id: 待校验的会话 ID
+        param_name: 参数名称，用于错误信息
+        
+    Returns:
+        校验通过的 session_id（空值返回 "default"）
+        
+    Raises:
+        ValueError: session_id 包含非法字符
+    """
+    if not session_id:
+        return "default"
+    if not _SAFE_ID_PATTERN.match(session_id):
+        raise ValueError(
+            f"Invalid {param_name}: only alphanumeric characters, "
+            f"hyphens and underscores are allowed"
+        )
+    return session_id
 
 
 def get_thread_workspace(thread_id: str) -> str:

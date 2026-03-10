@@ -2,7 +2,7 @@ param(
     [switch]$Force
 )
 
-$projectRoot = "C:\Users\fjzheng\portable-dev-env\workspace\DeepAnalyze"
+$projectRoot = $PSScriptRoot
 $pidFile = Join-Path $projectRoot ".app_pids.txt"
 
 Write-Host "============================================================" -ForegroundColor Cyan

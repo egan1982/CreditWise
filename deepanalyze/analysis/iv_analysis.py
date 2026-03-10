@@ -10,7 +10,8 @@ from typing import Dict, List, Any, Optional, Union
 from .woe import WOECalculator
 import warnings
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 
 class IVAnalyzer:

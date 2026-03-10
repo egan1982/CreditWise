@@ -1,6 +1,12 @@
 """
-Export Report API for DeepAnalyze API Server
+[ARCHIVED] Export Report API for DeepAnalyze API Server
 Handles report export endpoints for the frontend
+
+NOTE: This router is NOT registered in create_app() and has no effect at runtime.
+      Basic report export is served by an inline route in API/main.py (/export/report).
+      The generic multi-format export (/v1/export/generic-report) here was never deployed.
+      See docs/routing_architecture_guide.md for the authoritative route map.
+      Retained for reference only — do not import or register without review.
 """
 
 import os
@@ -73,9 +79,11 @@ async def export_report(request: ExportRequest):
         )
         
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to generate report: {e}", exc_info=True)
         return ExportResponse(
             success=False,
-            error=f"Failed to generate report: {str(e)}"
+            error="Failed to generate report"
         )
 
 
@@ -134,10 +142,12 @@ async def export_generic_report(request: GenericReportRequest):
             
     except Exception as e:
         import traceback
+        import logging
+        logging.getLogger(__name__).error(f"生成报告失败: {str(e)}\n{traceback.format_exc()}")
         return GenericReportResponse(
             success=False,
             format=request.format,
-            error=f"生成报告失败: {str(e)}\n{traceback.format_exc()}"
+            error="生成报告失败，请稍后重试"
         )
 
 

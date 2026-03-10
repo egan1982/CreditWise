@@ -39,7 +39,8 @@ from deepanalyze.analysis.task_SOP.code_templates import format_code_template  #
 # Import validators from unified validators module
 from deepanalyze.analysis.task_SOP.validators import RuleValidator  # type: ignore[reportImplicitRelativeImport, reportAssignmentType]
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # Type alias for progress callback
 # Internal progress callback: (current, total)

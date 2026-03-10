@@ -141,7 +141,7 @@ def create_app() -> FastAPI:
         logger.error(f"Unhandled exception: {exc}", exc_info=True)
         return JSONResponse(
             status_code=500,
-            content={"detail": f"Internal server error: {str(exc)}"},
+            content={"detail": "Internal server error"},
             headers={
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "*",
@@ -207,7 +207,12 @@ def create_app() -> FastAPI:
     async def get_workspace_files_endpoint(session_id: str = "default"):
         """获取工作区文件列表（继承原始项目设计）"""
         from pathlib import Path
-        from utils import get_session_workspace, build_download_url, get_file_icon
+        from utils import get_session_workspace, build_download_url, get_file_icon, validate_session_id
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         # 使用统一的工作区获取函数
         workspace_dir = get_session_workspace(session_id)
@@ -254,10 +259,20 @@ def create_app() -> FastAPI:
         """删除工作区文件（继承原始项目设计）"""
         from pathlib import Path
         from fastapi import HTTPException
-        from utils import get_session_workspace
+        from utils import get_session_workspace, validate_session_id
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         workspace_dir = get_session_workspace(session_id)
-        target = Path(workspace_dir) / path
+        abs_workspace = Path(workspace_dir).resolve()
+        target = (abs_workspace / path).resolve()
+        
+        # 路径遍历防护
+        if abs_workspace not in target.parents and target != abs_workspace:
+            raise HTTPException(status_code=400, detail="Invalid path")
         
         if not target.exists():
             raise HTTPException(status_code=404, detail="File not found")
@@ -270,7 +285,8 @@ def create_app() -> FastAPI:
                 target.unlink()
             return {"message": "deleted successfully"}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"Failed to delete file: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to delete file")
     
     @app.get("/download/{file_path:path}")
     async def download_file(file_path: str):
@@ -282,8 +298,12 @@ def create_app() -> FastAPI:
         from config import WORKSPACE_BASE_DIR
         
         # 文件路径格式: session_id/[generated/]filename
-        workspace_dir = Path(WORKSPACE_BASE_DIR)
-        target = workspace_dir / file_path
+        workspace_dir = Path(WORKSPACE_BASE_DIR).resolve()
+        target = (workspace_dir / file_path).resolve()
+        
+        # 路径遍历防护
+        if workspace_dir not in target.parents and target != workspace_dir:
+            raise HTTPException(status_code=400, detail="Invalid path")
         
         if not target.exists() or not target.is_file():
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
@@ -323,20 +343,36 @@ def create_app() -> FastAPI:
     ):
         """上传文件到工作区（继承原始项目设计）"""
         from pathlib import Path
-        from utils import get_session_workspace
+        from utils import get_session_workspace, validate_session_id, check_upload_size
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         workspace_dir = get_session_workspace(session_id)
-        target_dir = Path(workspace_dir) / dir if dir else Path(workspace_dir)
+        abs_workspace = Path(workspace_dir).resolve()
+        target_dir = (abs_workspace / dir).resolve() if dir else abs_workspace
+        
+        # 路径遍历防护
+        if abs_workspace not in target_dir.parents and target_dir != abs_workspace:
+            raise HTTPException(status_code=400, detail="Invalid dir path")
+        
         target_dir.mkdir(parents=True, exist_ok=True)
         
         results = []
         for file in files:
-            file_path = target_dir / file.filename
+            # 文件名消毒：仅取 basename，防止路径遍历（P0-1 补修）
+            safe_name = Path(file.filename).name if file.filename else "unnamed"
+            file_path = target_dir / safe_name
             try:
                 content = await file.read()
+                check_upload_size(content, safe_name)  # P1-D1: 文件大小限制
                 with open(file_path, "wb") as f:
                     f.write(content)
-                results.append({"name": file.filename, "status": "success"})
+                results.append({"name": safe_name, "status": "success"})
+            except HTTPException:
+                raise
             except Exception as e:
                 results.append({"name": file.filename, "status": "error", "error": str(e)})
         
@@ -347,7 +383,12 @@ def create_app() -> FastAPI:
         """清空工作区（继承原始项目设计）"""
         from pathlib import Path
         import shutil
-        from utils import get_session_workspace
+        from utils import get_session_workspace, validate_session_id
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         workspace_dir = Path(get_session_workspace(session_id))
         if workspace_dir.exists():
@@ -370,11 +411,20 @@ def create_app() -> FastAPI:
         """导出报告（继承原始项目设计）"""
         from pathlib import Path
         from datetime import datetime
-        from utils import get_session_workspace, build_download_url
+        import re
+        from utils import get_session_workspace, build_download_url, validate_session_id
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         workspace_dir = get_session_workspace(session_id)
         generated_dir = Path(workspace_dir) / "generated"
         generated_dir.mkdir(parents=True, exist_ok=True)
+        
+        # P1-D13: 文件名消毒 — 仅保留中英文、数字、下划线、连字符、点，限100字符
+        safe_title = re.sub(r'[^\w\u4e00-\u9fff\-.]', '_', title)[:100] or "Report"
         
         # 生成Markdown内容
         md_content = f"# {title}\n\n"
@@ -386,8 +436,12 @@ def create_app() -> FastAPI:
         
         # 保存Markdown文件
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_name = f"{title.replace(' ', '_')}_{timestamp}.md"
+        file_name = f"{safe_title}_{timestamp}.md"
         file_path = generated_dir / file_name
+        
+        # 额外保险：确保文件路径在 generated_dir 内
+        if generated_dir.resolve() not in file_path.resolve().parents:
+            raise HTTPException(status_code=400, detail="Invalid title")
         
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(md_content)
@@ -402,7 +456,12 @@ def create_app() -> FastAPI:
     async def workspace_tree_endpoint(session_id: str = "default"):
         """获取工作区文件树结构（继承原始项目设计）"""
         from pathlib import Path
-        from utils import get_session_workspace, build_download_url, get_file_icon
+        from utils import get_session_workspace, build_download_url, get_file_icon, validate_session_id
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         # 构建树结构的函数（继承原始项目排序逻辑）
         def _rel_path(path: Path, root: Path) -> str:
@@ -469,10 +528,20 @@ def create_app() -> FastAPI:
         from pathlib import Path
         from fastapi import HTTPException
         import pandas as pd
-        from utils import get_session_workspace
+        from utils import get_session_workspace, validate_session_id
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         workspace_dir = Path(get_session_workspace(session_id))
-        full_path = workspace_dir / file_path
+        abs_workspace = workspace_dir.resolve()
+        full_path = (workspace_dir / file_path).resolve()
+        
+        # 路径遍历防护（P1-D3 修复）
+        if abs_workspace not in full_path.parents and full_path != abs_workspace:
+            raise HTTPException(status_code=400, detail="Invalid file path")
         
         if not full_path.exists():
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
@@ -502,8 +571,8 @@ def create_app() -> FastAPI:
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Failed to read data columns: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to read file: {str(e)}")
+            logger.error(f"Failed to read data columns: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to read data columns")
     
     # ========== 继承原始项目的文件管理路由 ==========
     
@@ -515,7 +584,12 @@ def create_app() -> FastAPI:
     ):
         """在同一 workspace 内移动（或重命名）文件/目录（继承原始项目设计）"""
         from fastapi import HTTPException
-        from utils import get_session_workspace, uniquify_path
+        from utils import get_session_workspace, uniquify_path, validate_session_id
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         workspace_dir = Path(get_session_workspace(session_id))
         abs_workspace = workspace_dir.resolve()
@@ -540,7 +614,8 @@ def create_app() -> FastAPI:
             rel_new = str(target.relative_to(abs_workspace))
             return {"message": "moved", "new_path": rel_new}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Move failed: {e}")
+            logger.error(f"Move failed: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Move failed")
     
     @app.delete("/workspace/dir")
     async def delete_workspace_dir(
@@ -550,7 +625,12 @@ def create_app() -> FastAPI:
     ):
         """删除 workspace 下的目录（继承原始项目设计）"""
         from fastapi import HTTPException
-        from utils import get_session_workspace
+        from utils import get_session_workspace, validate_session_id
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         workspace_dir = Path(get_session_workspace(session_id))
         abs_workspace = workspace_dir.resolve()
@@ -572,7 +652,8 @@ def create_app() -> FastAPI:
                 target.rmdir()
             return {"message": "deleted"}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            logger.error(f"Failed to delete directory: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to delete directory")
     
     @app.post("/workspace/upload-to")
     async def upload_to_dir(
@@ -582,7 +663,12 @@ def create_app() -> FastAPI:
     ):
         """上传文件到 workspace 下的指定子目录（继承原始项目设计）"""
         from fastapi import HTTPException
-        from utils import get_session_workspace, uniquify_path
+        from utils import get_session_workspace, uniquify_path, validate_session_id, check_upload_size
+        
+        try:
+            session_id = validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         workspace_dir = Path(get_session_workspace(session_id))
         abs_workspace = workspace_dir.resolve()
@@ -594,12 +680,15 @@ def create_app() -> FastAPI:
         
         saved = []
         for f in files:
-            dst = target_dir / f.filename
+            # 文件名消毒：仅取 basename，防止路径遍历（P0-1 补修）
+            safe_name = Path(f.filename).name if f.filename else "unnamed"
+            dst = target_dir / safe_name
             # 使用统一的唯一化路径函数
             dst = uniquify_path(dst)
             
             try:
                 content = await f.read()
+                check_upload_size(content, safe_name)  # P1-D1: 文件大小限制
                 with open(dst, "wb") as buffer:
                     buffer.write(content)
                 saved.append({
@@ -608,17 +697,35 @@ def create_app() -> FastAPI:
                     "path": str(dst.relative_to(abs_workspace)),
                 })
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Save failed: {e}")
+                logger.error(f"Save failed: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail="Save failed")
         
         return {"message": f"uploaded {len(saved)}", "files": saved}
     
     @app.get("/proxy")
     async def proxy(url: str):
-        """Simple CORS proxy for previewing external files"""
+        """CORS proxy for previewing local server files (SSRF-protected)"""
         from fastapi import HTTPException
         from fastapi.responses import Response
+        from urllib.parse import urlparse
         import httpx
-        
+
+        # SSRF防护：仅允许访问本机服务的URL
+        allowed_hosts = {"localhost", "127.0.0.1", "0.0.0.0"}
+        try:
+            parsed = urlparse(url)
+            if not parsed.scheme or not parsed.hostname:
+                raise HTTPException(status_code=400, detail="Invalid URL")
+            if parsed.hostname not in allowed_hosts:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Proxy only allows local URLs (localhost/127.0.0.1), got: {parsed.hostname}",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid URL format")
+
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
                 r = await client.get(url)
@@ -628,8 +735,11 @@ def create_app() -> FastAPI:
                 headers={"Access-Control-Allow-Origin": "*"},
                 status_code=r.status_code,
             )
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Proxy fetch failed: {e}")
+            logger.error(f"Proxy fetch failed: {e}", exc_info=True)
+            raise HTTPException(status_code=502, detail="Proxy fetch failed")
     
     # LLM Manager direct access (without trailing slash) - 开发模式重定向到Vite服务器
     if llm_manager.available and llm_manager.create_app is not None:

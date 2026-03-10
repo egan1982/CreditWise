@@ -151,18 +151,19 @@ class MemoryCacheBackend(CacheBackendInterface):
     async def keys(self, pattern: str = "*") -> List[str]:
         """获取匹配模式的键"""
         async with self._lock:
-            # 简单的模式匹配（支持*通配符）
             import fnmatch
             keys = []
-            pattern_parts = pattern.split("*")
+            expired_keys = []
             
             for key in self._cache:
                 if fnmatch.fnmatch(key, pattern):
-                    # 检查是否过期
                     if not self._cache[key].is_expired():
                         keys.append(key)
                     else:
-                        del self._cache[key]
+                        expired_keys.append(key)
+            
+            for key in expired_keys:
+                del self._cache[key]
             
             return keys
     

@@ -302,7 +302,7 @@ async def list_models(
         logger.error(f"获取模型列表失败: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to list models: {str(e)}"
+            detail="Failed to list models"
         )
 
 
@@ -651,13 +651,9 @@ async def chat_completions(
         
         # 构建详细的错误信息
         error_type = type(e).__name__
-        error_msg = str(e) if str(e) else f"{error_type}: 连接到 {url} 失败"
+        error_msg = f"{error_type}: 网络连接失败"
         
-        # 添加更多上下文信息
-        if hasattr(e, 'request'):
-            error_msg = f"{error_msg} (URL: {e.request.url})"
-        
-        logger.error(f"网络请求错误: {error_type} - {error_msg}")
+        logger.error(f"网络请求错误: {error_type} - {str(e)}")
         
         # 更新负载均衡器指标
         channel.metrics.update_failure()
@@ -666,11 +662,11 @@ async def chat_completions(
         background_tasks.add_task(
             log_request_async,
             db_manager, request_id, channel.id, request.dict(), None,
-            f"网络错误: {error_msg}", response_time, 503
+            f"网络错误: {str(e)}", response_time, 503
         )
         background_tasks.add_task(
             update_channel_metrics_async,
-            db_manager, channel.id, response_time, False, error_msg
+            db_manager, channel.id, response_time, False, str(e)
         )
         
         raise HTTPException(
@@ -688,6 +684,8 @@ async def chat_completions(
         # 更新负载均衡器指标
         channel.metrics.update_failure()
         
+        logger.error(f"内部服务器错误: {str(e)}", exc_info=True)
+        
         # 后台任务：记录日志和更新数据库指标
         background_tasks.add_task(
             log_request_async,
@@ -703,7 +701,7 @@ async def chat_completions(
             status_code=500,
             detail=error_response(
                 code=500,
-                message=f"内部服务器错误: {str(e)}"
+                message="内部服务器错误"
             )
         )
 
@@ -774,7 +772,8 @@ async def _handle_streaming_request(
                     
         except Exception as e:
             # 流式处理中的错误
-            error_data = f"流式处理错误: {str(e)}"
+            error_data = "流式处理错误"
+            logger.error(f"流式处理错误: {str(e)}", exc_info=True)
             
             # 更新负载均衡器指标
             channel.metrics.update_failure()
@@ -1003,7 +1002,8 @@ async def perform_channel_health_check(
         # 健康检查异常
         channel.metrics.update_failure()
         is_healthy = False
-        message = f"健康检查异常: {str(e)}"
+        message = "健康检查异常"
+        logger.error(f"健康检查异常: {str(e)}", exc_info=True)
         response_time = 0.0
     
     # 更新数据库中的渠道状态

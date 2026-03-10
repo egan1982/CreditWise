@@ -1,9 +1,16 @@
 """
-File Management API for DeepAnalyze API Server
+[ARCHIVED] File Management API for DeepAnalyze API Server
 Handles file upload, download, and management endpoints
+
+NOTE: This router is NOT registered in create_app() and has no effect at runtime.
+      Workspace file operations are served by inline routes in API/main.py (/workspace/*).
+      The OpenAI-compatible /v1/files/* endpoints here were never deployed.
+      See docs/routing_architecture_guide.md for the authoritative route map.
+      Retained for reference only — do not import or register without review.
 """
 
 import os
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, Query, Response
@@ -12,7 +19,7 @@ from fastapi.responses import JSONResponse
 from config import VALID_FILE_PURPOSES, FILE_STORAGE_DIR
 from models import FileObject, FileDeleteResponse
 from storage import storage
-from utils import get_thread_workspace
+from utils import get_thread_workspace, validate_session_id, check_upload_size
 
 
 # Create router for file endpoints
@@ -40,6 +47,7 @@ async def create_file(
     try:
         with open(file_path, "wb") as f:
             content = await file.read()
+            check_upload_size(content, file.filename or "file")  # P1-D1: 文件大小限制
             f.write(content)
 
         file_obj = storage.create_file(file.filename, file_path, purpose)
@@ -48,7 +56,9 @@ async def create_file(
         # Clean up file if creation failed
         if os.path.exists(file_path):
             os.remove(file_path)
-        raise HTTPException(status_code=500, detail=str(e))
+        import logging
+        logging.getLogger(__name__).error(f"Failed to create file: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to create file")
 
 
 @router.post("/upload-to")
@@ -59,35 +69,49 @@ async def upload_file_to_workspace(
 ):
     """Upload files to a specific workspace"""
     try:
+        session_id = validate_session_id(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    try:
         # Get workspace directory
         workspace_dir = get_thread_workspace(session_id)
+        abs_workspace = Path(workspace_dir).resolve()
         
-        # Create target directory if specified
+        # Create target directory if specified, with path traversal protection (P1-D2)
         if dir:
-            target_dir = os.path.join(workspace_dir, dir)
+            target_dir = (abs_workspace / dir).resolve()
+            if abs_workspace not in target_dir.parents and target_dir != abs_workspace:
+                raise HTTPException(status_code=400, detail="Invalid dir path")
             os.makedirs(target_dir, exist_ok=True)
         else:
-            target_dir = workspace_dir
+            target_dir = abs_workspace
         
         uploaded_files = []
         
         for file in files:
-            # Save file to workspace
-            file_path = os.path.join(target_dir, file.filename)
+            # Sanitize filename: use only basename to prevent path traversal via filename
+            safe_name = Path(file.filename).name if file.filename else "unnamed"
+            file_path = os.path.join(str(target_dir), safe_name)
             with open(file_path, "wb") as f:
                 content = await file.read()
+                check_upload_size(content, safe_name)  # P1-D1: 文件大小限制
                 f.write(content)
             
             uploaded_files.append({
-                "filename": file.filename,
-                "path": os.path.join(dir, file.filename) if dir else file.filename,
+                "filename": safe_name,
+                "path": os.path.join(dir, safe_name) if dir else safe_name,
                 "size": os.path.getsize(file_path)
             })
         
         return {"files": uploaded_files}
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import logging
+        logging.getLogger(__name__).error(f"Failed to upload file: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to upload file")
 
 
 @router.get("", response_model=dict)

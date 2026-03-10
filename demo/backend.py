@@ -130,6 +130,7 @@ MODEL_PATH = "DeepAnalyze-8B"  # replace to your path to DeepAnalyze-8B
 client = openai.OpenAI(base_url=API_BASE, api_key="dummy")
 
 # Workspace directory
+# NOTE: These values must stay in sync with API/config.py (P1-F3)
 WORKSPACE_BASE_DIR = "workspace"
 HTTP_SERVER_PORT = 8100
 HTTP_SERVER_BASE = (
@@ -157,10 +158,11 @@ def build_download_url(rel_path: str) -> str:
 # FastAPI app
 app = FastAPI()
 
-# Add CORS middleware
+# Add CORS middleware (P1-D6: support CORS_ORIGINS env var)
+cors_origins = os.getenv("CORS_ORIGINS", "*").split(",") if os.getenv("CORS_ORIGINS") else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -460,9 +462,25 @@ async def delete_workspace_dir(
 
 @app.get("/proxy")
 async def proxy(url: str):
-    """Simple CORS proxy for previewing external files.
-    WARNING: For production, add domain allowlist and authentication.
-    """
+    """CORS proxy for previewing local server files (SSRF-protected)."""
+    from urllib.parse import urlparse
+
+    # SSRF防护：仅允许访问本机服务的URL
+    allowed_hosts = {"localhost", "127.0.0.1", "0.0.0.0"}
+    try:
+        parsed = urlparse(url)
+        if not parsed.scheme or not parsed.hostname:
+            raise HTTPException(status_code=400, detail="Invalid URL")
+        if parsed.hostname not in allowed_hosts:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Proxy only allows local URLs (localhost/127.0.0.1), got: {parsed.hostname}",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid URL format")
+
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
             r = await client.get(url)
@@ -472,6 +490,8 @@ async def proxy(url: str):
             headers={"Access-Control-Allow-Origin": "*"},
             status_code=r.status_code,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Proxy fetch failed: {e}")
 

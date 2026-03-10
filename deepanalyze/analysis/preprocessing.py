@@ -17,7 +17,8 @@ import logging
 from typing import Any
 import warnings
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 logger = logging.getLogger(__name__)
 

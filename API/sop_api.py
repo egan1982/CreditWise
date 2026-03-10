@@ -39,6 +39,12 @@ print("[SOP API] FastAPI imports done")
 # Setup logger early to avoid NameError in import blocks
 logger = logging.getLogger(__name__)
 
+# Import session_id validation utility
+try:
+    from utils import validate_session_id as _validate_session_id
+except ImportError:
+    from API.utils import validate_session_id as _validate_session_id
+
 # Import SOP modules
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -494,7 +500,7 @@ async def get_task_definition(task_id: str) -> Dict:
     task_meta = registry.get_task_meta_dict(task_id)
     
     if not task_meta:
-        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+        raise HTTPException(status_code=404, detail="Task not found")
     
     return task_meta
 
@@ -512,6 +518,12 @@ async def preview_data(request: DataPreviewRequest) -> DataPreviewResponse:
     """
     from pathlib import Path
     
+    # P1-D5: 入口层 session_id 校验
+    try:
+        request.session_id = _validate_session_id(request.session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
     # 构建完整的文件路径
     workspace_dir = Path("workspace") / request.session_id
     file_path = workspace_dir / request.file_path
@@ -521,7 +533,7 @@ async def preview_data(request: DataPreviewRequest) -> DataPreviewResponse:
     # Check file exists
     if not file_path.exists():
         logger.error(f"File not found: {file_path}")
-        raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
+        raise HTTPException(status_code=404, detail="File not found")
     
     # 获取文件修改时间用于缓存验证
     file_mtime = file_path.stat().st_mtime
@@ -636,30 +648,49 @@ async def preview_data(request: DataPreviewRequest) -> DataPreviewResponse:
         
     except Exception as e:
         logger.error(f"Failed to preview data: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to preview data")
 
 
 @router.post("/data/analyze")
-async def analyze_data(file_path: str) -> Dict:
+async def analyze_data(
+    file_path: str = Query(..., description="数据文件路径（相对于工作区）"),
+    session_id: str = Query("default")
+) -> Dict:
     """
     分析数据特征，推荐任务类型和参数
     
     Args:
-        file_path: 数据文件路径
+        file_path: 数据文件路径（相对于工作区）
+        session_id: 会话ID
         
     Returns:
         数据分析结果和任务推荐
     """
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+    # P1-D5: 入口层 session_id 校验
+    try:
+        session_id = _validate_session_id(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # P1-D4: 路径限制 — 仅允许访问 workspace 内的文件
+    from pathlib import Path
+    workspace_dir = Path("workspace") / session_id
+    abs_workspace = workspace_dir.resolve()
+    full_path = (workspace_dir / file_path).resolve()
+    
+    if abs_workspace not in full_path.parents and full_path != abs_workspace:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
     
     try:
         # Load data
-        file_str = str(file_path)
+        file_str = str(full_path)
         if file_str.endswith('.csv'):
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(full_path)
         elif file_str.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(file_path)
+            df = pd.read_excel(full_path)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file type")
         
@@ -710,9 +741,11 @@ async def analyze_data(file_path: str) -> Dict:
         analysis["recommendations"] = recommendations
         return analysis
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to analyze data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to analyze data: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to analyze data")
 
 
 @router.post("/execute", response_model=TaskExecuteResponse)
@@ -730,11 +763,17 @@ async def execute_task(
     Returns:
         执行ID和初始状态
     """
+    # P1-D5: 入口层 session_id 校验
+    try:
+        request.session_id = _validate_session_id(request.session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
     # Validate task exists
     registry = get_registry()
     task_def = registry.get_task(request.task_id)
     if not task_def:
-        raise HTTPException(status_code=404, detail=f"Task not found: {request.task_id}")
+        raise HTTPException(status_code=404, detail="Task not found")
     
     # Build full file path (relative to workspace)
     from pathlib import Path
@@ -747,7 +786,7 @@ async def execute_task(
     # Validate file exists
     if not full_file_path.exists():
         logger.error(f"File not found: {full_file_path}")
-        raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
+        raise HTTPException(status_code=404, detail="File not found")
     
     # Create execution context with full path and LLM config
     context = ExecutionStore.create(
@@ -821,7 +860,7 @@ async def get_task_status(execution_id: str) -> TaskStatusResponse:
     status = get_execution_status(execution_id)
     
     if not status:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     return TaskStatusResponse(**status)
 
@@ -956,11 +995,11 @@ async def get_task_results(execution_id: str) -> JSONResponse:
                     logger.error(f"Failed to load result for {record_id}: {e}")
                     raise HTTPException(
                         status_code=500,
-                        detail=f"Failed to load stored result: {str(e)}"
+                        detail="Failed to load stored result"
                     )
     
     if not result:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     # 允许completed和paused状态的任务返回结果
     # paused状态的任务可以返回到目前为止的部分结果
@@ -999,7 +1038,7 @@ async def get_task_results(execution_id: str) -> JSONResponse:
         logger.error(f"Failed to serialize result: {e}, result keys: {result.keys() if result else 'None'}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to serialize response: {str(e)}"
+            detail="Failed to serialize response"
         )
 
 
@@ -1021,7 +1060,7 @@ async def build_sop_prompt(request: BuildPromptRequest) -> Dict[str, str]:
     task_def = registry.get_task(request.task_id)
     
     if not task_def:
-        raise HTTPException(status_code=404, detail=f"Task not found: {request.task_id}")
+        raise HTTPException(status_code=404, detail="Task not found")
     
     # Get prompt template
     prompt_template = task_def.sop_prompt_template
@@ -1047,10 +1086,10 @@ async def build_sop_prompt(request: BuildPromptRequest) -> Dict[str, str]:
         return {"prompt": filled_prompt}
         
     except KeyError as e:
-        raise HTTPException(status_code=400, detail=f"Missing parameter: {e}")
+        raise HTTPException(status_code=400, detail=f"Missing parameter: {e.args[0] if e.args else 'unknown'}")
     except Exception as e:
         logger.error(f"Failed to build prompt: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to build prompt")
 
 
 # =============================================================================
@@ -1071,6 +1110,12 @@ async def extract_params_from_chat(request: LLMExtractRequest) -> LLMExtractResp
     Returns:
         提取的任务类型、参数、置信度等
     """
+    # P1-D5: 入口层 session_id 校验
+    try:
+        request.session_id = _validate_session_id(request.session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
     if not LLM_PIPELINE_ARCH_AVAILABLE:
         raise HTTPException(
             status_code=501, 
@@ -1139,11 +1184,17 @@ async def unified_execute_task(
     Returns:
         执行ID和初始状态
     """
+    # P1-D5: 入口层 session_id 校验
+    try:
+        request.session_id = _validate_session_id(request.session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
     # Validate task exists
     registry = get_registry()
     task_def = registry.get_task(request.task_id)
     if not task_def:
-        raise HTTPException(status_code=404, detail=f"Task not found: {request.task_id}")
+        raise HTTPException(status_code=404, detail="Task not found")
     
     # Build full file path
     from pathlib import Path
@@ -1154,7 +1205,7 @@ async def unified_execute_task(
     
     # Validate file exists
     if not full_file_path.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
+        raise HTTPException(status_code=404, detail="File not found")
     
     # 如果有新架构可用，使用统一路由器
     if LLM_PIPELINE_ARCH_AVAILABLE:
@@ -1254,7 +1305,7 @@ async def get_code_events(execution_id: str) -> List[StageCodeEvent]:
     """
     context = ExecutionStore.get(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     events: List[StageCodeEvent] = []
     
@@ -1353,7 +1404,7 @@ async def cancel_execution(execution_id: str) -> Dict[str, str]:
     if ExecutionStore.delete(execution_id):
         return {"message": f"Execution {execution_id} deleted"}
     else:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
 
 
 @router.get("/executions")
@@ -1369,6 +1420,13 @@ async def list_executions(
     Returns:
         执行记录列表
     """
+    # P1-D5: 入口层 session_id 校验（可选参数，非空时校验）
+    if session_id:
+        try:
+            session_id = _validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    
     if session_id:
         contexts = ExecutionStore.list_by_session(session_id)
     else:
@@ -1425,7 +1483,7 @@ async def get_task_guide_doc(doc_name: str) -> Dict[str, str]:
         return {"content": content, "doc_name": doc_name}
     except Exception as e:
         logger.error(f"Failed to read document {doc_name}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to read document: {e}")
+        raise HTTPException(status_code=500, detail="Failed to read document")
 
 
 # =============================================================================
@@ -1496,7 +1554,7 @@ async def convert_score(request: ScoreConvertRequest) -> ScoreConvertResponse:
         logger.error(f"Score conversion failed: {e}")
         return ScoreConvertResponse(
             success=False,
-            error=str(e)
+            error="Score conversion failed"
         )
 
 
@@ -1757,7 +1815,7 @@ async def export_task_report(request: ReportExportRequest) -> ReportExportRespon
                     try:
                         import json
                         selected_features = json.loads(selected_features.replace("'", '"'))
-                    except:
+                    except (json.JSONDecodeError, ValueError):
                         selected_features = [f.strip() for f in selected_features.split(',') if f.strip()]
                 
                 overfit_warning = outputs.get("overfit_warning", {}).get("data", None)
@@ -1940,7 +1998,7 @@ async def export_task_report(request: ReportExportRequest) -> ReportExportRespon
                     try:
                         import json
                         selected_features = json.loads(selected_features.replace("'", '"'))
-                    except:
+                    except (json.JSONDecodeError, ValueError):
                         selected_features = [f.strip() for f in selected_features.split(',') if f.strip()]
                 
                 word_results = {
@@ -2055,7 +2113,7 @@ async def export_task_report(request: ReportExportRequest) -> ReportExportRespon
                     try:
                         import json
                         selected_features = json.loads(selected_features.replace("'", '"'))
-                    except:
+                    except (json.JSONDecodeError, ValueError):
                         selected_features = [f.strip() for f in selected_features.split(',') if f.strip()]
                 
                 md_results = {
@@ -2182,7 +2240,7 @@ async def export_task_report(request: ReportExportRequest) -> ReportExportRespon
                 try:
                     import json
                     selected_features = json.loads(selected_features.replace("'", '"'))
-                except:
+                except (json.JSONDecodeError, ValueError):
                     selected_features = [f.strip() for f in selected_features.split(',') if f.strip()]
             
             # 过拟合警告
@@ -2341,7 +2399,7 @@ async def export_task_report(request: ReportExportRequest) -> ReportExportRespon
         return ReportExportResponse(
             success=False,
             format=request.format,
-            error=f"Failed to generate report: {str(e)}"
+            error="Failed to generate report"
         )
 
 
@@ -2375,7 +2433,7 @@ async def pause_execution(execution_id: str) -> TaskControlResponse:
     
     context = ExecutionStore.get(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     if context.status.value not in ("running", "pending"):
         raise HTTPException(
@@ -2411,7 +2469,7 @@ async def stop_execution(execution_id: str) -> TaskControlResponse:
     
     context = ExecutionStore.get(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     if context.status.value not in ("running", "pending", "paused"):
         raise HTTPException(
@@ -2622,6 +2680,13 @@ async def list_recoverable_executions(
     
     返回所有暂停中的任务，支持跨后端重启恢复。
     """
+    # P1-D5: 入口层 session_id 校验（可选参数，非空时校验）
+    if session_id:
+        try:
+            session_id = _validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    
     if not TASK_MANAGER_AVAILABLE or ExecutionStateRecovery is None:
         raise HTTPException(status_code=501, detail="Task manager not available")
     
@@ -2647,7 +2712,7 @@ async def list_recoverable_executions(
         return RecoverableExecutionsResponse(executions=items)
     except Exception as e:
         logger.error(f"Failed to list recoverable executions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to list recoverable executions")
 
 
 @router.get("/executions/{execution_id}/checkpoints", response_model=ExecutionCheckpointsResponse)
@@ -2682,7 +2747,7 @@ async def get_execution_checkpoints(execution_id: str) -> ExecutionCheckpointsRe
         )
     except Exception as e:
         logger.error(f"Failed to get checkpoints: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to get checkpoints")
 
 
 @router.get("/executions/{execution_id}/recovery-info")
@@ -2713,7 +2778,7 @@ async def get_recovery_info(execution_id: str) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Failed to get recovery info: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to get recovery info")
 
 
 @router.post("/executions/{execution_id}/recover")
@@ -2787,7 +2852,7 @@ async def recover_execution(execution_id: str) -> Dict[str, Any]:
         raise
     except Exception as e:
         logger.error(f"Failed to recover execution: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to recover execution")
 
 
 @router.post("/executions/{execution_id}/stages/{stage_id}/retry", response_model=StageRetryResponse)
@@ -2960,7 +3025,7 @@ async def retry_stage(
         raise
     except Exception as e:
         logger.error(f"Failed to retry stage: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retry stage")
 
 
 @router.post("/executions/{execution_id}/stages/{stage_id}/reset", response_model=TaskControlResponse)
@@ -3018,7 +3083,7 @@ async def reset_stage(execution_id: str, stage_id: str) -> TaskControlResponse:
         )
     except Exception as e:
         logger.error(f"Failed to reset stage: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to reset stage")
 
 
 # =============================================================================
@@ -3103,6 +3168,13 @@ async def list_task_history(
     
     支持多条件筛选和分页。
     """
+    # P1-D5: 入口层 session_id 校验（可选参数，非空时校验）
+    if session_id:
+        try:
+            session_id = _validate_session_id(session_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
     
@@ -3644,6 +3716,12 @@ async def create_expert_execution(request: ExpertExecutionRequest) -> Dict[str, 
     Returns:
         执行上下文信息
     """
+    # P1-D5: 入口层 session_id 校验
+    try:
+        request.session_id = _validate_session_id(request.session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
     # 重定向到统一的执行API
     logger.warning("Deprecated: /sop/expert/create is deprecated, use /sop/execute with interaction_mode=expert")
     
@@ -3652,7 +3730,7 @@ async def create_expert_execution(request: ExpertExecutionRequest) -> Dict[str, 
     if request.file_path:
         full_file_path = resolve_file_path(request.file_path)
         if not os.path.exists(full_file_path):
-            raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
+            raise HTTPException(status_code=404, detail="File not found")
     
     # 使用统一的执行逻辑
     try:
@@ -3670,10 +3748,11 @@ async def create_expert_execution(request: ExpertExecutionRequest) -> Dict[str, 
         return context.to_dict()
         
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning(f"Expert execution validation error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid parameters for expert execution")
     except Exception as e:
         logger.error(f"Failed to create expert execution: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to create expert execution")
 
 
 @router.get("/expert/{execution_id}")
@@ -3689,7 +3768,7 @@ async def get_expert_execution(execution_id: str) -> Dict[str, Any]:
     """
     context = get_execution_context(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     return context.to_dict()
 
@@ -3712,7 +3791,7 @@ async def execute_expert_stage(
     """
     context = get_execution_context(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     if stage_id not in context.stages:
         raise HTTPException(status_code=404, detail=f"Stage not found: {stage_id}")
@@ -3757,7 +3836,7 @@ async def skip_expert_stage(
     """
     context = get_execution_context(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     if stage_id not in context.stages:
         raise HTTPException(status_code=404, detail=f"Stage not found: {stage_id}")
@@ -3780,7 +3859,8 @@ async def skip_expert_stage(
         }
         
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning(f"Expert stage skip validation error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid operation")
 
 
 @router.post("/expert/{execution_id}/stages/{stage_id}/reset")
@@ -3800,7 +3880,7 @@ async def reset_expert_stage(
     """
     context = get_execution_context(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     if stage_id not in context.stages:
         raise HTTPException(status_code=404, detail=f"Stage not found: {stage_id}")
@@ -3824,7 +3904,8 @@ async def reset_expert_stage(
         }
         
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning(f"Expert stage reset validation error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid operation")
 
 
 @router.put("/expert/{execution_id}/stages/{stage_id}/params")
@@ -3846,7 +3927,7 @@ async def update_expert_stage_params(
     """
     context = get_execution_context(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     if stage_id not in context.stages:
         raise HTTPException(status_code=404, detail=f"Stage not found: {stage_id}")
@@ -3889,7 +3970,7 @@ async def update_expert_stage_code(
     """
     context = get_execution_context(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     if stage_id not in context.stages:
         raise HTTPException(status_code=404, detail=f"Stage not found: {stage_id}")
@@ -3912,7 +3993,8 @@ async def update_expert_stage_code(
         }
         
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning(f"Expert stage code validation error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid operation")
 
 
 @router.get("/expert/{execution_id}/stages/{stage_id}/result")
@@ -3932,7 +4014,7 @@ async def get_expert_stage_result(
     """
     context = get_execution_context(execution_id)
     if not context:
-        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
+        raise HTTPException(status_code=404, detail="Execution not found")
     
     if stage_id not in context.stages:
         raise HTTPException(status_code=404, detail=f"Stage not found: {stage_id}")

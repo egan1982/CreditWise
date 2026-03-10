@@ -24,7 +24,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # Try to import visualization libraries
 _matplotlib_available = False

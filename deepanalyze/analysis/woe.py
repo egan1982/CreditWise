@@ -9,7 +9,8 @@ import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 import warnings
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 
 class WOECalculator:

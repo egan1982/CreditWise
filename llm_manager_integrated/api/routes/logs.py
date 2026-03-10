@@ -1,6 +1,7 @@
 """
 日志管理路由
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -10,6 +11,7 @@ from llm_manager_integrated.core import crud
 from llm_manager_integrated.api.responses import success_response, error_response
 from ..dependencies import get_db
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -32,9 +34,10 @@ def get_logs(
             message="获取日志列表成功"
         )
     except Exception as e:
+        logger.error(f"获取日志失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取日志失败: {str(e)}")
+            detail=error_response(code=500, message="获取日志失败")
         )
 
 
@@ -48,9 +51,10 @@ def get_log_stats(exclude_test_data: bool = False, db: Session = Depends(get_db)
             message="获取统计信息成功"
         )
     except Exception as e:
+        logger.error(f"获取统计失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取统计失败: {str(e)}")
+            detail=error_response(code=500, message="获取统计失败")
         )
 
 
@@ -64,9 +68,10 @@ def delete_old_logs(days: int = 30, db: Session = Depends(get_db)):
             message=f"已删除 {deleted_count} 条日志"
         )
     except Exception as e:
+        logger.error(f"删除日志失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"删除日志失败: {str(e)}")
+            detail=error_response(code=500, message="删除日志失败")
         )
 
 
@@ -80,9 +85,10 @@ def delete_test_logs(db: Session = Depends(get_db)):
             message=f"已删除 {deleted_count} 条测试数据"
         )
     except Exception as e:
+        logger.error(f"删除测试数据失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"删除测试数据失败: {str(e)}")
+            detail=error_response(code=500, message="删除测试数据失败")
         )
 
 
@@ -96,7 +102,8 @@ def get_data_summary_endpoint(db: Session = Depends(get_db)):
             message="获取数据概况成功"
         )
     except Exception as e:
+        logger.error(f"获取数据概况失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=error_response(code=500, message=f"获取数据概况失败: {str(e)}")
+            detail=error_response(code=500, message="获取数据概况失败")
         )

@@ -7,7 +7,7 @@
     [switch]$NoBackend = $false
 )
 
-$projectRoot = "C:\Users\fjzheng\portable-dev-env\workspace\DeepAnalyze"
+$projectRoot = $PSScriptRoot
 $venvPath = Join-Path $projectRoot ".venv"
 $pythonExe = Join-Path $venvPath "Scripts\python.exe"
 $apiMain = Join-Path $projectRoot "API\main.py"
@@ -97,7 +97,11 @@ Write-Host "`n[3] 检查 Python 环境..." -ForegroundColor Yellow
 if (-not (Test-Path $pythonExe)) {
     Write-Host "虚拟环境不存在: $pythonExe" -ForegroundColor Red
     Write-Host "尝试使用便携式 Python..." -ForegroundColor Yellow
-    $pythonExe = "C:\Users\fjzheng\portable-dev-env\tools\python\python.exe"
+    $pythonExe = Join-Path (Split-Path $projectRoot -Parent) "..\tools\python\python.exe"
+    # Resolve to absolute path
+    if (Test-Path $pythonExe) {
+        $pythonExe = (Resolve-Path $pythonExe).Path
+    }
     
     if (-not (Test-Path $pythonExe)) {
         Write-Host "便携式 Python 也不存在，无法启动" -ForegroundColor Red
@@ -195,9 +199,13 @@ if (-not $backendStarted) {
 if (-not $NoFrontend) {
     Write-Host "`n[7] 检查前端环境..." -ForegroundColor Yellow
     
-    # 检查Node.js环境
-    $nodePath = "C:\Users\fjzheng\portable-dev-env\tools\nodejs\node.exe"
-    $npmPath = "C:\Users\fjzheng\portable-dev-env\tools\nodejs\npm.cmd"
+    # 检查Node.js环境（优先项目级，后退到portable-dev-env/tools）
+    $portableToolsDir = Join-Path (Split-Path $projectRoot -Parent) "..\tools"
+    if (Test-Path $portableToolsDir) {
+        $portableToolsDir = (Resolve-Path $portableToolsDir).Path
+    }
+    $nodePath = Join-Path $portableToolsDir "nodejs\node.exe"
+    $npmPath = Join-Path $portableToolsDir "nodejs\npm.cmd"
     
     # 1. 启动三列式前端应用 (3000端口)
     $frontendDir = Join-Path $projectRoot "demo\chat"
@@ -300,7 +308,7 @@ if (-not $NoFrontend) {
             $installProcessInfo.UseShellExecute = $false
             $installProcessInfo.RedirectStandardOutput = $true
             $installProcessInfo.RedirectStandardError = $true
-            $installProcessInfo.EnvironmentVariables["PATH"] = "C:\Users\fjzheng\portable-dev-env\tools\nodejs;" + $installProcessInfo.EnvironmentVariables["PATH"]
+            $installProcessInfo.EnvironmentVariables["PATH"] = (Split-Path $npmPath -Parent) + ";" + $installProcessInfo.EnvironmentVariables["PATH"]
             
             $installProcess = [System.Diagnostics.Process]::Start($installProcessInfo)
             $installProcess.WaitForExit()
@@ -322,7 +330,7 @@ if (-not $NoFrontend) {
         $frontendProcessInfo.WorkingDirectory = $frontendDir
         
         # 设置环境变量
-        $frontendProcessInfo.EnvironmentVariables["PATH"] = "C:\Users\fjzheng\portable-dev-env\tools\nodejs;" + $frontendProcessInfo.EnvironmentVariables["PATH"]
+        $frontendProcessInfo.EnvironmentVariables["PATH"] = (Split-Path $npmPath -Parent) + ";" + $frontendProcessInfo.EnvironmentVariables["PATH"]
         
         $frontendProcess = [System.Diagnostics.Process]::Start($frontendProcessInfo)
         Write-Host "三列式前端应用已启动 (PID: $($frontendProcess.Id))" -ForegroundColor Green
@@ -406,7 +414,7 @@ if (-not $NoFrontend) {
             $viteInstallProcessInfo.UseShellExecute = $false
             $viteInstallProcessInfo.RedirectStandardOutput = $true
             $viteInstallProcessInfo.RedirectStandardError = $true
-            $viteInstallProcessInfo.EnvironmentVariables["PATH"] = "C:\Users\fjzheng\portable-dev-env\tools\nodejs;" + $viteInstallProcessInfo.EnvironmentVariables["PATH"]
+            $viteInstallProcessInfo.EnvironmentVariables["PATH"] = (Split-Path $npmPath -Parent) + ";" + $viteInstallProcessInfo.EnvironmentVariables["PATH"]
             
             $viteInstallProcess = [System.Diagnostics.Process]::Start($viteInstallProcessInfo)
             $viteInstallProcess.WaitForExit()
@@ -428,7 +436,7 @@ if (-not $NoFrontend) {
         $viteProcessInfo.WorkingDirectory = $viteDir
         
         # 设置环境变量
-        $viteProcessInfo.EnvironmentVariables["PATH"] = "C:\Users\fjzheng\portable-dev-env\tools\nodejs;" + $viteProcessInfo.EnvironmentVariables["PATH"]
+        $viteProcessInfo.EnvironmentVariables["PATH"] = (Split-Path $npmPath -Parent) + ";" + $viteProcessInfo.EnvironmentVariables["PATH"]
         
         $viteProcess = [System.Diagnostics.Process]::Start($viteProcessInfo)
         Write-Host "Vite开发服务器已启动 (PID: $($viteProcess.Id))" -ForegroundColor Green

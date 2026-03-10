@@ -40,7 +40,8 @@ from deepanalyze.analysis.task_SOP.code_templates import format_code_template
 # Import validators from unified validators module
 from deepanalyze.analysis.task_SOP.validators import ScorecardValidator
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # Type alias for internal progress callback: (stage, current, total)
 ProgressCallback = Callable[[str, int, int], None] | None

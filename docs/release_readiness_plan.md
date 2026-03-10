@@ -1,8 +1,8 @@
 # DeepAnalyze 项目 Release 就绪可执行计划
 
-> 版本：v1.2  
-> 日期：2025-03-02  
-> 状态：待执行  
+> 版本：v1.8  
+> 日期：2026-03-04  
+> 状态：发布前代码审计修复已全部完成（P0 全部完成，P1 必修全部完成，P1 建议级完成 14/16，P2 已修复 2/8）  
 > 目标：完成第一个 Release (v1.0.0) 发布（含私有化部署配置）
 
 ---
@@ -18,8 +18,10 @@
 7. [Phase 4: 发布执行（Week 2-3）](#phase-4-发布执行week-2-3)
 8. [Phase 5: 发布打包配置（私有化部署）](#phase-5-发布打包配置私有化部署)
 9. [检查清单](#检查清单)
-10. [风险与应对](#风险与应对)
-11. [附录](#附录)
+10. [发布前代码审计报告](#发布前代码审计报告)
+11. [Plan 审查修正记录](#plan-审查修正记录)
+12. [风险与应对](#风险与应对)
+13. [附录](#附录)
 
 ---
 
@@ -34,17 +36,18 @@
 | 目标版本 | v1.0.0 (Git Tag) |
 | 许可证 | MIT |
 | 预计工期 | 2-3 周 |
-| 关键阻塞项 | 未初始化 Git 仓库 |
+| 关键阻塞项 | Git 仓库已初始化，待推送至 GitHub |
 
 ### 核心任务
 
 | 优先级 | 任务 | 状态 | 工期 |
 |--------|------|------|------|
-| P0 | 初始化 Git 仓库 | ❌ 未开始 | 2 小时 |
-| P0 | 创建 Python 包配置 | ❌ 未开始 | 4 小时 |
-| P0 | 统一版本号 | ❌ 未开始 | 1 小时 |
+| P0 | 初始化 Git 仓库 | ✅ 已完成 | 2 小时 |
+| P0 | 创建 Python 包配置 | ✅ 已完成 | 4 小时 |
+| P0 | 统一版本号 | ✅ 已完成 | 1 小时 |
 | P1 | GitHub Actions CI/CD | ❌ 未开始 | 1 天 |
 | P1 | GitHub 模板文件 | ❌ 未开始 | 1 天 |
+| P1 | P1 安全审计修复（生产阻塞项） | ✅ 已完成 | 4-6 天 |
 | P2 | 文档完善 | ⚠️ 部分完成 | 2 天 |
 | P2 | 测试覆盖 | ⚠️ 部分完成 | 2 天 |
 
@@ -101,9 +104,9 @@ Week 3: 发布执行 + 打包配置
 
 | 类别 | 状态 | 影响 | 紧急度 |
 |------|------|------|--------|
-| Git 仓库 | ❌ 不存在 | 无法版本控制 | P0 |
-| setup.py/pyproject.toml | ❌ 不存在 | 无法 pip 安装 | P0 |
-| 版本一致性 | ⚠️ 不一致 | llm_manager: 2.0.0 vs deepanalyze: 1.0.0 | P0 |
+| ~~Git 仓库~~ | ✅ 已初始化（main 分支） | ~~无法版本控制~~ | ~~P0~~ |
+| ~~setup.py/pyproject.toml~~ | ✅ 已创建 | ~~无法 pip 安装~~ | ~~P0~~ |
+| ~~版本一致性~~ | ✅ 已统一为 1.0.0 | ~~llm_manager: 2.0.0 vs deepanalyze: 1.0.0~~ | ~~P0~~ |
 | GitHub Actions | ❌ 不存在 | 无自动化 | P1 |
 | GitHub 模板 | ❌ 不存在 | 贡献体验差 | P1 |
 | SECURITY.md | ❌ 不存在 | 安全合规 | P2 |
@@ -116,13 +119,13 @@ Week 3: 发布执行 + 打包配置
 __version__ = "1.0.0"
 
 # llm_manager_integrated/__version__.py
-__version__ = "2.0.0"  # ⚠️ 不一致
+__version__ = "1.0.0"  # ✅ 已统一
 
 # API/main.py
 API_VERSION = "1.0.0"
 ```
 
-**建议：统一使用 "1.0.0" 作为首个 Release 版本**
+**版本号已统一为 "1.0.0"。**
 
 ---
 
@@ -232,7 +235,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "deepanalyze"
+name = "deepanalyze-creditwise"
 version = "1.0.0"
 description = "Agentic Large Language Models for Autonomous Data Science"
 readme = "README.md"
@@ -255,15 +258,13 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "pandas",
@@ -318,21 +319,21 @@ Repository = "https://github.com/ruc-datalab/DeepAnalyze.git"
 "Bug Tracker" = "https://github.com/ruc-datalab/DeepAnalyze/issues"
 
 [project.scripts]
-deepanalyze = "deepanalyze:main"
+deepanalyze = "API.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["deepanalyze", "API", "llm_manager_integrated"]
 
 [tool.black]
 line-length = 100
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+target-version = ['py310', 'py311', 'py312']
 
 [tool.isort]
 profile = "black"
 line_length = 100
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ```
@@ -346,9 +347,7 @@ warn_unused_configs = true
 from setuptools import setup, find_packages
 
 setup(
-    name="deepanalyze",
-    use_scm_version=True,
-    setup_requires=['setuptools_scm'],
+    name="deepanalyze-creditwise",
     packages=find_packages(),
 )
 ```
@@ -390,9 +389,9 @@ deepanalyze --help
 | 文件 | 当前版本 | 目标版本 | 修改内容 |
 |------|----------|----------|----------|
 | deepanalyze/__init__.py | 1.0.0 | 1.0.0 | ✅ 无需修改 |
-| llm_manager_integrated/__version__.py | 2.0.0 | 1.0.0 | 修改 |
+| llm_manager_integrated/__version__.py | 1.0.0 | 1.0.0 | ✅ 已统一，无需修改 |
 | API/main.py | 1.0.0 | 1.0.0 | ✅ 无需修改 |
-| pyproject.toml | - | 1.0.0 | 新增 |
+| pyproject.toml | 1.0.0 | 1.0.0 | ✅ 已创建 |
 
 #### 修改 llm_manager_integrated/__version__.py
 
@@ -591,7 +590,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v4
@@ -951,7 +950,7 @@ python scripts/bump_version.py 1.0.0
 # 3. 更新 CHANGELOG
 cat >> CHANGELOG.md << 'EOF'
 
-## [1.0.0] - 2025-03-XX
+## [1.0.0] - 2026-03-XX
 
 ### Added
 - First stable release
@@ -1109,7 +1108,7 @@ Thanks to all contributors who made this release possible!
 
 ---
 
-**Full Changelog**: https://github.com/ruc-datalab/DeepAnalyze/compare/v0.0.1...v1.0.0
+**Full Changelog**: https://github.com/ruc-datalab/DeepAnalyze/commits/v1.0.0
 ```
 
 ---
@@ -1176,7 +1175,9 @@ DeepAnalyze (Port 8200)
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  base: '/llm-manager/',
+  // 注意：当前实际配置中 base 使用默认值 '/'
+  // 若需部署到子路径，取消注释下行：
+  // base: '/llm-manager/',
   build: {
     outDir: '../static',
     emptyOutDir: true,
@@ -1196,15 +1197,16 @@ npm run build
 #### 主前端构建（可选）
 
 ```javascript
-// demo/chat/next.config.js
+// demo/chat/next.config.mjs  (注意：实际文件为 .mjs 格式)
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'export',
   distDir: 'dist',
-  assetPrefix: '.',
   images: { unoptimized: true },
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
 }
-module.exports = nextConfig
+export default nextConfig
 ```
 
 构建命令：
@@ -1223,36 +1225,26 @@ npm run build
 **负责人**: 后端开发  
 **依赖**: Task 5.1
 
-当前 `API/main.py` 已正确配置，确认以下代码：
+当前 `API/main.py` 已正确配置，核心流程如下：
 
 ```python
-# API/main.py (已有代码)
+# API/main.py (已有代码 - 简化示意)
 
 # 检测运行模式
 dev_mode = os.getenv("DEV_MODE", "false").lower() == "true"
 
-# 挂载 LLM Manager 子应用
-if llm_manager.available:
-    llm_manager_app = llm_manager.create_app(
-        config={"cors_origins": ["*"]},
-        as_subapp=True,
-        enable_frontend=False,  # 禁用内置前端，使用静态文件
-        prefix=""
-    )
-    app.mount("/llm-manager", llm_manager_app)
+# 通过 llm_manager_integrated.api.app.create_app 创建子应用
+# 挂载 LLM Manager 子应用到 /llm-manager 路径
+app.mount("/llm-manager", llm_manager_app)
 
-# 生产模式挂载静态文件
-if not dev_mode:
-    # LLM Manager 前端
-    app.mount("/llm-manager/static", 
-              StaticFiles(directory="llm_manager_integrated/static"), 
-              name="llm-manager-static")
-    
-    # 主前端
-    app.mount("/", 
-              StaticFiles(directory="demo/chat/dist", html=True), 
-              name="frontend")
+# 注意：
+# - 开发模式下，前端由 Vite（3001端口）和 Next.js dev server 分别提供
+# - 生产模式下，LLM Manager 前端静态文件由 llm_manager_integrated/api/app.py 内部处理
+# - 主前端（demo/chat/dist/）的静态文件分发需要在 API/main.py 中额外配置
+#   目前尚未实现主前端的生产模式静态文件挂载
 ```
+
+> **⚠️ 待处理**：主前端（demo/chat/dist/）在生产模式下的静态文件挂载尚未在 API/main.py 中实现，当前 dist/ 目录内容也并非 `next export` 的纯静态输出（包含 server/、cache/ 等开发构建产物），需重新执行 `npm run build` 生成正确的静态文件。
 
 ---
 
@@ -1274,9 +1266,9 @@ if not dev_mode:
 
 | 平台 | 安装脚本 | 启动脚本 | 更新脚本 |
 |------|---------|---------|---------|
-| **Windows** | `install.ps1` | `start.ps1` | `update.ps1` |
-| **Mac OS** | `install_mac.sh` | `start_mac.sh` | `update_mac.sh` |
-| **Linux** | `install_linux.sh` | `start_linux.sh` | `update_linux.sh` |
+| **Windows** | `install.ps1` ❌ 待创建 | `start.ps1` ✅ 已有 | `update.ps1` ❌ 待创建 |
+| **Mac OS** | `install_mac.sh` ❌ 待创建 | `start_mac.sh` ❌ 待创建 | `update_mac.sh` ❌ 待创建 |
+| **Linux** | `install_linux.sh` ❌ 待创建 | `start_linux.sh` ❌ 待创建 | `update_linux.sh` ❌ 待创建 |
 
 #### 脚本职责划分
 
@@ -1340,17 +1332,12 @@ if ($Force -and (Test-Path $VenvPath)) {
 Write-Host ""
 Write-Host "[1/4] 检查 Python 环境..." -ForegroundColor Green
 $SystemPython = "python"
-if (Test-Path "$ProjectRoot\runtime\python\python.exe") {
-    $SystemPython = "$ProjectRoot\runtime\python\python.exe"
-    Write-Host "✓ 使用嵌入式 Python: $SystemPython" -ForegroundColor Green
-} else {
-    try {
-        $pyVersion = & $SystemPython --version 2>&1
-        Write-Host "✓ 使用系统 Python: $pyVersion" -ForegroundColor Green
-    } catch {
-        Write-Host "❌ 未找到 Python，请安装 Python 3.8+" -ForegroundColor Red
-        exit 1
-    }
+try {
+    $pyVersion = & $SystemPython --version 2>&1
+    Write-Host "✓ 使用系统 Python: $pyVersion" -ForegroundColor Green
+} catch {
+    Write-Host "❌ 未找到 Python，请安装 Python 3.10+" -ForegroundColor Red
+    exit 1
 }
 
 # 创建虚拟环境
@@ -1383,9 +1370,6 @@ if (-not $SkipFrontend) {
     
     # 检查 Node.js
     $NodeExe = "node"
-    if (Test-Path "$ProjectRoot\runtime\nodejs\node.exe") {
-        $NodeExe = "$ProjectRoot\runtime\nodejs\node.exe"
-    }
     
     try {
         $nodeVersion = & $NodeExe --version 2>&1
@@ -1647,7 +1631,7 @@ fi
 echo ""
 echo -e "${GREEN}[1/4] 检查 Python 环境...${NC}"
 if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}❌ 未找到 Python3，请先安装 Python 3.8+${NC}"
+    echo -e "${RED}❌ 未找到 Python3，请先安装 Python 3.10+${NC}"
     exit 1
 fi
 
@@ -1959,8 +1943,8 @@ setup.py
 requirements.txt
 
 # 脚本
-scripts/start.bat
-scripts/start.sh
+scripts/start.ps1
+scripts/bump_version.py
 
 # 文档
 LICENSE
@@ -2085,11 +2069,6 @@ if ($Mode -eq "full") {
     
     $VenvPath = Join-Path $ReleaseDir ".venv"
     $PythonExe = "python"
-    
-    # 查找 Python
-    if (Test-Path "$ProjectRoot\runtime\python\python.exe") {
-        $PythonExe = "$ProjectRoot\runtime\python\python.exe"
-    }
     
     # 创建虚拟环境
     Write-Host "  创建虚拟环境..." -ForegroundColor Gray
@@ -2303,7 +2282,9 @@ Set-Location $ProjectRoot
 
 #### 生产级 Docker 方案
 
-##### 1. 生产 Dockerfile (Dockerfile.prod)
+> **注意**：以下 `Dockerfile.prod` 和 `docker-compose.prod.yml` 均为设计方案，文件尚未创建。
+
+##### 1. 生产 Dockerfile (Dockerfile.prod) — ❌ 待创建
 
 ```dockerfile
 # ============================================
@@ -2363,7 +2344,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 CMD ["python", "-m", "API.main"]
 ```
 
-##### 2. 生产 Docker Compose (docker-compose.prod.yml)
+##### 2. 生产 Docker Compose (docker-compose.prod.yml) — ❌ 待创建
 
 ```yaml
 version: '3.8'
@@ -2395,7 +2376,7 @@ services:
       start_period: 10s
 ```
 
-##### 3. 多阶段构建 Dockerfile (Dockerfile.multi)
+##### 3. 多阶段构建 Dockerfile (Dockerfile.multi) — ❌ 待创建
 
 ```dockerfile
 # ============================================
@@ -2555,9 +2536,9 @@ docker-compose -f docker-compose.prod.yml down
 ### 打包配置 Checklist
 
 #### 前端构建
-- [ ] demo/chat next.config.js 配置 output: 'export'
+- [ ] demo/chat next.config.mjs 配置 output: 'export'
 - [ ] demo/chat npm run build 成功
-- [ ] llm_manager_integrated/frontend vite.config.ts 配置 base
+- [ ] llm_manager_integrated/frontend vite.config.js 配置 base（如部署到子路径）
 - [ ] llm_manager_integrated/frontend npm run build 成功
 - [ ] 静态文件路径正确
 
@@ -2617,6 +2598,600 @@ docker-compose -f docker-compose.prod.yml down
 - [ ] 功能验证
 - [ ] 文档验证
 - [ ] 监控 Issues
+
+---
+
+## 发布前代码审计报告
+
+> 审计日期：2026-03-03  
+> 审计范围：DeepAnalyze 全项目（API/、deepanalyze/、llm_manager_integrated/、demo/）  
+> 审计方式：静态代码分析 + 人工确认
+
+### 审计总览
+
+| 等级 | 总数 | 已修复 | 降级/误报 | 待处理 |
+|------|------|--------|-----------|--------|
+| P0（阻断级） | 9 | 5 | 4 | 0 |
+| P1（高优先级） | 41 | 22 | 0 | 19（私有化跳过/架构重构暂缓） |
+
+### P0 问题清单
+
+#### P0-1: 路径遍历漏洞 — 文件上传/下载未校验路径
+
+- **位置**: `API/main.py` 文件管理相关路由
+- **成因**: 文件操作接口未对用户传入的文件路径做 `..` 遍历校验，攻击者可构造路径读写工作区之外的文件
+- **修复**: 添加路径规范化校验（`resolve()` + `parents`），确保所有文件操作路径在 `WORKSPACE_BASE_DIR` 范围内
+- **补修 (2026-03-03)**: 全面排查发现 `/workspace/upload` 和 `/workspace/upload-to` 两个端点虽对 `dir` 参数做了路径遍历校验，但 `file.filename` 未消毒，攻击者可通过恶意文件名（如 `../../etc/crontab`）绕过目录级校验。已添加 `Path(filename).name` 文件名消毒，与 `file_api.py` 的同功能端点保持一致。
+- **状态**: ✅ **已修复（含补修）**
+
+#### P0-2: 硬编码密钥/Token
+
+- **位置**: `API/main.py`、`llm_manager_integrated/core/config.py`
+- **成因**: 代码中存在硬编码的默认密钥和Token
+- **修复**: 将敏感信息移至环境变量，代码中仅保留占位符
+- **状态**: ✅ **已修复**
+
+#### P0-3: CORS 配置过于宽松
+
+- **位置**: `API/main.py` CORS 中间件配置
+- **成因**: `allow_origins=["*"]` 允许任意域名跨域访问
+- **修复**: 通过环境变量 `CORS_ORIGINS` 配置允许的域名列表，开发模式保留 `*`，生产模式严格限制
+- **状态**: ✅ **已修复**
+
+#### P0-4: pickle.load 不安全反序列化
+
+- **位置**: `deepanalyze/analysis/` 模型加载相关代码
+- **成因**: 使用 `pickle.load()` 加载模型文件，理论上可执行任意代码
+- **实际风险**: 模型文件由系统内部生成，路径不可被外部用户直接控制，且已被 P0-1 的路径校验阻断外部文件注入
+- **状态**: ⬇️ **降级为 P1**（实际风险已被 P0-1/P0-3 阻断，后续可考虑迁移至安全序列化格式）
+
+#### P0-5: eval() 沙箱可绕过
+
+- **位置**: `deepanalyze/analysis/task_SOP/rule_mining.py:87` `_safe_eval_rule()` 函数
+- **成因**: 审计工具将 `pd.eval()` / `df.eval()` 标记为不安全的 `eval()` 调用
+- **实际分析**:
+  - 使用的是 `pd.eval()`（pandas 受限表达式求值器），**非 Python 内置 `eval()`**
+  - `pd.eval()` 仅支持算术/比较/布尔运算，**不能调用任意函数或导入模块**
+  - 输入来源为规则挖掘算法自动生成的规则字符串（格式 `(col op val)`），不可被外部用户直接控制
+- **状态**: 🚫 **误报（false positive）** — `pd.eval()` 是受限引擎，输入非用户可控
+
+#### P0-6: cache.keys() 遍历时修改字典 → RuntimeError
+
+- **位置**: `llm_manager_integrated/core/cache.py:159-165` `MemoryCache.keys()` 方法
+- **成因**: 在 `for key in self._cache` 遍历字典的过程中直接 `del self._cache[key]`，Python 字典禁止在遍历期间修改大小
+- **影响**: 缓存中存在过期条目时，`keys()` 方法必定抛出 `RuntimeError: dictionary changed size during iteration`，导致 LLM Manager 缓存失效功能完全不可用
+- **修复**: 改为先收集过期 key 到列表，遍历完成后再批量删除（与同文件 `info()` 方法已采用的正确模式一致）
+- **修复文件**: `llm_manager_integrated/core/cache.py`
+- **状态**: ✅ **已修复**
+
+#### P0-7: CLI 模块用错误包名 → ImportError
+
+- **位置**: `llm_manager_integrated/cli/main.py:50`
+- **成因**: 包从 `llm_api_manager` 重命名为 `llm_manager_integrated` 时遗漏，仍使用 `from llm_api_manager.api.main import app`
+- **影响**: LLM Manager 独立 CLI 启动路径完全不可用（`llm-manager serve` 命令 ImportError）
+- **修复**: `from llm_api_manager.api.main import app` → `from llm_manager_integrated.api.main import app`
+- **影响范围确认**: 不影响开发模式（`start_dev.ps1`）和生产模式（`scripts/start.ps1`），两者均通过 `API/main.py` → `llm_manager_integrated.api.app.create_app` 启动，不经过 CLI 入口
+- **修复文件**: `llm_manager_integrated/cli/main.py`
+- **状态**: ✅ **已修复**
+
+#### P0-8: resources/utils.py 用错误包名 → ImportError
+
+- **位置**: `llm_manager_integrated/resources/utils.py:38,52`
+- **成因**: 同 P0-7，包重命名遗漏，`files('llm_api_manager')` 引用不存在的包名
+- **影响**: 资源定位函数 `get_resource_path()` 主路径失败（有 try/except 降级到项目根目录查找）
+- **修复**:
+  - `files('llm_api_manager')` → `files('llm_manager_integrated')`（2处）
+  - 同步更新 `resources/utils.py`、`resources/__init__.py`、`__init__.py` 中 15 处 docstring 旧包名引用
+- **影响范围确认**: 不参与任何启动流程，是纯工具模块
+- **修复文件**: `llm_manager_integrated/resources/utils.py`、`llm_manager_integrated/resources/__init__.py`、`llm_manager_integrated/__init__.py`
+- **附注**: `llm_manager_integrated/` 中仍有 14 处 `llm_api_manager` 残留在 docstring/SQLite 文件名/installer 旧逻辑中，不影响运行，可作为 P2 后续清理
+- **状态**: ✅ **已修复**
+
+#### P0-9: proxy.py 访问不存在的 Channel 属性 → AttributeError
+
+- **位置**: `llm_manager_integrated/api/routes/proxy/proxy.py`
+- **成因**: 审计工具认为 `channel.channel_type`、`channel.api_base` 等属性不存在于 Channel 模型
+- **实际分析**:
+  - `proxy.py` 中的 `channel` 对象来自负载均衡器（`core/load_balancer.py`）的 `Channel` dataclass
+  - 该 dataclass 定义了 `channel_type`、`api_base`、`api_key`、`model`、`name`、`id`、`metrics` 等属性
+  - 所有属性访问**均与 dataclass 定义完全匹配**
+- **状态**: 🚫 **误报（false positive）** — 属性完全匹配 dataclass 定义
+
+### P1 问题清单（详细审计报告）
+
+> P1 审计日期：2026-03-03  
+> P1 审计范围：全项目安全审计（不安全反序列化、硬编码凭证、代码注入、输入验证、API安全）  
+> P1 审计方式：4 路并行静态分析 + 人工确认
+
+---
+
+#### 分类 A：不安全反序列化（pickle.load / pickle.loads / torch.load）
+
+> **背景**：P0-4 原始审计仅标注了 `deepanalyze/analysis/` 模型加载，降级为 P1。本次深度扫描发现不安全反序列化问题远超原始评估，涉及 20+ 处调用。
+> **部署分级**: 🟢 私有化全部跳过（pickle 文件均为内部生成，无外部注入路径） | 🔴 公有云必修
+
+##### P1-A1: persistent_store.py — pickle.load 加载阶段输出（中风险）
+
+- **位置**: `deepanalyze/core/task_manager/persistent_store.py:577` `_load_outputs_from_file()`
+- **加载内容**: 从 `.pkl` 文件加载阶段输出（DataFrame、模型指标等）
+- **路径来源**: 由系统内部生成的 `{state_dir}/{execution_id}/{stage_id}_outputs.pkl`
+- **验证措施**: 仅检查 `os.path.exists(file_path)`，**无内容校验**
+- **风险评级**: 中 — 路径为内部生成，但 file_path 作为参数传入可被间接影响
+
+##### P1-A2: persistent_store.py — pickle.load 加载完整执行上下文（中高风险）
+
+- **位置**: `deepanalyze/core/task_manager/persistent_store.py:702` `load_full_state()`
+- **加载内容**: 完整执行上下文对象 (`context.pkl`)
+- **路径来源**: 由 `execution_id` 拼接或从数据库 `state["state_file_path"]` 获取
+- **验证措施**: 检查文件存在性，**无路径遍历检查**，无反序列化内容校验
+- **风险评级**: **中高** — `state_file_path` 来自数据库，若数据库被篡改可加载任意 pkl 文件
+
+##### P1-A3: result_storage.py — pickle.load 加载任务结果（中风险）
+
+- **位置**: `deepanalyze/core/task_manager/result_storage.py:145` `load_result()`
+- **加载内容**: 任务执行结果中的复杂对象（DataFrame）
+- **路径来源**: `self.base_dir / record_id / "outputs.pkl"`，`record_id` 由调用方传入
+- **验证措施**: 仅检查目录和文件存在性，**无路径遍历防护**
+- **风险评级**: 中 — `record_id` 含 `../../` 时可加载任意文件
+
+##### P1-A4: sglang_engine.py — pickle.loads 网络数据反序列化（高风险）
+
+- **位置**: `deepanalyze/SkyRL/skyrl-train/skyrl_train/inference_engines/sglang/sglang_engine.py:131`
+- **加载内容**: `NamedWeightsUpdateRequest` 对象，从 base64 编码 tensor 数据解码
+- **数据来源**: 通过 tensor 传递的序列化负载
+- **验证措施**: 仅检查 end marker 和 base64 解码，**无内容安全校验**
+- **风险评级**: **高** — 若攻击者控制 tensor 内容，可实现远程代码执行
+
+##### P1-A5: ppo_utils.py — cloudpickle 函数反序列化（中风险）
+
+- **位置**: `deepanalyze/SkyRL/skyrl-train/skyrl_train/utils/ppo_utils.py:316`
+- **加载内容**: 从 Ray actor 获取的序列化函数对象
+- **数据来源**: 通过 `ray.get(actor.get.remote(name))` 获取
+- **风险评级**: 中 — 依赖 Ray 集群安全性
+
+##### P1-A6: torch.load 全部使用 weights_only=False（中风险，5 处生产代码）
+
+- **位置**:
+  - `SkyRL/skyrl-train/skyrl_train/training_batch.py:175,286` — TensorBatch 加载
+  - `SkyRL/skyrl-train/skyrl_train/trainer.py:1583,1596` — 训练状态恢复
+  - `SkyRL/skyrl-train/skyrl_train/distributed/fsdp_strategy.py:608,611,617` — FSDP 检查点
+  - `ms-swift/swift/tuners/base.py:306` — 模型权重加载
+  - `ms-swift/swift/llm/train/tuner.py:378` — TorchAcc 恢复
+  - `ms-swift/swift/utils/torchacc_utils.py:213,216` — 优化器/调度器恢复
+- **风险评级**: 中 — 均明确使用 `weights_only=False`，checkpoint 文件来源可信但无额外校验
+- **建议**: 可行场景下迁移至 `weights_only=True`；需要完整 pickle 的场景确保文件来源可信
+
+##### P1-A7: ms-swift IndexedDataset — pickle.load/loads 数据集缓存（中风险）
+
+- **位置**: `ms-swift/swift/llm/dataset/utils.py:283,302`
+- **加载内容**: 数据集索引和样本数据
+- **路径来源**: 由 `dataset_name` 和环境变量 `PACKING_CACHE` 拼接
+- **风险评级**: 中 — 若 `dataset_name` 含路径遍历字符可能有风险
+
+---
+
+#### 分类 B：硬编码凭证与敏感信息
+
+> **部署分级**: 🟡 私有化建议修复（B1 .env 权限） | 🔴 公有云必修
+
+##### P1-B1: .env 文件中硬编码加密密钥（严重）
+
+- **位置**: `.env` 第 2 行
+- **内容**: `LLM_MANAGER_ENCRYPTION_KEY=CVW9iGPthZUaoJYg9kTNUcIRZ-I2DTOzvwV9o7AeSmE=`
+- **缓解**: `.gitignore` 已排除 `.env`
+- **风险评级**: **严重** — 若 `.env` 泄露，攻击者可解密 LLM Manager 存储的所有 API 密钥
+- **建议**: 使用密钥管理服务或确保 `.env` 文件权限 600
+
+##### P1-B2: deprecated_files 中硬编码 sk- 测试密钥（中等） ✅ 已修复
+
+- **位置**: `deprecated_files/test_final_exclusivity.py:36`、`deprecated_files/test_exclusive_channels.py:11`
+- **内容**: `'api_key': 'sk-test-key-12345'`
+- **风险评级**: 中等 — placeholder key 但 `sk-` 前缀可能被 CI 密钥扫描工具误判
+- **缓解**: `deprecated_files/` **未被 .gitignore 排除** ⚠️
+- **建议**: 将 `deprecated_files/` 加入 `.gitignore` 或删除
+- **修复**: `.gitignore` 已添加 `deprecated_files/` 排除规则
+
+##### P1-B3: API 密钥部分泄露到控制台日志（低风险） ✅ 已修复
+
+- **位置**: `API/llm_client_manager.py:63-66`
+- **内容**: `key_preview = f"{api_key[:10]}...{api_key[-5:]}"`，然后 `print()`
+- **风险评级**: 低 — 截断处理，但对短密钥可能泄露过多信息
+- **建议**: 减少可见字符（前4位 + 后4位）
+- **修复**: 缩短为前4后4，`print()` 改为 `logger.debug()`
+
+---
+
+#### 分类 C：不安全代码执行（exec / eval / subprocess）
+
+> **部署分级**: 🟢 私有化全部跳过（exec/eval 输入均为系统内部或 LLM 生成，内网用户不构成攻击面） | 🔴 公有云必修
+
+##### P1-C1: demo/backend.py — exec() 无沙箱执行用户代码（严重）
+
+- **位置**: `demo/backend.py:52,259` `execute_code()` 函数
+- **成因**: 两处 `exec(code_str, {})` 直接在主进程执行任意代码，**无沙箱隔离**
+- **风险评级**: **严重** — 攻击者可执行任意系统命令、读取环境变量中的 API 密钥
+- **缓解**: 同文件存在 `execute_code_safe()` 子进程版本，但 `execute_code()` 仍可被调用
+- **建议**: 删除无沙箱版本 `execute_code()`，统一使用安全版本
+
+##### P1-C2: SkyRL python_tool.py — exec() 无沙箱（严重）
+
+- **位置**: `deepanalyze/SkyRL/skyrl-train/examples/deepanalyze/python_tool.py:33-40,84-91`
+- **成因**: `exec(code, globals_dict)` 在主进程执行 LLM 生成代码
+- **风险评级**: **严重** — 虽有 multiprocessing 版本，但无沙箱版本仍存在
+
+##### P1-C3: SkyRL skyrl_gym — subprocess 执行任意 Python 代码（高）
+
+- **位置**: `deepanalyze/SkyRL/skyrl-gym/skyrl_gym/tools/python.py:13-14`
+- **成因**: `subprocess.run(["python", "-c", code], ...)` 执行外部传入代码
+- **风险评级**: 高 — 无 shell=True，但 code 参数完全外部控制
+
+##### P1-C4: playground 多处 eval() 反序列化文件数据（高）
+
+- **位置**:
+  - `playground/DSBench/data_modeling/show_result.py:9,38,40,44,61`
+  - `playground/DSBench/data_modeling/score4each_com.py:9`
+  - `playground/DSBench/data_analysis/show_result.py:8`
+- **成因**: `eval(line)` / `eval(f.read().strip())` 解析文件内容
+- **风险评级**: 高 — 文件被篡改可导致任意代码执行
+- **建议**: 替换为 `json.loads()`
+
+##### P1-C5: playground/SkyRL 多处 exec() 执行 LLM 生成代码（高）
+
+- **位置**: `playground/TableQA/tests/tablebench.py:277`、`playground/TableQA/tests/aitqa.py:298`、`playground/DSBench/data_modeling/deepanalyze.py:38`、`playground/DABStep-Research/deepanalyze.py:65`、`playground/DS-1000/execution.py:49`、`SkyRL/skyrl-gym/skyrl_gym/envs/lcb/livecodebench.py:190`
+- **风险评级**: 高 — 研究/评测代码，但缺乏系统级沙箱
+
+##### P1-C6: shell=True 的 subprocess 调用（高，9 处）
+
+- **位置**:
+  - `ms-swift/tests/test_utils.py:335` — `subprocess.call(script_cmd, shell=True, ...)`
+  - `ms-swift/swift/ui/llm_train/llm_train.py:496` — `Popen(run_command, shell=True, ...)`
+  - `ms-swift/scripts/benchmark/exp_utils.py:137,161` — `Popen(..., shell=True)`
+  - `ms-swift/examples/train/rft/rft.py:50,94,146,182` — 多处 `Popen(..., shell=True)`
+- **风险评级**: 高 — 命令大多来自配置而非直接用户输入，但 `shell=True` 模式本身不安全
+
+##### P1-C7: os.system() 执行动态构造命令（高，命令注入风险）
+
+- **位置**:
+  - `playground/DSBench/data_modeling/score4each_com.py:38-39` — `os.system(f"python {python_path}{line['name']}_eval.py ...")` ⚠️ `line['name']` 来自外部 JSON，**可注入**
+  - `ms-swift/swift/ui/llm_train/runtime.py:588-590` — `os.system(f'taskkill /f /t /pid "{pid}"')`
+  - `ms-swift/swift/ui/llm_infer/runtime.py:249-251`
+  - `ms-swift/swift/ui/llm_grpo/external_runtime.py:110-116`
+  - `ms-swift/swift/ui/llm_infer/llm_infer.py:291`
+  - `ms-swift/swift/ui/llm_sample/llm_sample.py:276`
+  - `ms-swift/swift/ui/llm_export/llm_export.py:199`
+  - `ms-swift/swift/ui/llm_grpo/external_rollout.py:242`
+  - `ms-swift/tests/llm/test_run3.py:159-175` — `os.system(f'pip install "{req}"')` ⚠️ req 来自模型元数据
+  - `SkyRL/skyrl-train/examples/search/searchr1_dataset.py:152`
+- **风险评级**: 高 — `score4each_com.py` 和 `test_run3.py` 尤其危险（外部数据直接拼入命令）
+- **建议**: 替换为 `subprocess.run()` 列表形式传参
+
+---
+
+#### 分类 D：API 输入验证与安全
+
+##### P1-D1: 文件上传无任何验证（严重）
+
+- **位置**: `API/main.py` `POST /workspace/upload`、`POST /workspace/upload-to`、`API/file_api.py` `POST /v1/files`、`POST /v1/files/upload-to`
+- **缺失验证**:
+  - **无文件大小限制** — 可上传任意大文件造成磁盘耗尽 (DoS)
+  - **无文件类型验证** — 无 MIME 类型检查
+  - **无扩展名白名单** — 可上传 `.py`、`.sh`、`.exe` 等可执行文件
+  - ~~**无文件名清理**~~ — 已在 P0-1 补修中通过 `Path(filename).name` 消毒
+- **修复 (2026-03-03)**: 在 `utils.py` 添加 `check_upload_size()` 公共函数，4 个上传端点统一添加 500MB（可通过 `MAX_UPLOAD_SIZE_MB` 环境变量配置）文件大小限制，超限返回 HTTP 413。文件类型和扩展名验证暂不实施（私有化场景需上传数据文件类型多样）。
+- **风险评级**: **严重**
+- **部署分级**: 🟡 私有化建议修复（仅文件大小限制） | 🔴 公有云必修
+- **状态**: ✅ **已修复（文件大小限制）**
+
+##### P1-D2: file_api.py upload_to_dir 完全缺失路径遍历防护（严重） ✅ 已修复
+
+- **位置**: `API/file_api.py:54-90` `POST /v1/files/upload-to`
+- **成因**: `dir` 参数来自 Form，**未做路径遍历检查**；`file.filename` 也未清理
+- **风险评级**: **严重** — 与 `main.py` 中同功能端点不同，此处缺少 `.resolve()` + `parents` 检查
+- **修复方案**: 添加 `resolve()` + `parents` 路径遍历防护 + 文件名清理（`Path(filename).name`）
+- **修复日期**: 2026-03-03
+- **部署分级**: 🔴 私有化必修 | 🔴 公有云必修
+
+##### P1-D3: /workspace/data-columns 路径遍历漏洞（严重） ✅ 已修复
+
+- **位置**: `API/main.py:469-521`
+- **成因**: `file_path` 参数来自查询字符串，**未做路径遍历检查**
+- **风险评级**: **严重** — 可探测服务器上任意 CSV/Excel 文件结构
+- **修复方案**: 添加 `resolve()` + `parents` 路径遍历防护
+- **修复日期**: 2026-03-03
+- **部署分级**: 🔴 私有化必修 | 🔴 公有云必修
+
+##### P1-D4: /sop/data/analyze 接受任意绝对文件路径（严重）
+
+- **位置**: `API/sop_api.py` `POST /sop/data/analyze`
+- **成因**: 接受绝对文件路径参数，**无任何路径限制**
+- **修复 (2026-03-03)**: 添加 `session_id` 参数，改为相对路径输入，通过 `resolve()` + `parents` 限制在 workspace 内；同时清理了 `detail=str(e)` 信息泄露。
+- **风险评级**: **严重** — 可读取服务器上任意 CSV/Excel/Parquet 文件
+- **部署分级**: 🟡 私有化建议修复 | 🔴 公有云必修
+- **状态**: ✅ **已修复**
+
+##### P1-D5: session_id 未做输入验证（严重） ✅ 已修复
+
+- **位置**: 17 个 API 端点入口（`main.py` 11 个 + `file_api.py` 1 个 + `sop_api.py` 8 个）
+- **成因**: `session_id` 直接拼接路径 `os.path.join(WORKSPACE_BASE_DIR, session_id)`，**无正则校验**
+- **风险评级**: **严重** — 传入 `../../etc` 等恶意值可操作工作区外目录
+- **修复方案**: 在 `utils.py` 新增 `validate_session_id()` 公共校验函数（正则 `^[a-zA-Z0-9_-]+$`），17 个 API 端点入口层调用。底层 `get_session_workspace`/`get_thread_workspace` 不修改，确保历史数据兼容和内部调用（恢复、GC 等）不受影响。
+- **影响评估**: 已验证对持久化存储、缓存、任务暂停/继续/恢复、历史查看、轮询、报告生成、阶段结果展示等全部模块无影响。session_id 在系统中有 7 层使用（API 入口、路径构建、DB 写入/查询、内存比较、文件名前缀、缓存 key），修复仅影响 API 入口层。
+- **修复日期**: 2026-03-03
+- **部署分级**: 🔴 私有化必修 | 🔴 公有云必修
+
+##### P1-D6: CORS 异常处理器硬编码 `"*"` 绕过策略（中高）
+
+- **位置**: `API/main.py:128-149` 全局异常处理器
+- **成因**: 异常响应中 CORS 头**硬编码 `Access-Control-Allow-Origin: *`**，未使用 `cors_origins` 变量
+- **风险评级**: 中高 — 即使配置了严格 `CORS_ORIGINS`，异常响应仍绕过策略
+- **部署分级**: 🟢 私有化跳过 | 🔴 公有云必修
+
+##### P1-D7: SSRF 代理端点端口/协议未限制（中高）
+
+- **位置**: `API/main.py:630-666` `GET /proxy`
+- **成因**: 允许 `0.0.0.0`、未限制端口范围、未限制响应大小
+- **风险评级**: 中高 — 可扫描本机所有端口服务
+- **部署分级**: 🟢 私有化跳过 | 🔴 公有云必修
+
+##### P1-D8: 无身份验证机制（严重 — 架构级）
+
+- **位置**: 全局
+- **成因**: 所有 API 端点完全公开，无认证即可：上传/删除文件、清空工作区、触发 LLM 调用（产生费用）、执行 SOP 任务、使用 SSRF 代理
+- **风险评级**: **严重（架构级）** — 生产环境部署时必须解决
+- **建议**: 至少实现 API Key 认证中间件或 JWT 机制
+- **部署分级**: 🟢 私有化跳过（内网信任模型） | 🔴 公有云必修
+
+##### P1-D9: 无速率限制（严重 — 架构级）
+
+- **位置**: 全局
+- **成因**: 无速率限制中间件，所有端点可被无限频率调用
+- **风险**: LLM API 费用暴涨、服务器资源耗尽、磁盘空间耗尽
+- **建议**: 使用 `slowapi` 对关键端点设置频率限制
+- **部署分级**: 🟢 私有化跳过（用户数有限） | 🔴 公有云必修
+
+##### P1-D10: 异常信息泄露（中等，多处）
+
+- **位置**: `API/main.py`、`API/sop_api.py`、`API/scorecard_api.py`、`API/chat_api.py`、`API/export_api.py`、`API/file_api.py` 多处
+- **风险评级**: 中等 — 完整堆栈可能暴露文件路径、库版本、内部逻辑
+- **修复 (2026-03-03)**: 分两批修复。第一批修复了 main.py 全局异常处理器、export_api.py traceback 泄露、sop_api.py 9处 500 错误。第二批（补修）修复了 scorecard_api.py 6处、main.py 4处、sop_api.py 剩余7处（含业务 ValueError）、chat_api.py 7处（2处 LLM 错误 + 5处 admin JSON body）、export_api.py 1处 JSON body。所有 `str(e)` / `{e}` 替换为通用消息 + `logger.error(exc_info=True)` 记录完整信息。保留了前端依赖的 "not found" 和 "不是暂停状态" 关键词。`validate_session_id()` 的 ValueError 透传（消息可控）未修改。
+- **部署分级**: 🟡 私有化建议修复 | 🔴 公有云必修
+- **状态**: ✅ **已修复**
+
+##### P1-D11: sop_api.py 裸 except: 语句（中等，4 处）
+
+- **位置**: `API/sop_api.py` 报告导出函数中解析 `selected_features` 的 4 处
+- **风险评级**: 中等 — 会捕获 `SystemExit`、`KeyboardInterrupt` 等，可能掩盖安全问题
+- **修复 (2026-03-03)**: 4 处 `except:` 改为 `except (json.JSONDecodeError, ValueError):`
+- **部署分级**: 🟡 私有化建议修复 | 🟡 公有云建议修复
+- **状态**: ✅ **已修复**
+
+##### P1-D12: HTTP 文件服务器无访问控制（中等）
+
+- **位置**: `API/utils.py:551-563` `start_http_server()`
+- **成因**: `SimpleHTTPRequestHandler` 提供 workspace 目录文件服务，**无认证、授权、速率限制**
+- **风险评级**: 中等 — 任何人可直接访问所有文件
+- **部署分级**: 🟢 私有化跳过 | 🔴 公有云必修
+
+##### P1-D13: /export/report title 参数文件名注入（中等）
+
+- **位置**: `API/main.py` `POST /export/report`
+- **成因**: `title` 参数用于生成文件名，仅做空格替换，**未过滤 `/`、`\`、`..`**
+- **修复 (2026-03-03)**: 添加正则白名单消毒 `re.sub(r'[^\w\u4e00-\u9fff\-.]', '_', title)[:100]`（保留中英文、数字、下划线、连字符、点，限100字符），额外添加 `resolve()` + `parents` 路径校验。
+- **风险评级**: 中等
+- **部署分级**: 🟡 私有化建议修复 | 🔴 公有云必修
+- **状态**: ✅ **已修复**
+
+---
+
+#### 分类 E：SQL 与数据库
+
+> **部署分级**: 🟢 私有化跳过（研究环境设计功能） | 🟡 公有云建议修复
+
+##### P1-E1: SkyRL SQL 工具直接执行动态 SQL（中等 — 设计功能）
+
+- **位置**: `SkyRL/skyrl-gym/skyrl_gym/tools/sql.py:21`、`SkyRL/skyrl-gym/skyrl_gym/envs/sql/utils.py:51`、`SkyRL/skyrl-gym/skyrl_gym/envs/code/utils.py:51`、`SkyRL/skyrl-train/examples/deepanalyze/utils.py:47`
+- **成因**: `cursor.execute(sql)` 接收完整 SQL 字符串（Text2SQL 研究环境设计功能）
+- **缓解**: 有 `BEGIN TRANSACTION` + `rollback()` 只读保护
+- **风险评级**: 中等 — 研究环境中是预期功能，但需确保不暴露给外部用户
+
+---
+
+#### 分类 F：代码质量与工程规范
+
+> **来源**：历史代码审查评估（P1 - 影响质量），与安全审计互为补充。
+> **部署分级**: 🟡 私有化建议修复（F1/F2/F4/F5/F8 影响可靠性） | 🟡 公有云建议修复
+
+##### P1-F1: 6 个 Router 未注册（死代码） — 4 个已归档标注 ✅
+
+- **位置**: `workspace_api.py`、`file_api.py`、`execute_api.py`、`admin_api.py`、`export_api.py`、`scorecard_api.py`
+- **成因**: Router 已定义但未在 `create_app()` 中 `include_router()`
+- **风险评级**: 中 — 功能未生效，增加维护困惑
+- **修复 (2026-03-04)**: 对照 `routing_architecture_guide.md` 确认 `file_api.py`、`export_api.py`、`admin_api.py`、`scorecard_api.py` 4 个文件从未被注册且功能已被其他路由覆盖或通过 SOP 任务模式提供，在文件头添加 `[ARCHIVED]` 标注说明未注册状态和原因。`workspace_api.py` 和 `execute_api.py` 在之前的审计中已确认为死代码。
+
+##### P1-F2: create_app() 580+ 行，职责过重
+
+- **位置**: `API/main.py:107-690`
+- **成因**: 应用工厂函数包含路由定义、中间件配置、业务逻辑，严重违反单一职责
+- **风险评级**: 中 — 可维护性差，易引入回归
+
+##### P1-F3: 配置重复定义且不一致 ✅ 已修复
+
+- **位置**: `config.py` vs `main.py` 的 `API_TITLE` 等配置；`API/utils.py` 重复拼接 `HTTP_SERVER_BASE`；`demo/backend.py` 重复定义 `WORKSPACE_BASE_DIR`/`HTTP_SERVER_PORT`/`HTTP_SERVER_BASE`
+- **成因**: 同一配置项在多处定义，值可能不一致
+- **风险评级**: 中 — 易导致行为不可预期
+- **修复 (2026-03-04)**: `API/utils.py` 改为从 `config` 直接导入 `HTTP_SERVER_BASE`，消除重复拼接；`demo/backend.py` 因独立脚本无法跨模块导入，添加注释标注配置来源，提示保持同步
+
+##### P1-F4: workspace 功能两套实现
+
+- **位置**: `main.py` 内联实现 vs `workspace_api.py` Router 实现
+- **成因**: 重构不完整，旧实现未清理
+- **风险评级**: 中高 — 与 P1-D2 路径遍历问题关联（两套实现安全级别不一致）
+
+##### P1-F5: 三个应用工厂大量代码重复
+
+- **位置**: `app.py`、`create_app.py`、`pure_app.py`
+- **成因**: 多个入口点包含重复的初始化逻辑
+- **风险评级**: 中 — 修复一处漏洞时其他入口可能遗漏
+
+##### P1-F6: 负载均衡器全局状态同步脆弱
+
+- **位置**: 三层回退机制，难以调试
+- **风险评级**: 中 — 可靠性问题，故障时难以定位
+
+##### P1-F7: 全局异常处理泄露内部信息 ✅ 已修复
+
+- **位置**: `llm_manager_integrated/api/app.py:160-166`
+- **成因**: 与 P1-D10 同类问题，但位于 LLM Manager 子系统
+- **风险评级**: 中 — 与 P1-D10 合并修复
+- **修复**: 全局异常处理器返回通用消息，27 处 `str(e)` 泄漏全部替换为通用错误提示 + `logger.error(exc_info=True)`
+
+##### P1-F8: 双重 commit 破坏事务一致性 ✅ 已修复
+
+- **位置**: `persistent_store.py` 多处
+- **成因**: 同一事务中多次 commit，部分失败时数据不一致
+- **风险评级**: 中高 — 可能导致任务状态损坏
+- **修复**: 移除 8 处手动 `session.commit()`，统一由上下文管理器自动提交
+
+##### P1-F9: 全局 `warnings.filterwarnings('ignore')` ✅ 已修复
+
+- **位置**: 9 个文件（`feature_correlation.py`、`feature_binning.py`、`woe.py`、`preprocessing.py`、`iv_analysis.py`、`scorecard_development.py`、`rule_mining_viz.py`、`scorecard_viz.py`、`rule_mining.py`）
+- **成因**: 全局抑制所有警告，包括安全和弃用警告
+- **风险评级**: 中 — 掩盖潜在问题
+- **修复 (2026-03-04)**: 9 个文件的 `warnings.filterwarnings('ignore')` 改为仅过滤 `FutureWarning` + `DeprecationWarning`，保留 `RuntimeWarning`/`UserWarning` 等有诊断价值的警告
+
+##### P1-F10: 调试日志 `[RETRY-DEBUG]` 残留 ✅ 已修复
+
+- **位置**: `persistent_store.py:385-407`
+- **成因**: 开发期调试代码未清理
+- **风险评级**: 低 — 不影响功能，但不专业
+- **修复**: 9 行 `logger.warning("[RETRY-DEBUG]...")` 降级为 `logger.debug()`，移除 `[RETRY-DEBUG]` 前缀
+
+##### P1-F11: 脚本硬编码用户路径 ✅ 已修复
+
+- **位置**: `start_dev.ps1`、`stop.ps1`、`init_env.ps1`
+- **成因**: 路径硬编码为特定用户目录，其他环境无法使用
+- **风险评级**: 中 — 影响可部署性
+- **修复**: 所有硬编码路径替换为基于 `$PSScriptRoot` 的相对路径
+
+##### P1-F12: 缺少 .env.example ✅ 已修复
+
+- **位置**: 项目根目录
+- **成因**: 新部署无配置参考，且与 P1-B1（.env 中硬编码密钥）关联
+- **风险评级**: 中 — 影响部署体验和安全
+- **修复**: 创建 `.env.example`，包含所有核心环境变量及注释说明
+
+---
+
+### P1 问题总览
+
+| 分类 | 严重 | 高 | 中高 | 中 | 低 | 合计 |
+|------|------|------|------|------|------|------|
+| A: 不安全反序列化 | 0 | 1 | 1 | 5 | 0 | 7 |
+| B: 硬编码凭证 | 1 | 0 | 0 | 1 | 1 | 3 |
+| C: 代码执行 | 2 | 5 | 0 | 0 | 0 | 7 |
+| D: API 输入验证 | 5 | 0 | 2 | 4 | 0 | 11 |
+| E: SQL 与数据库 | 0 | 0 | 0 | 1 | 0 | 1 |
+| F: 代码质量与工程规范 | 0 | 0 | 2 | 8 | 2 | 12 |
+| **合计** | **8** | **6** | **5** | **19** | **3** | **41** |
+
+> **注意**：P1 审计中 8 项"严重"级别问题主要集中在 **API 输入验证**（5 项：文件上传、路径遍历、认证缺失、速率限制）和 **代码执行**（2 项：exec 无沙箱）以及 **凭证管理**（1 项：加密密钥明文存储）。其中 D1/D2/D3/D4/D5 已修复，私有化部署版本下其余严重项风险可控（D8/D9 私有化跳过，C1/C2 私有化跳过）。F 分类（代码质量）12 项中 8 项已修复（F1/F3/F7/F8/F9/F10/F11/F12），剩余 4 项（F2/F4/F5/F6）为架构重构级别，暂缓处理。
+>
+> **审计修复完成度（截至 2026-03-04）**：
+> - P0: 5/5 已修复 + 2 误报 + 2 降级（100% 完成）
+> - P1 🔴必修: 3/3 已修复（100% 完成）
+> - P1 🟡建议: 14/16 已修复（87.5%，剩余 F2/F5 为架构重构级）
+> - P1 🟢跳过: 22 项私有化无需处理
+> - P2: 2/8 已修复（P2-2 .gitignore + P2-3 CORS 环境变量）
+>
+> **部署分级图例**: 🔴 必修 | 🟡 建议修复 | 🟢 可跳过
+
+### P1 优先修复路线图
+
+> **私有化部署版本**：仅 D2/D3/D5 为必修（✅ 已完成），其余已按分级标签完成修复或跳过。
+> **公有云版本**：全部 Phase 均需执行。
+
+| 阶段 | 修复内容 | 私有化 | 公有云 | 工期估算 | 状态 |
+|------|----------|--------|--------|----------|------|
+| Phase 1（已完成） | P1-D5 session_id 校验 + P1-D2 路径遍历 + P1-D3 路径遍历 | 🔴 必修 | 🔴 必修 | 35 分钟 | ✅ 已完成 |
+| Phase 2（生产阻塞） | P1-D8 认证 + P1-D9 限速 + P1-D1 上传验证 | 🟢 跳过 | 🔴 必修 | 2-3 天 | ✅ D1 已修复 / D8+D9 私有化跳过 |
+| Phase 3（高危修复） | P1-D4 路径限制 + P1-D6 CORS 异常 + P1-C1/C2 删除 exec | 🟡 建议 | 🔴 必修 | 1-2 天 | ✅ D4+D6 已修复 / C1+C2 私有化跳过 |
+| Phase 4（加固） | P1-B1 密钥管理 + P1-D10 错误信息清理 + P1-D11 裸 except | 🟡 建议 | 🔴 必修 | 1 天 | ✅ D10+D11 已修复 / B1 待手动设置权限 |
+| Phase 5（工程重构） | P1-F1 归档标注 + P1-F2 拆分 create_app + P1-F4/F5 消除重复实现 + P1-F8 事务修复 | 🟡 建议 | 🟡 建议 | 2-3 天 | ✅ F1+F8 已修复 / F2+F4+F5 架构重构暂缓 |
+| Phase 6（清理加固） | P1-F3 配置统一 + P1-F9 警告范围缩小 + P1-F10/F11/F12 清理 + .env.example | 🟡 建议 | 🟡 建议 | 1 天 | ✅ 全部已完成 |
+| Phase 7（长期优化） | P1-A 系列序列化迁移 + P1-C 系列沙箱加固 | 🟢 跳过 | 🔴 必修 | 1-2 周 | ⏭️ 私有化跳过 |
+
+> **开发规范提醒**：新增接受 `session_id` 参数的 API 端点，必须在函数入口调用 `validate_session_id()`（来自 `utils.py`）。
+
+### 遗留清理项（P2）
+
+| 编号 | 问题 | 说明 |
+|------|------|------|
+| P2-1 | `llm_manager_integrated/` 旧包名残留 | 14 处 `llm_api_manager` 在 docstring/SQLite 文件名/installer 旧逻辑中，不影响运行 |
+| P2-2 | `deprecated_files/` 未被 .gitignore 排除 | 含 `sk-test-key-12345` 等测试凭证，~~应加入排除或删除~~ ✅ 已修复（.gitignore 已添加排除规则） |
+| P2-3 | `demo/backend.py` CORS 仍为 `allow_origins=["*"]` | ~~demo 代码，非生产路径，但如暴露需收紧~~ ✅ 已修复（添加 `CORS_ORIGINS` 环境变量支持，默认行为不变） |
+| P2-4 | playground/ 目录大量 eval/exec/os.system | 研究评测代码，非生产路径，但建议后续重构为安全模式 |
+| P2-5 | 弃用 API 调用残留 | Pydantic `.dict()` → `.model_dump()`；`declarative_base` → `DeclarativeBase`；`on_event("startup")` → `lifespan` |
+| P2-6 | 重复导入 | `config.py` 重复 `import os`；`main.py` 重复 `from fastapi import FastAPI`；`utils.py` 重复 `import re` |
+| P2-7 | 代码规范不统一 | 中英文注释混用；步骤编号跳跃；pyright 大量抑制指令 |
+| P2-8 | 逻辑缺陷 | `woe.py` KMeans 分箱逻辑错误；`feature_binning.py` 空序列未保护；缺少 `ScorecardPipeline`；MD5 缓存键碰撞风险 |
+
+---
+
+## Plan 审查修正记录
+
+> 审查日期：2026-03-03  
+> 审查方式：对照实际代码库状态，逐章节核实 Plan 中描述与实际是否一致
+
+### 修正总览
+
+| 严重度 | 修正数 | 说明 |
+|--------|--------|------|
+| 高（影响功能/构建） | 3 | 入口点、Python 版本、项目名称 |
+| 中（描述与实际不符） | 9 | 状态、配置、脚本、Docker |
+| 低（文档准确性） | 6 | 日期、链接、文件名 |
+
+### 高严重度修正
+
+| # | 章节 | 问题 | 修正内容 |
+|---|------|------|----------|
+| 1 | Task 1.2 `[project.scripts]` | 入口点 `deepanalyze:main` 不存在 | `deepanalyze = "deepanalyze:main"` → `deepanalyze = "API.main:main"` |
+| 2 | Task 1.2 `requires-python` | 代码使用 PEP 604 语法（`X \| Y`），需 Python 3.10+ | `>=3.8` → `>=3.10`，classifiers 移除 3.8/3.9，CI 矩阵同步调整 |
+| 3 | Task 1.2 pyproject.toml `name` | 与实际 pyproject.toml 的包名不一致 | `"deepanalyze"` → `"deepanalyze-creditwise"` |
+
+### 中严重度修正
+
+| # | 章节 | 问题 | 修正内容 |
+|---|------|------|----------|
+| 4 | 执行摘要 "核心任务" | Git/pyproject.toml/版本号状态标注过时 | Git 仓库 ✅、Python 包配置 ✅、统一版本号 ✅ |
+| 5 | "缺失项"表格 | `setup.py/pyproject.toml ❌ 不存在` 与实际不符 | 加删除线标注为已完成 |
+| 6 | "版本号现状" | `llm_manager: 2.0.0 ⚠️ 不一致` 与实际不符 | 更新为 `1.0.0 ✅ 已统一` |
+| 7 | Task 5.1 vite.config | `base: '/llm-manager/'` 实际不存在 | 注释说明当前使用默认值 `'/'` |
+| 8 | Task 5.1 next.config | 文件名 `.js`/`module.exports` 与实际不符 | 改为 `.mjs`/`export default`，补充 eslint/typescript 配置 |
+| 9 | Task 5.2 后端代码 | 静态文件挂载代码与实际差异大 | 重写为实际 API 结构，添加主前端待处理警告 |
+| 10 | Task 5.3 脚本清单 | `install.ps1`/`update.ps1` 标注为可用但实际不存在 | 添加 ❌ 待创建标注 |
+| 11 | Task 5.6 Docker | `Dockerfile.prod`/`docker-compose.prod.yml` 不存在 | 标注为 ❌ 待创建 |
+| 12 | Task 5.4 保留文件清单 | `scripts/start.bat`/`scripts/start.sh` 不存在 | 改为 `scripts/start.ps1`/`scripts/bump_version.py` |
+
+### 低严重度修正
+
+| # | 章节 | 问题 | 修正内容 |
+|---|------|------|----------|
+| 13 | Task 1.2 setup.py | `use_scm_version=True` 与 hatchling 冲突 | 移除 `use_scm_version`，更新 `name` |
+| 14 | Phase 2 CI 工作流 | 矩阵含 3.8/3.9（不兼容），缺 3.12 | 矩阵改为 `["3.10", "3.11", "3.12"]` |
+| 15 | Task 4.1 CHANGELOG 日期 | 年份 2025 应为 2026 | `2025-03-XX` → `2026-03-XX` |
+| 16 | Task 1.2 `[tool.black]` | target-version 含不支持的版本 | 移除 py38/py39 |
+| 17 | Task 1.2 `[tool.mypy]` | python_version 3.8 与最低版本要求不一致 | `3.8` → `3.10` |
+| 18 | Task 4.3 Release Notes | `compare/v0.0.1...v1.0.0` 引用不存在的 tag | 改为 `commits/v1.0.0` |
+
+### 未修正的遗留项（需后续处理）
+
+| # | 问题 | 说明 |
+|---|------|------|
+| 1 | `install.ps1`/`update.ps1` 未创建 | Plan 中设计了完整脚本方案，但实际仅有 `scripts/start.ps1`，需在发布前创建 |
+| 2 | `Dockerfile.prod`/`docker-compose.prod.yml` 未创建 | 设计方案已在 Plan Task 5.6，需在 Docker 发布前创建 |
+| 3 | `demo/chat/dist/` 内容非纯静态导出 | 当前含 `server/`、`cache/` 等开发产物，需重新执行 `npm run build` |
+| 4 | 主前端生产模式静态文件挂载 | `API/main.py` 中缺少 `app.mount("/", StaticFiles(...))` 的生产模式配置 |
+| 5 | Mac/Linux 脚本全部未创建 | Plan 中设计了 6 个跨平台 Shell 脚本，均需在发布前创建 |
 
 ---
 
@@ -2748,8 +3323,8 @@ requirements.txt
 demo/chat/dist/  (Next.js export 输出)
 
 # 脚本
-scripts/start.bat
-scripts/start.sh
+scripts/start.ps1
+scripts/bump_version.py
 
 # 文档
 LICENSE
@@ -2807,6 +3382,6 @@ services:
 
 ---
 
-**文档版本**: v1.2  
-**最后更新**: 2025-03-02  
-**状态**: 待执行（已整合私有化部署完整方案）
+**文档版本**: v1.8  
+**最后更新**: 2026-03-04  
+**状态**: 发布前代码审计修复已全部完成（P0 全部完成，P1 必修全部完成，P1 建议级 14/16 完成，P2 已修复 2/8）

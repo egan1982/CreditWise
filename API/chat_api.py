@@ -805,7 +805,7 @@ async def _simple_chat_completion(
                 if ERROR_HANDLER_AVAILABLE:
                     classified_error = classify_provider_error(e, provider)
                     return create_error_response(classified_error)
-                raise HTTPException(status_code=500, detail=f"LLM调用失败: {str(e)}")
+                raise HTTPException(status_code=500, detail="LLM调用失败")
     
     if stream:
         async def generate_stream_async():
@@ -997,7 +997,7 @@ async def _simple_chat_completion(
             if ERROR_HANDLER_AVAILABLE:
                 classified_error = classify_provider_error(e, provider)
                 return create_error_response(classified_error)
-            raise HTTPException(status_code=500, detail=f"LLM调用失败: {str(e)}")
+            raise HTTPException(status_code=500, detail="LLM调用失败")
 
 
 async def _handle_non_openai_provider(
@@ -1893,7 +1893,7 @@ async def get_recent_api_logs(limit: int = 20):
         logger.error(f"获取API日志失败: {e}")
         return {
             "success": False,
-            "error": str(e)
+            "error": "获取API日志失败"
         }
 
 
@@ -1922,7 +1922,7 @@ async def get_api_logs_stats():
         logger.error(f"获取API统计失败: {e}")
         return {
             "success": False,
-            "error": str(e)
+            "error": "获取API统计失败"
         }
 
 
@@ -1962,7 +1962,7 @@ async def get_channels_health():
         logger.error(f"获取渠道健康状态失败: {e}")
         return {
             "success": False,
-            "error": str(e)
+            "error": "获取渠道健康状态失败"
         }
 
 
@@ -2021,11 +2021,11 @@ async def get_analysis_prompt_endpoint(
         logger.warning(f"分析Prompt参数错误: {e}")
         return {
             "success": False,
-            "error": str(e)
+            "error": "分析Prompt参数错误"
         }
     except Exception as e:
         logger.error(f"获取分析Prompt失败: {e}", exc_info=True)
         return {
             "success": False,
-            "error": str(e)
+            "error": "获取分析Prompt失败"
         }

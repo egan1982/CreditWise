@@ -44,24 +44,8 @@ npm-debug.log*
 workspace/
 data/workspace/
 
-# Runtime data (execution states, task results)
-execution_states/
-task_results/
-*.pkl
-
-# Deprecated files (archived, not for production)
+# Deprecated files (contains test keys and hardcoded paths)
 deprecated_files/
-
-# Temporary files
-.app_pids.txt
-*.bak
-*.tmp
-
-# Playground data (large files)
-playground/**/*.zip
-
-# Next.js build cache
-.next/
 
 #other
 **/.claude/

@@ -28,14 +28,14 @@ def get_resource_path(resource_name: str) -> Optional[Path]:
         资源的 Path 对象，如果不存在则返回 None
 
     Examples:
-        >>> from llm_api_manager import get_resource_path
+        >>> from llm_manager_integrated import get_resource_path
         >>> path = get_resource_path('docs/INTEGRATION_GUIDE.md')
         >>> if path and path.exists():
         ...     content = path.read_text()
     """
     try:
         # 获取 resources 包的路径
-        ref = files('llm_api_manager').joinpath('resources', resource_name)
+        ref = files('llm_manager_integrated').joinpath('resources', resource_name)
 
         # 尝试获取实际文件路径
         # 对于已安装的包，这通常有效
@@ -49,7 +49,7 @@ def get_resource_path(resource_name: str) -> Optional[Path]:
                 return path if path.exists() else None
         else:
             # Python 3.8
-            with files('llm_api_manager').joinpath('resources').as_file(resource_name) as path:
+            with files('llm_manager_integrated').joinpath('resources').as_file(resource_name) as path:
                 return path if path.exists() else None
     except (ImportError, AttributeError, FileNotFoundError):
         # 如果找不到资源，尝试从项目根目录查找（开发模式）
@@ -72,7 +72,7 @@ def get_docs_path() -> Optional[Path]:
         docs 目录的 Path 对象，如果不存在则返回 None
 
     Examples:
-        >>> from llm_api_manager import get_docs_path
+        >>> from llm_manager_integrated import get_docs_path
         >>> docs_dir = get_docs_path()
         >>> if docs_dir:
         ...     integration_guide = docs_dir / 'INTEGRATION_GUIDE.md'
@@ -89,7 +89,7 @@ def get_examples_path() -> Optional[Path]:
         examples 目录的 Path 对象，如果不存在则返回 None
 
     Examples:
-        >>> from llm_api_manager import get_examples_path
+        >>> from llm_manager_integrated import get_examples_path
         >>> examples_dir = get_examples_path()
         >>> if examples_dir:
         ...     fastapi_example = examples_dir / 'fastapi_integration.py'
@@ -106,7 +106,7 @@ def list_docs() -> list[str]:
         文档文件名的列表
 
     Examples:
-        >>> from llm_api_manager.resources.utils import list_docs
+        >>> from llm_manager_integrated.resources.utils import list_docs
         >>> docs = list_docs()
         >>> for doc in docs:
         ...     print(f"- {doc}")
@@ -125,7 +125,7 @@ def list_examples() -> list[str]:
         示例文件名的列表
 
     Examples:
-        >>> from llm_api_manager.resources.utils import list_examples
+        >>> from llm_manager_integrated.resources.utils import list_examples
         >>> examples = list_examples()
         >>> for example in examples:
         ...     print(f"- {example}")
@@ -147,7 +147,7 @@ def read_doc(filename: str) -> Optional[str]:
         文档内容，如果文件不存在则返回 None
 
     Examples:
-        >>> from llm_api_manager.resources.utils import read_doc
+        >>> from llm_manager_integrated.resources.utils import read_doc
         >>> guide = read_doc('INTEGRATION_GUIDE.md')
         >>> if guide:
         ...     print(guide[:100])  # 打印前 100 个字符
@@ -171,7 +171,7 @@ def read_example(filename: str) -> Optional[str]:
         示例代码内容，如果文件不存在则返回 None
 
     Examples:
-        >>> from llm_api_manager.resources.utils import read_example
+        >>> from llm_manager_integrated.resources.utils import read_example
         >>> example = read_example('fastapi_integration.py')
         >>> if example:
         ...     print(example[:100])  # 打印前 100 个字符

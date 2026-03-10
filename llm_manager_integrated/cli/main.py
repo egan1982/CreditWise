@@ -47,7 +47,7 @@ def serve(
     """
     try:
         import uvicorn
-        from llm_api_manager.api.main import app
+        from llm_manager_integrated.api.main import app
         
         logger.info("=" * 60)
         logger.info("LLM API Manager - Starting Service")

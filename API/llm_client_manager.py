@@ -6,9 +6,12 @@ Provides graceful degradation when API keys are not available
 
 import os
 import json
+import logging
 from typing import Optional, Tuple
 from pathlib import Path
 from config import API_BASE
+
+logger = logging.getLogger(__name__)
 
 # Global client instance (lazy-loaded)
 _llm_client = None
@@ -60,10 +63,8 @@ class LLMClientManager:
             _llm_client_initialized = True
             
             if verbose:
-                key_preview = f"{api_key[:10]}...{api_key[-5:]}" if len(api_key) > 20 else "****"
-                print(f"[OK] LLM Client initialized successfully")
-                print(f"     - Base URL: {api_base}")
-                print(f"     - API Key: {key_preview}")
+                key_preview = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 12 else "****"
+                logger.debug(f"LLM Client initialized: Base URL={api_base}, API Key={key_preview}")
             
             return _llm_client
             

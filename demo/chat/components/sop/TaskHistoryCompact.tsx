@@ -1,5 +1,6 @@
 "use client";
 
+import { getApiUrl } from "@/lib/config";
 import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -287,7 +288,7 @@ export function TaskHistoryCompact({
         params.set("task_category", categoryFilter);
       }
 
-      const response = await fetch(`/api/sop/history?${params.toString()}`);
+      const response = await fetch(getApiUrl(`/sop/history?${params.toString()}`));
       if (!response.ok) {
         throw new Error("Failed to load history");
       }
@@ -313,7 +314,7 @@ export function TaskHistoryCompact({
 
     setDeleting(true);
     try {
-      const response = await fetch(`/api/sop/history/${recordToDelete}`, {
+      const response = await fetch(getApiUrl(`/sop/history/${recordToDelete}`), {
         method: "DELETE",
       });
 

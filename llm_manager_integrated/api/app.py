@@ -161,7 +161,7 @@ def create_app(
             status_code=500,
             content=error_response(
                 code=500,
-                message=f"服务器内部错误: {str(exc)}"
+                message="服务器内部错误"
             )
         )
     

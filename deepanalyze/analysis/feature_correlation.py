@@ -22,7 +22,8 @@ from typing import Literal, Optional
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 import warnings
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 
 class CorrelationAnalyzer:

@@ -33,7 +33,10 @@ if (Test-Path $venvPath) {
 
 # 创建虚拟环境
 Write-Host "创建虚拟环境..." -ForegroundColor Green
-$portablePython = "C:\Users\fjzheng\portable-dev-env\tools\python\python.exe"
+$portablePython = Join-Path $projectRoot "..\tools\python\python.exe"
+if (Test-Path $portablePython) {
+    $portablePython = (Resolve-Path $portablePython).Path
+}
 
 if (Test-Path $portablePython) {
     & $portablePython -m venv $venvPath

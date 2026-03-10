@@ -12,7 +12,8 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple, Any
 import warnings
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # Try to import visualization libraries
 try:
