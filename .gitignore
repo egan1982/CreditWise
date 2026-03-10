@@ -47,6 +47,11 @@ data/workspace/
 # Deprecated files (contains test keys and hardcoded paths)
 deprecated_files/
 
+# Runtime data (execution states and task results)
+execution_states/
+task_results/
+*.pkl
+
 #other
 **/.claude/
 API/backend/workspace/
