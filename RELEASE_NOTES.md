@@ -7,7 +7,7 @@
 
 ## 🎉 概述
 
-DeepAnalyze CreditWise v1.0.0-beta.1 是首个公开测试版本。这是一个基于 AI 的信贷风控管理平台，专注于规则挖掘、评分卡建模和策略分析。
+DeepAnalyze CreditWise v1.0.0-beta.1 是首个公开测试版本。这是一个基于 AI 的信贷风控智能助手，专注于规则挖掘、评分卡建模和策略分析。
 
 ---
 
