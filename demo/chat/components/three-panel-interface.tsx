@@ -376,7 +376,7 @@ function ThreePanelInterfaceInner() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome-1",
-      content: "您好！我是DeepAnalyze，您的数据科学助手。我可以自动执行包括数据处理、分析、建模、可视化和报告生成在内的各类数据任务，同时支持结构化数据（数据库、CSV、Excel）、半结构化数据（JSON、XML、YAML）和非结构化数据（TXT、Markdown）等多种数据源。上传您的数据，让我们开启任务吧！",
+      content: "您好！我是CreditWise，您的信贷风控助手。我可以自动执行包括数据处理、分析、建模、可视化和报告生成在内的各类数据任务，同时支持结构化数据（数据库、CSV、Excel）、半结构化数据（JSON、XML、YAML）和非结构化数据（TXT、Markdown）等多种数据源。上传您的数据，让我们开启任务吧！",
       sender: "ai",
       timestamp: new Date(),
       localOnly: true,
@@ -571,23 +571,7 @@ function ThreePanelInterfaceInner() {
             timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
           })) as Message[];
           
-          // 检查第一条消息是否是旧版本的英文欢迎消息，如果是则更新为中文
-          if (restored.length > 0 && restored[0].content && 
-              restored[0].content.includes("Hello! I'm DeepAnalyze-8B")) {
-            const newWelcomeMessage = "您好！我是DeepAnalyze，您的数据科学助手。我可以自动执行包括数据处理、分析、建模、可视化和报告生成在内的各类数据任务，同时支持结构化数据（数据库、CSV、Excel）、半结构化数据（JSON、XML、YAML）和非结构化数据（TXT、Markdown）等多种数据源。上传您的数据，让我们开启任务吧！";
-            restored[0].content = newWelcomeMessage;
-            
-            // 先更新消息状态
-            setMessages(restored);
-            
-            // 延迟更新localStorage，确保状态更新后再保存
-            setTimeout(() => {
-              localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(restored));
-            }, 100);
-          } else {
-            // 如果不是旧版消息，直接设置
-            setMessages(restored);
-          }
+          setMessages(restored);
         } else {
           // 如果localStorage中没有有效消息，不设置状态，使用初始的中文欢迎消息
           // 这样确保新用户看到的是中文欢迎消息
@@ -603,25 +587,7 @@ function ThreePanelInterfaceInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 确保欢迎消息是中文的额外保障
-  useEffect(() => {
-    if (chatLoaded && messages.length > 0) {
-      const firstMessage = messages[0];
-      if (firstMessage.sender === 'ai' && firstMessage.content.includes("Hello! I'm DeepAnalyze-8B")) {
-        const updatedMessages = [...messages];
-        updatedMessages[0] = {
-          ...firstMessage,
-          content: "您好！我是DeepAnalyze，您的数据科学助手。我可以自动执行包括数据处理、分析、建模、可视化和报告生成在内的各类数据任务，同时支持结构化数据（数据库、CSV、Excel）、半结构化数据（JSON、XML、YAML）和非结构化数据（TXT、Markdown）等多种数据源。上传您的数据，让我们开启任务吧！"
-        };
-        setMessages(updatedMessages);
-        
-        // 立即更新localStorage
-        setTimeout(() => {
-          localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(updatedMessages));
-        }, 100);
-      }
-    }
-  }, [chatLoaded, messages]);
+
 
   // 每次消息变更时保存到本地
   useEffect(() => {
@@ -651,7 +617,7 @@ function ThreePanelInterfaceInner() {
     }
     const welcome: Message = {
       id: `welcome-${Date.now()}`,
-      content: "您好！我是DeepAnalyze，您的数据科学助手。我可以自动执行包括数据处理、分析、建模、可视化和报告生成在内的各类数据任务，同时支持结构化数据（数据库、CSV、Excel）、半结构化数据（JSON、XML、YAML）和非结构化数据（TXT、Markdown）等多种数据源。上传您的数据，让我们开启任务吧！",
+      content: "您好！我是CreditWise，您的信贷风控助手。我可以自动执行包括数据处理、分析、建模、可视化和报告生成在内的各类数据任务，同时支持结构化数据（数据库、CSV、Excel）、半结构化数据（JSON、XML、YAML）和非结构化数据（TXT、Markdown）等多种数据源。上传您的数据，让我们开启任务吧！",
       sender: "ai",
       timestamp: new Date(),
       localOnly: true,

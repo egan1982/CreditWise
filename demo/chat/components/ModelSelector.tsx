@@ -6,7 +6,7 @@ import { Settings, Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // localStorage key for persisting selected model config
-const STORAGE_KEY = "deepanalyze_selected_model_config_id";
+const STORAGE_KEY = "creditwise_selected_model_config_id";
 
 // 与后端API响应匹配的模型配置接口
 interface ModelConfig {

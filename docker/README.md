@@ -33,8 +33,8 @@ Build the image from source for customization:
 
 ```bash
 # Clone the repository
-git clone https://github.com/ruc-datalab/DeepAnalyze.git
-cd DeepAnalyze/docker
+git clone https://github.com/egan1982/CreditWise.git
+cd CreditWise/docker
 
 # Build the image
 docker build -t deepanalyze-env:latest .

@@ -1,5 +1,7 @@
 # DeepAnalyze 项目 Release 就绪可执行计划
 
+> ⚠️ **注意**：本文档为内部开发计划，其中 pyproject.toml 模板、GitHub 仓库地址、Docker 镜像名、作者信息等内容为早期规划时基于原项目（ruc-datalab/DeepAnalyze）编写。**实际配置以项目根目录的 `pyproject.toml`、`README.md`、`LICENSE` 等文件为准**，本文档中对应内容不再逐一更新。
+
 > 版本：v1.8  
 > 日期：2026-03-04  
 > 状态：发布前代码审计修复已全部完成（P0 全部完成，P1 必修全部完成，P1 建议级完成 14/16，P2 已修复 2/8）  

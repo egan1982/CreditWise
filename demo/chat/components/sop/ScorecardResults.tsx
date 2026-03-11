@@ -1588,7 +1588,7 @@ export function ScorecardResults({
     }
     
     md += `---\n\n`;
-    md += `*本报告由 DeepAnalyze 自动生成*\n`;
+    md += `*本报告由 CreditWise 自动生成*\n`;
     
     return md;
   };

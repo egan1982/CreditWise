@@ -1,4 +1,4 @@
-# Docker Compose configuration for DeepAnalyze API service
+# Docker Compose configuration for CreditWise API service
 # Usage: docker-compose up -d
 
 version: '3.8'

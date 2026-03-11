@@ -1,10 +1,10 @@
 # ============================================
-# DeepAnalyze Docker Environment
+# CreditWise 信贷风控助手 Docker Environment
 # External API integration with support for multiple LLM providers
 # ============================================
 
-# Base image with NVIDIA CUDA support
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
+# Base image (no GPU needed - using external LLM API)
+FROM python:3.12-slim
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -16,8 +16,6 @@ WORKDIR /workspace
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
     git \
     curl \
     wget \
@@ -26,8 +24,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip and install API dependencies
-RUN pip3 install --upgrade pip && \
-    pip3 install \
+RUN pip install --upgrade pip && \
+    pip install \
     fastapi \
     uvicorn \
     openai \
@@ -36,14 +34,14 @@ RUN pip3 install --upgrade pip && \
 
 # Install data science and analysis tools
 # Data processing and analysis
-RUN pip3 install \
+RUN pip install \
     pandasql \
     pyjanitor \
     feature-engine \
     missingno
 
 # Data visualization
-RUN pip3 install \
+RUN pip install \
     plotly \
     bokeh \
     squarify \
@@ -52,8 +50,8 @@ RUN pip3 install \
     folium \
     contextily
 
-# Machine learning / Deep learning
-RUN pip3 install \
+# Machine learning / Statistical modeling
+RUN pip install \
     mlxtend \
     imbalanced-learn \
     optuna \
@@ -61,21 +59,21 @@ RUN pip3 install \
     lime
 
 # Time series and forecasting
-RUN pip3 install \
+RUN pip install \
     prophet \
     pmdarima \
     tslearn \
     lifelines
 
 # Bayesian / Probabilistic modeling
-RUN pip3 install \
+RUN pip install \
     pymc \
     pystan \
     cmdstanpy \
     pyro-ppl
 
 # Causal inference
-RUN pip3 install \
+RUN pip install \
     dowhy \
     econml \
     causalml \
@@ -83,7 +81,7 @@ RUN pip3 install \
     zepid
 
 # Geospatial data science
-RUN pip3 install \
+RUN pip install \
     geopandas \
     shapely \
     rasterio \

@@ -12,7 +12,7 @@ const PRESET_CONFIGS = {
       max_tokens: 2000,
       frequency_penalty: 0.3,  // 适度抑制重复，保持对话流畅
       presence_penalty: 0.2,   // 鼓励话题多样性
-      system_prompt: `你是 DeepAnalyze 数据分析平台的 AI 助手。
+      system_prompt: `你是 CreditWise 信贷风控平台的 AI 助手。
 
 ## 核心能力
 - 数据分析与统计学知识
@@ -42,7 +42,7 @@ const PRESET_CONFIGS = {
       max_tokens: 1500,
       frequency_penalty: 0.0,
       presence_penalty: 0.0,
-      system_prompt: `你是 DeepAnalyze 数据分析平台的任务参数提取助手。
+      system_prompt: `你是 CreditWise 信贷风控平台的任务参数提取助手。
 
 ## 角色定位
 在 LLM+Pipeline 架构中，你是"智能入口"而非"执行引擎"：
@@ -121,7 +121,7 @@ const PRESET_CONFIGS = {
       max_tokens: 3000,
       frequency_penalty: 0.5,  // 有效抑制DeepSeek重复输出
       presence_penalty: 0.3,   // 避免内容冗余，保持简洁
-      system_prompt: `你是 DeepAnalyze 数据分析平台的结果解释专家。
+      system_prompt: `你是 CreditWise 信贷风控助手的结果解释模块。
 
 ## 核心职责
 将 Pipeline 执行的分析结果转化为业务人员易懂的解释，突出关键发现和可操作建议。

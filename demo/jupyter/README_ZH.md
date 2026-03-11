@@ -27,7 +27,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 2. 克隆项目并进入目录
 ```bash
-git clone https://github.com/ruc-datalab/DeepAnalyze.git
+git clone https://github.com/egan1982/CreditWise.git
 cd demo/jupyter
 ```
 

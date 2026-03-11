@@ -121,7 +121,7 @@ const PRESET_CONFIGS = {
       max_tokens: 3000,
       frequency_penalty: 0.5,  // 有效抑制DeepSeek重复输出
       presence_penalty: 0.3,   // 避免内容冗余，保持简洁
-      system_prompt: `你是 DeepAnalyze 数据分析平台的结果解释专家。
+      system_prompt: `你是 CreditWise 信贷风控助手的结果解释模块。
 
 ## 核心职责
 将 Pipeline 执行的分析结果转化为业务人员易懂的解释，突出关键发现和可操作建议。

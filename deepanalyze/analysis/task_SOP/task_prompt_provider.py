@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # Default Prompts
 # =============================================================================
 
-DEFAULT_BASE_PROMPT = """你是 DeepAnalyze 数据分析平台的 AI 助手，专注于金融风控领域的数据分析任务。
+DEFAULT_BASE_PROMPT = """你是 CreditWise 信贷风控助手，专注于金融风控领域的数据分析任务。
 
 ## 你的能力
 - 数据处理与分析（Python、pandas、numpy）

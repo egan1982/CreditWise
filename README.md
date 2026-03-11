@@ -16,6 +16,8 @@
 $env:DEEPSEEK_API_KEY = "your-api-key-here"
 ```
 
+> 💡 也可以通过 [LLM Manager 管理界面](http://localhost:8200/llm-manager) 在线配置 API 密钥，支持多供应商管理、连接测试和负载均衡。
+
 ### 2. 启动完整服务（推荐）
 ```powershell
 # 自动启动前后端服务并打开浏览器
@@ -40,18 +42,12 @@ $env:DEEPSEEK_API_KEY = "your-api-key-here"
 
 ---
 
-> **Authors**: **[Shaolei Zhang](https://zhangshaolei1998.github.io/), [Ju Fan*](http://iir.ruc.edu.cn/~fanj/), [Meihao Fan](https://scholar.google.com/citations?user=9RTm2qoAAAAJ), [Guoliang Li](https://dbgroup.cs.tsinghua.edu.cn/ligl/), [Xiaoyong Du](http://info.ruc.edu.cn/jsky/szdw/ajxjgcx/jsjkxyjsx1/js2/7374b0a3f58045fc9543703ccea2eb9c.htm)**
->
-> Renmin University of China, Tsinghua University
+> 本项目基于 [ruc-datalab/DeepAnalyze](https://github.com/ruc-datalab/DeepAnalyze) 二次开发，由 [egan1982](https://github.com/egan1982) 维护。
 
 **DeepAnalyze** is first agentic LLM for autonomous data science. It can autonomously complete a wide range of data-centric tasks without human intervention, supporting:
 - 🛠 **Entire data science pipeline**: Automatically perform any data science tasks such as data preparation, analysis, modeling, visualization, and report generation.
 - 🔍 **Open-ended data research**: Conduct deep research on diverse data sources, including structured data (Databases, CSV, Excel), semi-structured data (JSON, XML, YAML), and unstructured data (TXT, Markdown), and finally produce analyst-grade research reports.
 - 🌐 **Multiple API support**: Integrated with various LLM providers including OpenAI, GoogleAI, DeepSeek, Claude, and custom APIs for flexible deployment.
-
-<p align="center" width="100%">
-<img src="./assets/deepanalyze.jpg" alt="deepanalyze" style="width: 70%; min-width: 300px; display: block; margin: auto;">
-</p>
 
 ## 🌐 多供应商API管理
 
@@ -142,8 +138,8 @@ print(response.choices[0].message.content)
 ### Windows用户
 ```powershell
 # 克隆仓库
-git clone https://github.com/ruc-datalab/DeepAnalyze.git
-cd DeepAnalyze
+git clone https://github.com/egan1982/CreditWise.git
+cd CreditWise
 
 # 一键启动（自动安装依赖）
 .\start_all_api.ps1
@@ -152,8 +148,8 @@ cd DeepAnalyze
 ### Linux/macOS用户
 ```bash
 # 克隆仓库
-git clone https://github.com/ruc-datalab/DeepAnalyze.git
-cd DeepAnalyze
+git clone https://github.com/egan1982/CreditWise.git
+cd CreditWise
 
 # 设置环境变量
 export DEEPSEEK_API_KEY="your-api-key-here"
@@ -203,8 +199,8 @@ chmod +x scripts/*.sh
 ### 开发环境设置
 ```bash
 # 克隆仓库
-git clone https://github.com/ruc-datalab/DeepAnalyze.git
-cd DeepAnalyze
+git clone https://github.com/egan1982/CreditWise.git
+cd CreditWise
 
 # 创建Python虚拟环境
 python -m venv .venv
@@ -232,9 +228,9 @@ pip install -r requirements.txt
 - Tailwind CSS: 实用优先的CSS框架
 - Vite: 快速的前端构建工具
 
-## 📋 Citation
+## 📋 原始论文引用
 
-如果本项目对您有帮助，请引用：
+本项目基于 DeepAnalyze 二次开发，如需引用原始论文：
 
 ```bibtex
 @misc{zhang2025deepanalyze,

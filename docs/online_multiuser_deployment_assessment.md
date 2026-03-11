@@ -1,8 +1,9 @@
 # DeepAnalyze 线上多用户部署评估报告
 
-> 版本：v1.1  
-> 日期：2025-03-02  
-> 状态：评估完成，已整合最小可行方案
+> 版本：v1.2  
+> 日期：2025-03-10  
+> 状态：评估完成，已整合审阅意见与改进方案  
+> 更新记录：v1.1 → v1.2 整合代码审阅发现的安全缺陷、架构遗漏及实施建议
 
 ---
 
@@ -17,6 +18,7 @@
 7. [实施路线图](#实施路线图)
 8. [最小可行改造方案（内网 <5 人测试）](#最小可行改造方案内网-5-人测试)
 9. [快速启动建议](#快速启动建议)
+10. [审阅意见与改进方案（v1.2 新增）](#审阅意见与改进方案v12-新增)
 
 ---
 
@@ -30,19 +32,20 @@
 |------|----------|------------|
 | 用户认证 | ❌ 缺失 | 1-2 周 |
 | 数据隔离 | ⚠️ 弱（仅 session_id） | 1 周 |
-| 数据库 | ⚠️ SQLite 单文件 | 1 周 |
+| 数据库 | ⚠️ SQLite 单文件（<20 人可保留） | 视规模而定 |
 | 文件存储 | ❌ 本地磁盘 | 3-5 天 |
-| 会话管理 | ❌ 内存状态 | 3-5 天 |
+| 会话管理 | ⚠️ API 层内存（SOP 已有持久化） | 1-2 天 |
+| 代码执行隔离 | ❌ 无沙箱（v1.2 新增） | 1-2 周 |
 | 水平扩展 | ❌ 不支持 | 1-2 周 |
-| **总体评估** | **需全面改造** | **6-8 周** |
+| **总体评估** | **需全面改造** | **8-12 周** |
 
 ### 快速改造路径
 
 | 场景 | 方案 | 工作量 | 适用性 |
 |------|------|--------|--------|
-| **内网测试（<5人）** | HTTP Basic Auth + 配置文件 | 2-4 小时 | ⭐ 推荐 |
-| 小团队（10-50人）| JWT + SQLite | 1-2 周 | 可用 |
-| 生产环境（50+人）| 完整改造方案 | 6-8 周 | 必须 |
+| **内网测试（<5人）** | bcrypt 安全认证 + 配置文件 | 4-6 小时 | ⭐ 推荐 |
+| 小团队（10-50人）| JWT + SSE认证 + 文件鉴权 | 2-2.5 周 | 可用 |
+| 生产环境（50+人）| 完整改造方案（含沙箱隔离） | 8-12 周 | 必须 |
 
 ---
 
@@ -67,7 +70,7 @@
 | **权限隔离** | ❌ 无隔离 | ❌ 不支持 | 用户 A 可通过猜测 session_id 访问用户 B 的数据 |
 | **数据库** | SQLite 单文件 | ⚠️ 需改造 | 本地文件，多实例部署时数据不共享 |
 | **文件存储** | 本地文件系统 | ❌ 不支持 | `workspace/{session_id}/` 目录，无法跨实例共享 |
-| **会话管理** | 内存状态 | ❌ 不支持 | Pipeline 执行状态保存在内存，服务重启后丢失 |
+| **会话管理** | ⚠️ 部分内存 | ⚠️ 需改造 | API 层 Storage 为内存字典；但 SOP 执行状态已有 PersistentExecutionStore 持久化 |
 | **API 安全** | 无限流 | ❌ 不支持 | 无防刷、无请求频率限制 |
 | **水平扩展** | 单机部署 | ❌ 不支持 | 状态内聚，无法水平扩展 |
 
@@ -111,8 +114,10 @@ def get_session_workspace(session_id: str) -> str:
 │ 4. 本地文件存储                                               │
 │    └─> 多实例部署时文件不共享，无法水平扩展                     │
 │                                                             │
-│ 5. 内存状态管理                                               │
-│    └─> 服务重启后状态丢失，无法实现任务持久化                   │
+│ 5. 内存状态管理（部分已改善）                                │
+│    └─> API 层 Storage 内存字典重启丢失；                       │
+│        但 SOP 任务执行状态已有 PersistentExecutionStore         │
+│        支持 pickle 文件 + SQLite 持久化                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -427,6 +432,15 @@ async def verify_workspace_owner(
 
 ### 阶段二：数据库改造（必须）
 
+> ⚠️ **v1.2 补充说明**：数据库改造的必要性取决于用户规模。现有代码已在 `task_manager/database.py` 中预留了通过环境变量切换数据库 URL 的扩展点，这是一个良好的设计。
+>
+> | 用户规模 | 是否需要 PostgreSQL | 理由 |
+> |---------|---------------------|------|
+> | <5 人内网 | ❌ SQLite 足够 | WAL 模式支持并发读，少量写入够用 |
+> | 5-20 人 | ⚠️ 可选 | SQLite WAL + 合理的写入队列可承受 |
+> | 20-50 人 | ✅ 建议 | 写入竞争明显增加 |
+> | 50+ 人 | ✅ 必须 | 连接池、并发性能要求 |
+
 #### 2.1 数据库迁移策略
 
 **SQLite → PostgreSQL**
@@ -690,6 +704,17 @@ storage = get_storage()
 
 ### 阶段四：会话状态外置（必须）
 
+> ⚠️ **v1.2 修正说明**：
+> 
+> 项目已有 `PersistentExecutionStore`（`deepanalyze/core/task_manager/persistent_store.py`），
+> 支持通过 `execution_states/` 目录下的 `.pkl` 文件 + SQLite `execution_states` 表进行任务暂停/恢复/重启恢复。
+> 
+> **因此，"会话状态外置"的实际工作量被原始评估高估。** 真正需要外置的是：
+> 1. `API/storage.py` 中的内存字典（`threads`/`messages`/`files`）
+> 2. `execution_states/` 目录在多实例场景下的共享问题
+> 
+> **Redis 的正确定位**：缓存当前活跃执行的热状态；历史记录仍应通过数据库查询。
+
 #### 4.1 状态管理器
 
 ```python
@@ -707,6 +732,10 @@ class StateManager:
     支持两种模式：
     - Redis 模式：生产环境，支持多实例共享
     - 内存模式：开发环境，单实例使用
+    
+    v1.2 改进：
+    - Redis 仅缓存活跃执行的热状态，历史记录通过数据库查询
+    - 使用 user:{user_id}:executions 索引集合，避免全量 SCAN
     """
     
     def __init__(self):
@@ -723,11 +752,16 @@ class StateManager:
             self.mode = "redis"
         else:
             self._local_cache: Dict[str, Any] = {}
+            self._user_index: Dict[int, set] = {}  # user_id -> {execution_id, ...}
             self.mode = "memory"
     
     def _get_key(self, execution_id: str) -> str:
         """生成 Redis key"""
         return f"deepanalyze:execution:{execution_id}"
+    
+    def _get_user_index_key(self, user_id: int) -> str:
+        """生成用户执行索引的 Redis key"""
+        return f"deepanalyze:user:{user_id}:executions"
     
     def get_execution_status(self, execution_id: str) -> Optional[Dict]:
         """获取执行状态"""
@@ -743,15 +777,28 @@ class StateManager:
         status: Dict,
         expire_hours: int = 24
     ):
-        """设置执行状态"""
+        """设置执行状态，同时维护用户索引"""
+        user_id = status.get("user_id")
+        
         if self.mode == "redis":
-            self.client.setex(
+            pipe = self.client.pipeline()
+            pipe.setex(
                 self._get_key(execution_id),
                 timedelta(hours=expire_hours),
                 json.dumps(status, default=str)
             )
+            # 维护用户 -> 执行ID 的索引集合
+            if user_id is not None:
+                index_key = self._get_user_index_key(user_id)
+                pipe.sadd(index_key, execution_id)
+                pipe.expire(index_key, timedelta(hours=expire_hours))
+            pipe.execute()
         else:
             self._local_cache[execution_id] = status
+            if user_id is not None:
+                if user_id not in self._user_index:
+                    self._user_index[user_id] = set()
+                self._user_index[user_id].add(execution_id)
     
     def update_execution_status(self, execution_id: str, updates: Dict):
         """部分更新执行状态"""
@@ -762,28 +809,65 @@ class StateManager:
     def delete_execution_status(self, execution_id: str):
         """删除执行状态"""
         if self.mode == "redis":
-            self.client.delete(self._get_key(execution_id))
+            # 先获取 user_id 以清理索引
+            data = self.client.get(self._get_key(execution_id))
+            if data:
+                status = json.loads(data)
+                user_id = status.get("user_id")
+                pipe = self.client.pipeline()
+                pipe.delete(self._get_key(execution_id))
+                if user_id is not None:
+                    pipe.srem(self._get_user_index_key(user_id), execution_id)
+                pipe.execute()
+            else:
+                self.client.delete(self._get_key(execution_id))
         else:
-            self._local_cache.pop(execution_id, None)
+            status = self._local_cache.pop(execution_id, None)
+            if status:
+                user_id = status.get("user_id")
+                if user_id and user_id in self._user_index:
+                    self._user_index[user_id].discard(execution_id)
     
     def get_user_executions(self, user_id: int) -> list:
-        """获取用户的所有执行记录（Redis 模式支持）"""
+        """
+        获取用户的活跃执行记录
+        
+        v1.2 改进：通过索引集合精确查询，而非全量 SCAN + 过滤
+        注意：历史记录应通过数据库查询，此处仅返回 Redis 中的活跃状态
+        """
         if self.mode == "redis":
-            pattern = f"deepanalyze:execution:*"
-            keys = self.client.scan_iter(match=pattern)
+            # 通过索引集合获取用户的执行ID列表
+            index_key = self._get_user_index_key(user_id)
+            execution_ids = self.client.smembers(index_key)
+            
+            if not execution_ids:
+                return []
+            
+            # 批量获取所有执行状态（MGET 比逐条 GET 高效）
+            keys = [self._get_key(eid) for eid in execution_ids]
+            results = self.client.mget(keys)
+            
             executions = []
-            for key in keys:
-                data = self.client.get(key)
+            expired_ids = []
+            for eid, data in zip(execution_ids, results):
                 if data:
-                    status = json.loads(data)
-                    if status.get("user_id") == user_id:
-                        executions.append(status)
+                    executions.append(json.loads(data))
+                else:
+                    # 数据已过期但索引未清理
+                    expired_ids.append(eid)
+            
+            # 清理过期的索引条目
+            if expired_ids:
+                self.client.srem(index_key, *expired_ids)
+            
             return executions
         else:
-            # 内存模式：遍历查找
+            # 内存模式：通过索引查找
+            execution_ids = self._user_index.get(user_id, set())
             return [
-                status for status in self._local_cache.values()
-                if status.get("user_id") == user_id
+                self._local_cache[eid]
+                for eid in execution_ids
+                if eid in self._local_cache
             ]
 
 # 全局实例
@@ -1382,33 +1466,66 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
 #### Step 1: 创建用户配置文件
 
+> ⚠️ **v1.2 安全改进**：密码使用 bcrypt 哈希存储，而非明文。管理员通过附带的工具脚本生成哈希值。
+
 ```yaml
 # config/users.yaml
 # 内网测试用户配置（管理员手动维护）
+# ⚠️ 密码字段为 bcrypt 哈希值，使用 scripts/hash_password.py 生成
 
 users:
   - username: user1
-    password: "changeme123"  # 首次登录后修改
+    password_hash: "$2b$12$LJ3m4ys2Kq..."  # 使用 scripts/hash_password.py 生成
     role: user
     description: "测试用户1"
     
   - username: user2
-    password: "changeme123"
+    password_hash: "$2b$12$Xk9p7Rt1Wn..."
     role: user
     description: "测试用户2"
     
   - username: admin
-    password: "admin123"
+    password_hash: "$2b$12$Qw8e3Zx5Gy..."
     role: admin
     description: "管理员"
 
 # 安全配置
 settings:
   session_timeout_hours: 24
-  require_password_change: true  # 首次登录要求修改密码
+  max_login_failures: 5          # 连续失败次数限制
+  lockout_duration_minutes: 15   # 锁定时间（分钟）
 ```
 
-#### Step 2: Basic Auth 中间件
+**密码哈希生成工具**（`scripts/hash_password.py`）：
+
+```python
+#!/usr/bin/env python3
+"""生成 bcrypt 密码哈希值，用于 config/users.yaml"""
+import bcrypt
+import sys
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        pwd = sys.argv[1]
+    else:
+        import getpass
+        pwd = getpass.getpass("请输入密码: ")
+    
+    hashed = hash_password(pwd)
+    print(f"密码哈希值: {hashed}")
+    print("请将此值复制到 config/users.yaml 的 password_hash 字段")
+```
+
+#### Step 2: Basic Auth 中间件（安全增强版）
+
+> ⚠️ **v1.2 安全改进**：
+> - 使用 `bcrypt` 验证密码哈希（而非明文比较）
+> - 使用 `hmac.compare_digest` 防止时序攻击
+> - 添加登录失败计数和账户锁定机制
+> - 添加登录审计日志
 
 创建 `API/auth_simple.py`：
 
@@ -1416,25 +1533,70 @@ settings:
 import os
 import yaml
 import base64
+import hmac
+import bcrypt
+import time
+import logging
+from collections import defaultdict
 from fastapi import Request, HTTPException, status
+
+logger = logging.getLogger(__name__)
 
 def load_users():
     config_path = os.path.join(os.path.dirname(__file__), "..", "config", "users.yaml")
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
-    return {u['username']: u for u in config['users']}
+    return config
 
-USERS = load_users()
+CONFIG = load_users()
+USERS = {u['username']: u for u in CONFIG['users']}
+SETTINGS = CONFIG.get('settings', {})
 
 class SimpleAuth:
     def __init__(self):
         self.users = USERS
+        self.max_failures = SETTINGS.get('max_login_failures', 5)
+        self.lockout_duration = SETTINGS.get('lockout_duration_minutes', 15) * 60  # 转为秒
+        # 登录失败追踪: {username: {"count": int, "last_failure": float}}
+        self._failure_tracker: dict = defaultdict(lambda: {"count": 0, "last_failure": 0.0})
+    
+    def _is_locked(self, username: str) -> bool:
+        """检查账户是否被锁定"""
+        tracker = self._failure_tracker.get(username)
+        if not tracker:
+            return False
+        if tracker["count"] >= self.max_failures:
+            elapsed = time.time() - tracker["last_failure"]
+            if elapsed < self.lockout_duration:
+                return True
+            # 锁定时间已过，重置计数
+            self._failure_tracker[username] = {"count": 0, "last_failure": 0.0}
+        return False
+    
+    def _record_failure(self, username: str):
+        """记录登录失败"""
+        self._failure_tracker[username]["count"] += 1
+        self._failure_tracker[username]["last_failure"] = time.time()
+    
+    def _reset_failures(self, username: str):
+        """登录成功后重置失败计数"""
+        self._failure_tracker[username] = {"count": 0, "last_failure": 0.0}
     
     def verify_credentials(self, username: str, password: str) -> bool:
+        """使用 bcrypt 验证密码，防止时序攻击"""
         user = self.users.get(username)
         if not user:
+            # 即使用户不存在也执行一次哈希操作，防止时序泄露用户名是否存在
+            bcrypt.hashpw(b"dummy_password", bcrypt.gensalt())
             return False
-        return user['password'] == password
+        
+        stored_hash = user.get('password_hash', '').encode('utf-8')
+        password_bytes = password.encode('utf-8')
+        
+        try:
+            return bcrypt.checkpw(password_bytes, stored_hash)
+        except Exception:
+            return False
     
     def get_current_user(self, request: Request) -> dict:
         auth_header = request.headers.get("Authorization", "")
@@ -1457,13 +1619,26 @@ class SimpleAuth:
                 headers={"WWW-Authenticate": "Basic"},
             )
         
+        # 检查账户是否被锁定
+        if self._is_locked(username):
+            logger.warning(f"Account locked: {username} (from {request.client.host})")
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Account locked due to too many failed attempts. "
+                       f"Try again in {self.lockout_duration // 60} minutes.",
+            )
+        
         if not self.verify_credentials(username, password):
+            self._record_failure(username)
+            logger.warning(f"Login failed: {username} (from {request.client.host})")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
                 headers={"WWW-Authenticate": "Basic"},
             )
         
+        self._reset_failures(username)
+        logger.info(f"Login success: {username} (from {request.client.host})")
         return self.users[username]
 
 simple_auth = SimpleAuth()
@@ -1596,11 +1771,13 @@ Write-Host "  内网: http://<服务器IP>:$Port"
 ```
 DeepAnalyze/
 ├── API/
-│   ├── auth_simple.py      # 新增：Basic Auth
+│   ├── auth_simple.py      # 新增：Basic Auth（bcrypt 安全增强版）
 │   ├── main.py             # 修改：增加认证依赖
 │   └── utils.py            # 修改：用户隔离工作区
 ├── config/
-│   └── users.yaml          # 新增：用户配置
+│   └── users.yaml          # 新增：用户配置（bcrypt 哈希密码）
+├── scripts/
+│   └── hash_password.py    # 新增：密码哈希生成工具
 ├── demo/chat/
 │   ├── app/login/page.tsx  # 新增：登录页面
 │   └── lib/api.ts          # 修改：API 客户端
@@ -1611,7 +1788,9 @@ DeepAnalyze/
 
 | 项目 | 建议 | 优先级 |
 |------|------|--------|
+| 密码存储 | bcrypt 哈希，禁止明文存储 | P0 |
 | 防火墙 | 限制只有特定 IP 可访问 | P0 |
+| 登录保护 | 连续失败 5 次锁定 15 分钟 | P0 |
 | 密码策略 | 首次登录强制修改密码 | P1 |
 | 定期更换 | 每月更换一次测试密码 | P2 |
 | 访问日志 | 记录用户操作日志 | P2 |
@@ -1698,6 +1877,564 @@ DeepAnalyze/
 
 ---
 
+## 审阅意见与改进方案（v1.2 新增）
+
+> 本章节基于对项目实际代码（`API/`、`deepanalyze/`、`demo/chat/`）的审阅，指出原始方案中的安全缺陷、架构遗漏，并给出具体改进实现。
+> 
+> 已在文档正文中**就地修复**的问题（标记为 ✅ 已修复）不再重复给出完整代码，仅说明修改要点。
+
+### 一、方案合理性总评
+
+#### 超轻量方案（2-4 小时，<5 人内网）
+
+| 项目 | 评分 | 说明 |
+|------|------|------|
+| 工作量估算 | ⭐⭐⭐⭐ | 合理偏乐观，含测试实际需 4-6 小时 |
+| 安全性 | ⭐⭐⭐⭐ | **v1.2 已修复**：bcrypt 哈希 + 登录失败锁定 |
+| 可扩展性 | ⭐⭐⭐ | 后续升级路径清晰 |
+| 实用性 | ⭐⭐⭐⭐ | 内网测试场景够用 |
+
+#### 方案 A — 伪多用户（1-2 周，JWT + SQLite）
+
+| 项目 | 评分 | 说明 |
+|------|------|------|
+| 工作量估算 | ⭐⭐⭐ | 6 天偏乐观，JWT 认证 + 前端登录 + 权限校验 + 测试，实际需 8-10 天 |
+| 架构合理性 | ⭐⭐⭐⭐ | 单实例 + JWT + SQLite 对中小团队够用 |
+| 遗漏点 | - | 未考虑 SOP 长任务执行中的认证续期问题 |
+| 升级成本 | ⭐⭐⭐⭐ | 从方案 A 到方案 B 的增量改造路径清晰 |
+
+#### 方案 B — 完整改造（6-8 周，生产就绪）
+
+| 项目 | 评分 | 说明 |
+|------|------|------|
+| 工作量估算 | ⭐⭐⭐ | 偏乐观，含 K8s 部署 + 监控，实际需 8-12 周 |
+| 架构设计 | ⭐⭐⭐ | 经典方案但缺乏针对性优化 |
+| 关键遗漏 | - | 未考虑 Python 代码执行沙箱的安全隔离 |
+| 运维复杂度 | ⭐⭐ | 引入 PostgreSQL + Redis + S3，运维成本大幅上升 |
+
+---
+
+### 二、已在正文中修复的问题
+
+#### 🔴 P0 — 密码安全（超轻量方案）✅ 已修复
+
+**原始问题**：
+- YAML 中存储明文密码 + 直接 `==` 比较
+- 无时序攻击防护
+- Basic Auth 每次传输明文密码
+- 无登录失败限制
+
+**修复措施**（已更新至 Step 1/Step 2 章节）：
+1. 密码使用 `bcrypt` 哈希存储（新增 `scripts/hash_password.py` 工具）
+2. 验证使用 `bcrypt.checkpw`，防止时序攻击
+3. 新增登录失败计数 + 账户锁定机制（默认 5 次失败锁定 15 分钟）
+4. 新增登录审计日志
+
+#### 🔴 P1 — Redis 查询效率（阶段四）✅ 已修复
+
+**原始问题**：`get_user_executions` 使用 `SCAN` 全量扫描 + 逐条 GET + 内存过滤。
+
+**修复措施**（已更新至阶段四章节）：
+1. 新增 `user:{user_id}:executions` Set 索引
+2. 写入状态时同步维护索引（`pipeline` 原子操作）
+3. 查询时通过索引 `SMEMBERS` + `MGET` 批量获取
+4. 自动清理过期索引条目
+
+#### ⚠️ P2 — PersistentExecutionStore 工作量高估（阶段四）✅ 已修复
+
+**原始问题**：文档将"会话状态外置"列为全新改造项，忽略了项目已有 `PersistentExecutionStore`。
+
+**修复措施**（已更新至阶段四章节标注和核心不支持点第 5 条）：
+1. 明确 Redis 定位为"热状态缓存"
+2. 指出真正需要外置的仅为 `API/storage.py` 内存字典
+3. 调整阶段四工作量预期
+
+---
+
+### 三、需要补充的改进方案（尚未修复，需后续实施）
+
+#### 🔴 P0 — 代码执行沙箱隔离
+
+**问题描述**：DeepAnalyze 核心功能是执行用户提交的数据分析任务（Python 代码执行），在多用户场景下，一个用户的代码可以访问其他用户的文件系统和进程。**这是最严重的安全风险，原始文档完全未提及。**
+
+**影响范围**：方案 A、方案 B
+
+**建议方案**：
+
+```
+方案优先级：容器沙箱 > 进程沙箱 > 目录隔离
+
+┌─────────────────────────────────────────────────────────────────┐
+│  方案 1: Docker 容器沙箱（推荐，方案 B 必须）                     │
+│                                                                 │
+│  用户提交任务 → 创建独立 Docker 容器 → 挂载用户目录（只读/读写）   │
+│  → 限制 CPU/内存/网络 → 执行完成后销毁容器                        │
+│                                                                 │
+│  优势：强隔离、资源限制、安全性高                                  │
+│  劣势：需要 Docker 环境、启动延迟（~1-3s）                        │
+├─────────────────────────────────────────────────────────────────┤
+│  方案 2: 进程级沙箱（轻量，方案 A 可用）                          │
+│                                                                 │
+│  使用 subprocess + chroot/namespace 限制执行环境                  │
+│  限制文件系统访问范围、网络访问、系统调用                          │
+│                                                                 │
+│  优势：无需 Docker、启动快                                        │
+│  劣势：隔离性弱于容器                                             │
+├─────────────────────────────────────────────────────────────────┤
+│  方案 3: 目录级隔离（最低限度，超轻量方案适用）                    │
+│                                                                 │
+│  通过路径校验确保用户只能访问自己的 workspace 目录                 │
+│  Python 执行前 chdir 到用户目录 + 限制 import 路径                │
+│                                                                 │
+│  优势：改动最小                                                   │
+│  劣势：无法防止恶意代码（如 os.system）                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Docker 容器沙箱实现参考**：
+
+```python
+# deepanalyze/sandbox/docker_executor.py
+
+import docker
+import tempfile
+import os
+from typing import Dict, Optional
+
+class DockerSandbox:
+    """Docker 容器沙箱执行器"""
+    
+    def __init__(self):
+        self.client = docker.from_env()
+        self.image = os.getenv("SANDBOX_IMAGE", "deepanalyze-sandbox:latest")
+        self.default_limits = {
+            "mem_limit": "512m",        # 内存限制
+            "cpu_period": 100000,        # CPU 限制
+            "cpu_quota": 50000,          # 50% CPU
+            "network_disabled": True,    # 禁用网络
+            "pids_limit": 100,           # 进程数限制
+        }
+    
+    async def execute(
+        self,
+        code: str,
+        user_workspace: str,
+        timeout: int = 300,
+        limits: Optional[Dict] = None
+    ) -> Dict:
+        """在沙箱中执行代码"""
+        run_limits = {**self.default_limits, **(limits or {})}
+        
+        # 将代码写入临时文件
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.py', delete=False, dir=user_workspace
+        ) as f:
+            f.write(code)
+            script_path = f.name
+        
+        try:
+            container = self.client.containers.run(
+                self.image,
+                command=f"python /workspace/{os.path.basename(script_path)}",
+                volumes={
+                    user_workspace: {
+                        'bind': '/workspace',
+                        'mode': 'rw'
+                    }
+                },
+                working_dir="/workspace",
+                detach=True,
+                **run_limits
+            )
+            
+            # 等待执行完成（带超时）
+            result = container.wait(timeout=timeout)
+            logs = container.logs().decode('utf-8')
+            
+            return {
+                "exit_code": result['StatusCode'],
+                "output": logs,
+                "error": result.get('Error', '')
+            }
+        except docker.errors.ContainerError as e:
+            return {"exit_code": 1, "output": "", "error": str(e)}
+        except Exception as e:
+            return {"exit_code": -1, "output": "", "error": f"Sandbox error: {e}"}
+        finally:
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
+            os.unlink(script_path)
+```
+
+#### 🔴 P1 — SSE/长连接认证方案
+
+**问题描述**：SOP 任务通过 SSE（Server-Sent Events）推送进度更新，当前无认证机制。JWT Token 可能在长任务执行过程中过期。
+
+**影响范围**：方案 A、方案 B
+
+**建议方案**：
+
+```python
+# API/sse_auth.py
+
+from fastapi import Request, HTTPException
+from fastapi.responses import StreamingResponse
+from jose import jwt, JWTError
+import asyncio
+
+async def authenticated_sse_endpoint(
+    request: Request,
+    execution_id: str,
+    token: str  # SSE 通过 query parameter 传递 token（WebSocket 同理）
+):
+    """
+    带认证的 SSE 端点
+    
+    SSE/WebSocket 无法在 header 中传递 Bearer Token，
+    因此通过 query parameter 传递，并在连接建立时验证。
+    
+    前端使用: new EventSource(`/sse/progress/${id}?token=${jwt_token}`)
+    """
+    # 验证 Token
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token expired or invalid")
+    
+    # 验证用户对此执行任务的访问权限
+    execution = await get_execution(execution_id)
+    if not execution or str(execution.user_id) != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    async def event_generator():
+        while True:
+            # 推送进度更新...
+            status = state_manager.get_execution_status(execution_id)
+            if status:
+                yield f"data: {json.dumps(status)}\n\n"
+            
+            if status and status.get("status") in ("completed", "failed"):
+                break
+            
+            await asyncio.sleep(1)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream"
+    )
+```
+
+**Token 续期策略**：
+
+```python
+# API/auth.py 追加
+
+# SOP 任务专用的长效 Token（24 小时有效）
+def create_task_token(user_id: int, execution_id: str) -> str:
+    """为长时间运行的 SOP 任务创建专用 Token"""
+    return jwt.encode(
+        {
+            "sub": str(user_id),
+            "execution_id": execution_id,
+            "type": "task",
+            "exp": datetime.utcnow() + timedelta(hours=24)
+        },
+        SECRET_KEY,
+        algorithm=ALGORITHM
+    )
+
+# 前端自动续期（在 Token 过期前 30 分钟刷新）
+# Token 刷新端点
+@router.post("/auth/refresh")
+async def refresh_token(current_user: User = Depends(get_current_user)):
+    """刷新 JWT Token"""
+    new_token = create_access_token(data={"sub": str(current_user.id)})
+    return {"access_token": new_token, "token_type": "bearer"}
+```
+
+#### 🔴 P1 — 文件下载接口鉴权（8100 端口）
+
+**问题描述**：当前项目在 8100 端口运行 HTTP 文件服务器，用于提供工作区文件的下载访问。此端口**完全无认证**，任何人知道文件路径即可下载。
+
+**影响范围**：所有方案
+
+**建议方案**：
+
+```python
+# API/file_server.py
+
+"""
+方案一（推荐）：去掉独立的 8100 端口文件服务器，
+将文件下载集成到主 FastAPI 应用中，统一通过认证中间件保护。
+"""
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import FileResponse
+from pathlib import Path
+
+router = APIRouter(prefix="/files", tags=["files"])
+
+@router.get("/download/{session_id}/{filename:path}")
+async def download_file(
+    session_id: str,
+    filename: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """带认证的文件下载端点"""
+    # 验证用户对 workspace 的访问权限
+    workspace = get_user_workspace(current_user['username'], session_id)
+    file_path = Path(workspace) / filename
+    
+    # 路径遍历安全检查
+    try:
+        file_path.resolve().relative_to(Path(workspace).resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal detected")
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    return FileResponse(
+        path=str(file_path),
+        filename=file_path.name,
+        media_type="application/octet-stream"
+    )
+```
+
+#### ⚠️ P1 — CORS 配置修正
+
+**问题描述**：当前 `allow_origins=["*"]` + `allow_credentials=True`，根据 CORS 规范，浏览器会拒绝此组合。多用户场景下需要明确配置允许的 origins。
+
+**影响范围**：所有方案
+
+**修复方案**：
+
+```python
+# API/main.py CORS 配置修正
+
+# ❌ 原始代码（浏览器会拒绝 credentials + wildcard）
+cors_origins = os.getenv("CORS_ORIGINS", "*").split(",") if os.getenv("CORS_ORIGINS") else ["*"]
+
+# ✅ 修正方案
+def get_cors_origins() -> list:
+    """获取 CORS 允许的 origins"""
+    env_origins = os.getenv("CORS_ORIGINS", "")
+    
+    if env_origins:
+        return [o.strip() for o in env_origins.split(",")]
+    
+    # 开发环境默认值
+    environment = os.getenv("ENVIRONMENT", "development")
+    if environment == "development":
+        return ["http://localhost:3000", "http://localhost:8200"]
+    elif environment == "intranet_test":
+        # 内网测试：允许同网段访问
+        return ["http://localhost:3000", "http://localhost:8200"]
+        # 提示：部署时设置 CORS_ORIGINS 环境变量为实际访问地址
+    else:
+        # 生产环境必须明确指定
+        raise ValueError(
+            "Production environment requires explicit CORS_ORIGINS setting. "
+            "Set CORS_ORIGINS='https://your-domain.com' in environment variables."
+        )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    expose_headers=["X-Total-Count"],
+)
+```
+
+#### ⚠️ P2 — 任务队列与资源配额
+
+**问题描述**：多用户同时提交 SOP 长任务时，缺少排队和资源限制机制。单个用户的任务可能耗尽服务器 CPU/内存。
+
+**影响范围**：方案 B
+
+**建议方案**：
+
+```python
+# deepanalyze/task_queue/queue_manager.py
+
+import asyncio
+from collections import defaultdict
+from typing import Dict, Optional
+
+class TaskQueueManager:
+    """
+    任务队列管理器
+    
+    功能：
+    1. 限制全局并发任务数
+    2. 限制单用户并发任务数
+    3. 任务排队与优先级调度
+    """
+    
+    def __init__(
+        self,
+        max_global_concurrent: int = 5,
+        max_user_concurrent: int = 2,
+    ):
+        self.max_global = max_global_concurrent
+        self.max_user = max_user_concurrent
+        self._global_semaphore = asyncio.Semaphore(max_global_concurrent)
+        self._user_semaphores: Dict[int, asyncio.Semaphore] = defaultdict(
+            lambda: asyncio.Semaphore(max_user_concurrent)
+        )
+        self._queue: asyncio.Queue = asyncio.Queue()
+        self._active_tasks: Dict[str, dict] = {}
+    
+    async def submit_task(
+        self, 
+        execution_id: str,
+        user_id: int,
+        task_func,
+        *args, **kwargs
+    ) -> dict:
+        """提交任务到队列"""
+        # 检查用户并发限制
+        user_sem = self._user_semaphores[user_id]
+        if user_sem._value <= 0:
+            return {
+                "status": "queued",
+                "message": f"You have reached the concurrent task limit ({self.max_user}). "
+                           f"Task has been queued.",
+                "queue_position": self._queue.qsize() + 1
+            }
+        
+        # 获取信号量并执行
+        async with self._global_semaphore:
+            async with user_sem:
+                self._active_tasks[execution_id] = {
+                    "user_id": user_id,
+                    "status": "running"
+                }
+                try:
+                    result = await task_func(*args, **kwargs)
+                    return {"status": "completed", "result": result}
+                except Exception as e:
+                    return {"status": "failed", "error": str(e)}
+                finally:
+                    self._active_tasks.pop(execution_id, None)
+    
+    def get_queue_status(self) -> dict:
+        """获取队列状态"""
+        return {
+            "active_tasks": len(self._active_tasks),
+            "max_global_concurrent": self.max_global,
+            "queued_tasks": self._queue.qsize(),
+        }
+
+# 全局实例
+task_queue = TaskQueueManager(
+    max_global_concurrent=int(os.getenv("MAX_GLOBAL_TASKS", "5")),
+    max_user_concurrent=int(os.getenv("MAX_USER_TASKS", "2")),
+)
+```
+
+#### ⚠️ P2 — 前端 Next.js Middleware 鉴权拦截
+
+**问题描述**：现有前端是 Next.js 14 App Router 架构，文档直接给出了登录页面代码，但未考虑 middleware 层面的路由守卫。
+
+**影响范围**：方案 A、方案 B
+
+**建议方案**：
+
+```typescript
+// demo/chat/middleware.ts
+
+import { NextRequest, NextResponse } from "next/server";
+
+// 不需要认证的路径
+const PUBLIC_PATHS = ["/login", "/api/auth"];
+
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  
+  // 公开路径直接放行
+  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) {
+    return NextResponse.next();
+  }
+  
+  // 静态资源放行
+  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
+    return NextResponse.next();
+  }
+  
+  // 检查认证状态
+  // 注意：Basic Auth 方案下，凭证存在 localStorage（客户端），
+  //       middleware 运行在服务端，无法直接访问。
+  //       因此 middleware 主要用于 JWT 方案（cookie 传递 token）。
+  
+  // JWT 方案：从 cookie 读取 token
+  const token = request.cookies.get("auth_token")?.value;
+  
+  if (!token) {
+    // 重定向到登录页
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("redirect", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+  
+  // 可选：验证 token 是否过期（仅检查格式，不做完整验证）
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      const loginUrl = new URL("/login", request.url);
+      return NextResponse.redirect(loginUrl);
+    }
+  } catch {
+    const loginUrl = new URL("/login", request.url);
+    return NextResponse.redirect(loginUrl);
+  }
+  
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    // 匹配所有路径，除了 API 路由和静态资源
+    "/((?!_next/static|_next/image|favicon.ico).*)",
+  ],
+};
+```
+
+---
+
+### 四、改进建议优先级汇总
+
+| 优先级 | 改进项 | 影响方案 | 状态 |
+|--------|--------|----------|------|
+| P0 | 密码安全（bcrypt 哈希 + 登录锁定） | 超轻量方案 | ✅ 已修复 |
+| P0 | 代码执行沙箱隔离 | 方案 A、B | 📋 已给出方案，待实施 |
+| P1 | Redis 查询效率（索引集合） | 方案 B | ✅ 已修复 |
+| P1 | SSE/长连接认证 + Token 续期 | 方案 A、B | 📋 已给出方案，待实施 |
+| P1 | 文件下载接口（8100端口）鉴权 | 所有方案 | 📋 已给出方案，待实施 |
+| P1 | CORS 配置修正 | 所有方案 | 📋 已给出方案，待实施 |
+| P2 | 任务队列与资源配额 | 方案 B | 📋 已给出方案，待实施 |
+| P2 | PersistentExecutionStore 工作量调整 | 方案 B | ✅ 已修复 |
+| P2 | 数据库改造分场景必要性评估 | 所有方案 | ✅ 已修复 |
+| P3 | 前端 Next.js middleware 鉴权 | 方案 A、B | 📋 已给出方案，待实施 |
+
+### 五、工作量估算修正
+
+| 方案 | 原始估算 | 修正估算 | 调整原因 |
+|------|----------|----------|----------|
+| 超轻量方案 | 2-4 小时 | 4-6 小时 | 新增 bcrypt + 登录保护增加约 1-2 小时 |
+| 方案 A（伪多用户） | 6 天 | 8-10 天 | JWT + 前端登录 + 权限校验 + SSE 认证 + 测试 |
+| 方案 B（完整改造） | 6-8 周 | 8-12 周 | 需新增沙箱隔离 + 任务队列 + 资源配额 |
+| 方案 B — Phase 4 | 3 天 | 1-2 天 | 已有 PersistentExecutionStore，仅需外置 API 层内存状态 |
+
+---
+
 ## 风险评估
 
 | 风险 | 可能性 | 影响 | 缓解措施 |
@@ -1705,6 +2442,9 @@ DeepAnalyze/
 | 数据迁移失败 | 中 | 高 | 完整备份、分阶段迁移、回滚方案 |
 | 性能不达标 | 中 | 高 | 提前压测、预留扩展空间 |
 | 安全漏洞 | 中 | 高 | 代码审计、渗透测试、安全加固 |
+| **代码执行逃逸**（v1.2 新增） | 中 | **极高** | Docker 沙箱隔离、限制系统调用、网络隔离 |
+| **长任务认证过期**（v1.2 新增） | 高 | 中 | Task Token + 自动续期机制 |
+| **跨用户数据泄露**（v1.2 新增） | 中 | 高 | 路径遍历防护 + 文件接口鉴权 + 沙箱隔离 |
 | 改造成本超支 | 低 | 中 | 分阶段实施、MVP 先行 |
 | 用户抵触 | 低 | 中 | 提前沟通、保留原有入口 |
 
@@ -1778,8 +2518,8 @@ pip install boto3           # AWS S3
 #### 内网测试环境依赖
 
 ```bash
-# 仅需添加 PyYAML 用于读取用户配置文件
-pip install pyyaml
+# v1.2 更新：需要 bcrypt 用于安全密码验证
+pip install pyyaml bcrypt
 
 # 其他依赖保持原有 requirements.txt 不变
 ```
@@ -1802,24 +2542,38 @@ pip install pyyaml
 DeepAnalyze 项目**不具备直接支持线上多用户部署的能力**，需要进行系统性改造。核心改造点包括：
 
 1. **用户认证系统** - 必须
-2. **数据库迁移** - 必须
+2. **数据库迁移** - 按用户规模分场景评估（<20 人可保留 SQLite WAL 模式）
 3. **文件存储改造** - 必须
-4. **会话状态外置** - 必须
-5. **前端登录集成** - 必须
-6. **API 安全加固** - 推荐
+4. **会话状态外置** - 必须（但工作量因已有 PersistentExecutionStore 而降低）
+5. **前端登录集成** - 必须（含 Next.js middleware 鉴权）
+6. **API 安全加固** - 推荐（含 CORS 修正、限流）
 7. **容器化部署** - 推荐
 8. **监控与日志** - 推荐
+9. **🔴 代码执行沙箱隔离** - 方案 B **必须**，方案 A 强烈建议（v1.2 新增）
+10. **SSE/长连接认证** - 方案 A、B 必须（v1.2 新增）
+11. **文件下载接口鉴权** - 所有方案必须（v1.2 新增）
+12. **任务队列与资源配额** - 方案 B 推荐（v1.2 新增）
 
-**预计总工期：6-8 周**  
+**预计总工期（v1.2 修正）**：
+
+| 方案 | 原始估算 | 修正估算 |
+|------|----------|----------|
+| 超轻量方案 | 2-4 小时 | 4-6 小时 |
+| 方案 A | 1-2 周 | 2-2.5 周 |
+| 方案 B | 6-8 周 | 8-12 周 |
+
 **预计总成本：¥850-1650/月（云资源）+ 人力成本**
 
 建议采用**分阶段实施策略**：
-- **即时（2-4 小时）**：最小可行方案（内网 <5 人测试），Basic Auth + 配置文件
-- **短期（1-2 周）**：方案 A（伪多用户），快速上线验证
-- **中期（6-8 周）**：方案 B（完整改造），生产环境就绪
+- **即时（4-6 小时）**：最小可行方案（内网 <5 人测试），bcrypt 安全认证 + 配置文件
+- **短期（2-2.5 周）**：方案 A（伪多用户），JWT + SSE 认证 + 文件鉴权
+- **中期（8-12 周）**：方案 B（完整改造），沙箱隔离 + 任务队列 + 生产环境就绪
+
+> **v1.2 核心发现**：原始文档的问题诊断全面准确，渐进式路线合理。但在安全维度上有两个重大盲区：① 超轻量方案的密码安全过于草率（已修复），② 完全遗漏了多用户场景下代码执行的沙箱隔离问题（已给出方案）。此外工作量整体偏乐观约 30-50%。建议将"代码执行安全隔离"列为方案 B 的 Phase 0。
 
 ---
 
 *文档生成时间：2025-03-02*  
-*版本：v1.1*  
-*状态：评估完成，已整合最小可行方案（内网 <5 人测试）*
+*v1.2 审阅更新：2025-03-10*  
+*版本：v1.2*  
+*状态：评估完成，已整合审阅意见与改进方案*

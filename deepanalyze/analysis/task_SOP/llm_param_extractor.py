@@ -68,7 +68,7 @@ class ExtractionContext:
 # Prompt Templates
 # =============================================================================
 
-EXTRACTION_SYSTEM_PROMPT = """你是 DeepAnalyze 数据分析平台的任务参数提取助手。
+EXTRACTION_SYSTEM_PROMPT = """你是 CreditWise 信贷风控助手的任务参数提取模块。
 
 ## 你的角色定位
 

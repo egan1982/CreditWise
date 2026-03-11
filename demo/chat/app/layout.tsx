@@ -9,7 +9,7 @@ import { Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "DeepAnalyze_CreditWise",
+  title: "CreditWise",
   description: "AI-Powered Credit Risk Management Platform",
 };
 

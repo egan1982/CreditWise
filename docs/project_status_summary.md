@@ -1,6 +1,6 @@
 # DeepAnalyze 项目文档状态汇总
 
-> 生成时间：2026-03-02  
+> 生成时间：2026-03-11  
 > 用途：为项目下一步开发提供指引  
 > 范围：docs/ 目录下所有设计/计划文档
 
@@ -10,17 +10,17 @@
 
 | 类别 | 数量 |
 |------|------|
-| ✅ 已实现/已验证/已完成 | 19个 |
-| ⚠️ 部分实现 | 4个 |
-| 📋 待实施/待开发 | 7个 |
+| ✅ 已实现/已验证/已完成 | 21个 |
+| ⚠️ 部分实现 | 5个 |
+| 📋 待实施/待开发 | 8个 |
 
 ---
 
-## ✅ 已实现/已验证/已完成（19个）
+## ✅ 已实现/已验证/已完成（21个）
 
 | 文档路径 | 状态 | 说明 |
 |---------|------|------|
-| `docs/system_prompt_guide.md` | ✅ 已实现 V2.2 | Prompt架构指南 |
+| `docs/system_prompt_guide.md` | ✅ 已实现 V3.0 | Prompt架构指南（v2.2→v3.0，更新mode分流架构） |
 | `docs/test_strategy_resume_functionality.md` | ✅ 已验证 | Resume功能测试策略 |
 | `docs/chat_api_integration_design.md` | ✅ 全部完成 | Chat API融合 |
 | `docs/resume_test_guide.md` | ✅ 已实现 | 暂停/恢复测试指南 |
@@ -30,6 +30,9 @@
 | `docs/README.md` | ✅ 已实现 | 项目说明 |
 | `docs/LLM_Optimization_design.md` | ✅ 已清理 | LLM+Pipeline架构 |
 | `docs/routing_architecture_guide.md` | ✅ 已实现 | 路由架构指南 |
+| `docs/online_multiuser_deployment_assessment.md` | ✅ 评估完成 V1.2 | 线上多用户部署评估报告 |
+| `docs/规则指标体系与策略应用指南.md` | ✅ 已完成 | 规则指标体系与策略应用指南 |
+| `docs/规则重叠与策略编排指南.md` | ✅ 已完成 | 规则重叠与策略编排指南 |
 | `docs/taskSOP_solution/pipeline_llm_hybrid_design.md` | ✅ 已清理 | 混合架构设计 |
 | `docs/taskSOP_solution/unified_implementation_roadmap.md` | ✅ 已清理 | 实施路线图 |
 | `docs/taskSOP_solution/task_sop_expert_mode_design.md` | ✅ 已清理 | 专家模式设计 |
@@ -42,13 +45,13 @@
 
 ---
 
-## ⚠️ 部分实现（4个）
+## ⚠️ 部分实现（5个）
 
 ### 1. analysis_prompt_refactor_plan.md
 
 | 项目 | 内容 |
 |------|------|
-| **当前状态** | Phase 1已完成，Phase 2/3待评估 |
+| **当前状态** | Phase 0/1/1.5已完成，Phase 2/3待评估 |
 | **待实施内容** | **Phase 2 - Prompt模板格式标准化**（~2天）：统一变量占位符、建立命名规范、创建验证机制  <br>**Phase 3 - Prompt结构化拆解**（~3天，待评估）：将大Prompt拆分为小模块、建立模块依赖关系、实现动态组装 |
 
 ### 2. model_evaluation_params_plan.md
@@ -69,14 +72,29 @@
 
 | 项目 | 内容 |
 |------|------|
-| **当前状态** | P0已完成，P1/P2核心功能已实现 |
+| **当前状态** | P0/P1/P2核心功能已全部实现 |
 | **待实施内容** | ~~PDF报告生成~~ → ❌ 已废弃（改用HTML打印为PDF方案）  <br>✅ Excel任务报告Sheet + 阶段数据整合 → **已实现**  <br>✅ Word报告生成 → **已实现**  <br>📋 **端到端测试验证** → 待完成 |
+
+### 5. release_readiness_plan.md
+
+| 项目 | 内容 |
+|------|------|
+| **当前状态** | v1.8，发布前代码审计修复已全部完成（P0全部完成，P1必修全部完成，P1建议级完成14/16，P2已修复2/8） |
+| **待实施内容** | **Phase 2 - GitHub配置**（Week 1-2）：仓库配置、CI/CD  <br>**Phase 3 - 质量保障**（Week 2）：测试覆盖、性能基准  <br>**Phase 4 - 发布执行**（Week 2-3）：版本发布、部署文档  <br>**Phase 5 - 私有化部署打包配置** |
 
 ---
 
-## 📋 待实施/待开发（7个）
+## 📋 待实施/待开发（8个）
 
-### 5. multimodal_chat_plan.md
+### 6. system_prompt_restructuring_plan.md
+
+| 项目 | 内容 |
+|------|------|
+| **当前状态** | 方案设计完成，待实施 |
+| **待实施内容** | 对话/参数提取路径 Prompt 重构：引入显式 `mode` 参数（`"chat"` / `"extraction"`）取代 `_is_param_extraction_mode()` 关键词嗅探，统一由 `TaskPromptProvider.build_system_prompt(mode=...)` 构建 |
+| **预计工作量** | ~3-4小时（含测试） |
+
+### 8. multimodal_chat_plan.md
 
 | 项目 | 内容 |
 |------|------|
@@ -84,7 +102,7 @@
 | **待实施内容** | 粘贴图片到输入框（Ctrl+V粘贴剪贴板图片）、拖拽文件到输入框、图片预览显示（发送前预览已添加的图片）、多模态消息格式（OpenAI Vision API格式支持） |
 | **预计工作量** | 1-2天 |
 
-### 6. right_panel_unified_architecture_plan.md
+### 9. right_panel_unified_architecture_plan.md
 
 | 项目 | 内容 |
 |------|------|
@@ -92,7 +110,7 @@
 | **待实施内容** | Right Panel统一架构优化 |
 | **优先级** | 中期优化 |
 
-### 7. class_imbalance_handling_plan.md
+### 10. class_imbalance_handling_plan.md
 
 | 项目 | 内容 |
 |------|------|
@@ -100,7 +118,7 @@
 | **待实施内容** | 类别不平衡处理功能（关联任务：规则挖掘、评分卡开发） |
 | **优先级** | 中 |
 
-### 8. feature_derivation_refactor_plan.md
+### 11. feature_derivation_refactor_plan.md
 
 | 项目 | 内容 |
 |------|------|
@@ -108,15 +126,15 @@
 | **待实施内容** | **全部未实现**：datetime衍生从preprocessing移至feature_engineering、text衍生从preprocessing移至feature_engineering、preprocessing阶段只保留数据清洗和质量评估、更新output_preview结构、prompt模板更新 |
 | **预计工作量** | 1-2天 |
 
-### 9. polling_optimization_plan.md
+### 12. polling_optimization_plan.md
 
 | 项目 | 内容 |
 |------|------|
-| **当前状态** | 已确认采用方案A（完整实现） |
+| **当前状态** | 已确认采用方案A（完整实现），临时方案已部署 |
 | **待实施内容** | 实现 `pollTrigger` 机制（TaskProgress.tsx）、paused状态稳定后停止轮询（连续2次检测后停止）、用户操作后重启轮询（handleResumeExecution/onRetryStage/handleSkipStage处调用restartPolling） |
 | **预计工作量** | ~0.5天 |
 
-### 10. prior_rules_enhancement_plan.md
+### 13. prior_rules_enhancement_plan.md
 
 | 项目 | 内容 |
 |------|------|
@@ -124,7 +142,7 @@
 | **待实施内容** | 先验规则增强功能 |
 | **优先级** | P2 |
 
-### 11. rule_mining_oot_validation_plan.md
+### 14. rule_mining_oot_validation_plan.md
 
 | 项目 | 内容 |
 |------|------|
@@ -136,10 +154,10 @@
 
 ## 📝 说明
 
-1. **已实现/已验证/已完成**（19个）：文档设计的功能已全部实现或已清理（过时/合并）
-2. **部分实现**（4个）：已完成基础功能，但有明确的后续开发内容
-3. **待实施/待开发**（7个）：尚未开始实现，或仅完成设计阶段
-4. 本报告基于2026-03-02的代码库核实及最终状态确认结果生成
+1. **已实现/已验证/已完成**（21个）：文档设计的功能已全部实现或已清理（过时/合并）
+2. **部分实现**（5个）：已完成基础功能，但有明确的后续开发内容
+3. **待实施/待开发**（8个）：尚未开始实现，或仅完成设计阶段
+4. 本报告基于2026-03-11的代码库核实及最新文档状态同步结果更新
 
 ---
 
@@ -154,31 +172,33 @@
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
 | **1** | `polling_optimization_plan.md` | 体验优化，工作量最小（0.5天），解决paused状态无效轮询问题 | ~0.5天 |
-| **2** | `model_evaluation_params_plan.md` | 评分卡功能完整性，CSI指标是模型评估重要指标 | 🟡 中优先级 |
+| **2** | `system_prompt_restructuring_plan.md` | 架构改善，消除关键词嗅探隐患，工作量小（3-4小时） | ~0.5天 |
+| **3** | `model_evaluation_params_plan.md` | 评分卡功能完整性，CSI指标是模型评估重要指标 | 🟡 中优先级 |
 
 ### 🟡 P1 - 短期实施（1-2周内）
 
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
-| **3** | `feature_derivation_refactor_plan.md` | 代码架构优化，阶段职责更清晰，影响后续维护 | 1-2天 |
-| **4** | `report_config_driven_plan.md` | 报告系统可扩展性，但工作量大（2-2.5天），可延后 | 2-2.5天 |
-| **5** | `rule_mining_oot_validation_plan.md` | 规则挖掘功能完整性，OOT验证是风控场景重要功能 | ~16小时 |
+| **4** | `feature_derivation_refactor_plan.md` | 代码架构优化，阶段职责更清晰，影响后续维护 | 1-2天 |
+| **5** | `report_config_driven_plan.md` | 报告系统可扩展性，但工作量大（2-2.5天），可延后 | 2-2.5天 |
+| **6** | `rule_mining_oot_validation_plan.md` | 规则挖掘功能完整性，OOT验证是风控场景重要功能 | ~16小时 |
 
 ### 🟢 P2 - 中期实施（1个月内）
 
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
-| **6** | `analysis_prompt_refactor_plan.md` | Prompt工程优化，提升AI分析质量，但需评估Phase 3必要性 | Phase 2: ~2天 |
-| **7** | `class_imbalance_handling_plan.md` | 数据质量增强，中优先级，非阻塞 | 中 |
-| **8** | `prior_rules_enhancement_plan.md` | 规则挖掘增强，P2优先级 | P2 |
+| **7** | `analysis_prompt_refactor_plan.md` | Prompt工程优化，提升AI分析质量，但需评估Phase 3必要性 | Phase 2: ~2天 |
+| **8** | `class_imbalance_handling_plan.md` | 数据质量增强，中优先级，非阻塞 | 中 |
+| **9** | `prior_rules_enhancement_plan.md` | 规则挖掘增强，P2优先级 | P2 |
 
 ### 🔵 P3 - 长期/可选
 
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
-| **9** | `multimodal_chat_plan.md` | 多模态功能，非核心业务需求 | 1-2天 |
-| **10** | `right_panel_unified_architecture_plan.md` | 架构优化，依赖Chat API融合完成后 | 中期优化 |
-| **11** | `task_report_ai_analysis_design.md` | 仅剩端到端测试验证，可在其他功能完成后统一测试 | - |
+| **10** | `multimodal_chat_plan.md` | 多模态功能，非核心业务需求 | 1-2天 |
+| **11** | `right_panel_unified_architecture_plan.md` | 架构优化，依赖Chat API融合完成后 | 中期优化 |
+| **12** | `task_report_ai_analysis_design.md` | 仅剩端到端测试验证，可在其他功能完成后统一测试 | - |
+| **13** | `release_readiness_plan.md` | Release发布流程，代码审计已完成，后续Phase按需推进 | 按Phase分阶段 |
 
 ---
 
@@ -187,6 +207,7 @@
 ```
 Week 1:
   ├─ [P0] polling_optimization_plan (0.5天)
+  ├─ [P0] system_prompt_restructuring_plan (0.5天)
   └─ [P0] model_evaluation_params_plan - CSI指标
 
 Week 2-3:
@@ -199,7 +220,8 @@ Week 4:
 后续迭代:
   ├─ [P2] analysis_prompt_refactor_plan Phase 2
   ├─ [P2] class_imbalance_handling_plan
-  └─ [P2] prior_rules_enhancement_plan
+  ├─ [P2] prior_rules_enhancement_plan
+  └─ [P3] release_readiness_plan Phase 2-5 (按需推进)
 ```
 
 ---
@@ -207,7 +229,9 @@ Week 4:
 ## 💡 关键决策建议
 
 1. **polling_optimization** 建议立即实施 - 工作量小，收益明显
-2. **CSI指标** 建议优先 - 评分卡功能完整性
-3. **report_config_driven** 可考虑拆分 - 工作量大，可分阶段实施
-4. **analysis_prompt_refactor Phase 3** 建议暂缓 - 待评估实际收益后再决定
+2. **system_prompt_restructuring** 建议尽早实施 - 消除隐式模式识别隐患，工作量小（3-4小时）
+3. **CSI指标** 建议优先 - 评分卡功能完整性
+4. **report_config_driven** 可考虑拆分 - 工作量大，可分阶段实施
+5. **analysis_prompt_refactor Phase 3** 建议暂缓 - 待评估实际收益后再决定
+6. **release_readiness** 代码审计已完成，后续Phase可根据发布计划按需推进
 

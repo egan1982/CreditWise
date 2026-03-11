@@ -10,8 +10,7 @@ description = "DeepAnalyze CreditWise - AI-Powered Credit Risk Management Platfo
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "Shaolei Zhang", email = "zhangshaolei@ruc.edu.cn"},
-    {name = "Ju Fan", email = "fanj@ruc.edu.cn"},
+    {name = "egan1982", email = "egan1982@users.noreply.github.com"},
 ]
 keywords = [
     "llm",
@@ -84,10 +83,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ruc-datalab/DeepAnalyze_CreditWise"
-Documentation = "https://github.com/ruc-datalab/DeepAnalyze_CreditWise#readme"
-Repository = "https://github.com/ruc-datalab/DeepAnalyze_CreditWise.git"
-"Bug Tracker" = "https://github.com/ruc-datalab/DeepAnalyze_CreditWise/issues"
+Homepage = "https://github.com/egan1982/CreditWise"
+Documentation = "https://github.com/egan1982/CreditWise#readme"
+Repository = "https://github.com/egan1982/CreditWise.git"
+"Bug Tracker" = "https://github.com/egan1982/CreditWise/issues"
 
 [project.scripts]
 deepanalyze = "deepanalyze:main"

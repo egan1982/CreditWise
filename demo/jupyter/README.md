@@ -27,7 +27,7 @@ For more details, see [uv installation documentation](https://docs.astral.sh/uv/
 
 2. Clone the project and enter the directory
 ```bash
-git clone https://github.com/ruc-datalab/DeepAnalyze.git
+git clone https://github.com/egan1982/CreditWise.git
 cd demo/jupyter
 ```
 

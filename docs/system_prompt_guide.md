@@ -204,34 +204,56 @@
 
 DeepAnalyze 有两种主要的 Prompt 构建场景，架构各不相同：
 
-#### 4.2.1 任务执行（参数提取）- ✅ 已实现
+#### 4.2.1 对话/参数提取（mode 分流架构）- ✅ 已实现
 
-多层 Prompt 构建，全部在后端处理：
+> **重构说明**：采用显式 `mode` 参数分流，取代了旧版的关键词嗅探隐式模式识别。
+> 详细重构方案见 `docs/system_prompt_restructuring_plan.md`。
+
+通过 `TaskPromptProvider.build_system_prompt(mode=...)` 统一构建中心，根据 mode 参数选择不同的 Prompt 构建策略：
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  第1层：LLM Manager 预设（可选，用户可配置）                          │
-│  └── 基础角色定义、通用约束                                          │
-│                          ↓                                          │
-│  第2层：EXTRACTION_SYSTEM_PROMPT 常量                                │
-│  └── 参数提取专用指令                                                │
-│                          ↓                                          │
-│  第3层：动态注入 - 任务注册表                                         │
-│  └── 所有可用任务类型及其参数定义                                     │
-│                          ↓                                          │
-│  第4层：动态注入 - 任务专属指令                                       │
-│  └── 当前任务的详细指引（如规则挖掘提示）                              │
-│                          ↓                                          │
-│  最终 System Prompt = 第1层 + 第2层 + 第3层 + 第4层                   │
+│                                                                     │
+│  调用入口          _determine_chat_mode()                           │
+│                    (显式判定模式)                                    │
+│                         │                                           │
+│            ┌────────────┴────────────┐                              │
+│            ↓                         ↓                              │
+│     mode = "chat"            mode = "extraction"                    │
+│     (普通对话)                (参数提取)                             │
+│            │                         │                              │
+│            ↓                         ↓                              │
+│  TaskPromptProvider          TaskPromptProvider                     │
+│  .build_system_prompt        .build_system_prompt                   │
+│  (mode="chat")               (mode="extraction")                   │
+│                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-| 层级 | 来源 | 内容示例 | 是否动态 |
-|------|------|----------|----------|
-| **1. LLM Manager 预设** | 用户 UI 配置 | "你是 DeepAnalyze 助手..." | 用户可配置 |
-| **2. 提取常量** | `EXTRACTION_SYSTEM_PROMPT` | "从自然语言中提取参数..." | 固定 |
-| **3. 任务注册表** | SOP Registry | "可用任务：rule_mining, scorecard..." | **动态注入** |
-| **4. 任务指令** | 任务定义文件 | "规则挖掘需要 target 参数..." | **动态注入** |
+**对话模式** (`mode="chat"`)：
+
+| 层级 | 来源 | 内容 | 是否动态 |
+|------|------|------|----------|
+| **1. 角色定义** | `DEFAULT_BASE_PROMPT` / 用户 UI 配置 | "你是 DeepAnalyze AI 助手..." | 用户可配置 |
+| **2. 任务列表简介** | `get_all_tasks_prompt_brief()` | "可用任务：规则挖掘、评分卡开发..." | **动态注入** |
+| **3. 工作区文件** | 可选 | 当前工作区文件列表 | **动态注入** |
+
+**参数提取模式** (`mode="extraction"`)：
+
+| 层级 | 来源 | 内容 | 是否动态 |
+|------|------|------|----------|
+| **1. 提取角色** | `DEFAULT_EXTRACTION_ROLE` | "你是任务参数提取助手..." | 固定 |
+| **2. 任务参数 Schema** | `get_task_prompt(task_type)` | 目标任务的参数定义和引导 | **动态注入** |
+| **3. JSON 格式要求** | `JSON_OUTPUT_FORMAT` | "严格返回 JSON 格式..." | 固定 |
+| **4. 工作区文件** | 可选 | 当前工作区文件列表 | **动态注入** |
+
+**模式判定规则**：
+
+| 条件 | 模式 | 说明 |
+|------|------|------|
+| 前端传入 `task_type` | `extraction` | 用户明确选择了任务 |
+| `_infer_task_type_from_messages()` 推断出任务 | `extraction` | 消息含任务关键词 |
+| 其他情况 | `chat` | 普通对话 |
 
 #### 4.2.2 任务结果 AI 分析 - ✅ 已实现 (Phase 1)
 
@@ -289,48 +311,66 @@ DeepAnalyze 有两种主要的 Prompt 构建场景，架构各不相同：
 
 #### 4.2.3 结构对比总结
 
-| 维度 | 任务执行 | 任务结果AI分析（Phase 1已完成） | 任务结果AI分析（完整目标） |
-|------|----------|----------------------|----------------------|
-| **第1层：预设** | ✅ LLM Manager | ❌ 待实现(Phase 3) | ✅ LLM Manager |
-| **第2层：核心常量** | ✅ `EXTRACTION_SYSTEM_PROMPT` | ✅ `AI_analysis_prompts.py` | ✅ `ANALYSIS_SYSTEM_PROMPT` |
-| **第3层：动态注入** | ✅ 任务定义 | ✅ 任务类型指引 | ✅ 任务类型指引 |
+| 维度 | 对话/参数提取（mode 分流） | 任务结果AI分析（Phase 1已完成） | 任务结果AI分析（完整目标） |
+|------|---------------------------|----------------------|----------------------|
+| **模式判定** | ✅ `_determine_chat_mode()` 显式分流 | ⚪ 不适用 | ⚪ 不适用 |
+| **第1层：角色** | ✅ chat: `DEFAULT_BASE_PROMPT` / extraction: `DEFAULT_EXTRACTION_ROLE` | ✅ `STAGE_ROLE_CONFIG` | ✅ LLM Manager |
+| **第2层：任务注入** | ✅ chat: 任务简介 / extraction: 参数 Schema | ✅ `AI_analysis_prompts.py` | ✅ `ANALYSIS_SYSTEM_PROMPT` |
+| **第3层：格式要求** | ✅ extraction 模式: `JSON_OUTPUT_FORMAT` | ✅ 任务类型指引 | ✅ 任务类型指引 |
 | **第4层：变体** | ⚪ 不适用 | ❌ 待实现(Phase 2) | ✅ 分析深度 |
-| **构建位置** | 后端 | ✅ 后端 | 后端 |
-| **前端职责** | 发送用户消息 | ✅ 调用API获取prompt | 仅发送业务数据 |
+| **构建位置** | 后端 (`TaskPromptProvider`) | ✅ 后端 (`AI_analysis_prompts.py`) | 后端 |
+| **前端职责** | 发送用户消息 + 可选 task_type | ✅ 调用API获取prompt | 仅发送业务数据 |
 | **可维护性** | ✅ 高 | ✅ 高 | ✅ 高 |
 
 ### 4.3 关键实现文件
 
 | 组件 | 文件 | 描述 |
 |------|------|------|
-| 参数提取器 | `deepanalyze/analysis/task_SOP/llm_param_extractor.py` | 基于 LLM 的参数提取 |
-| System Prompt | `EXTRACTION_SYSTEM_PROMPT` 常量 | 任务无关的提取 prompt |
-| Chat API | `API/chat_api.py` | 接收和处理 system_prompt |
+| **Prompt 构建中心** | `deepanalyze/analysis/task_SOP/task_prompt_provider.py` | `build_system_prompt(mode=...)` 统一构建入口 |
+| 参数提取器 | `deepanalyze/analysis/task_SOP/llm_param_extractor.py` | 基于 LLM 的独立参数提取（自带 `EXTRACTION_SYSTEM_PROMPT`） |
+| Chat API | `API/chat_api.py` | `_determine_chat_mode()` 模式判定 + `_build_enhanced_system_prompt()` |
 | 消息处理器 | `API/utils.py` | `prepare_vllm_messages()` 注入系统消息 |
+| AI 分析 Prompt | `API/AI_analysis_prompts.py` | 独立的分析 Prompt 模块（不经过 TaskPromptProvider） |
 
-### 4.4 参数提取流程
+### 4.4 Prompt 构建流程
 
 ```python
-# llm_param_extractor.py - 核心提取逻辑
+# task_prompt_provider.py - 统一构建中心
 
-class LLMParamExtractor:
-    """LLM 参数提取器
+class TaskPromptProvider:
+    """任务提示词提供器 - 统一构建入口
     
-    使用 LLM 从自然语言中提取任务参数，
-    而非动态生成执行代码。
+    通过 mode 参数实现对话/提取模式的显式分流。
     """
     
-    def _build_system_prompt(self) -> str:
-        """构建包含动态任务定义的 system prompt"""
-        task_definitions = self._get_task_definitions_text()
-        return EXTRACTION_SYSTEM_PROMPT.format(task_definitions=task_definitions)
-    
-    async def extract(self, context: ExtractionContext) -> TaskIntent:
-        """从用户消息中提取任务意图和参数"""
-        system_prompt = self._build_system_prompt()
-        user_prompt = self._build_user_prompt(context)
-        response = await self._call_llm(system_prompt, user_prompt)
-        return self._parse_response(response)
+    def build_system_prompt(
+        self,
+        base_prompt: str = "",
+        task_type: Optional[str] = None,
+        include_all_tasks: bool = True,
+        workspace_files: Optional[list[str]] = None,
+        mode: str = "chat",  # "chat" | "extraction"
+    ) -> str:
+        """构建系统提示词（统一入口）"""
+        if mode == "extraction":
+            return self._build_extraction_prompt(...)
+        else:
+            return self._build_chat_prompt(...)
+```
+
+```python
+# chat_api.py - 模式判定
+
+def _determine_chat_mode(task_type, messages, enable_code_execution):
+    """显式判定模式，取代旧的关键词嗅探"""
+    if not enable_code_execution:
+        return "chat", None
+    if task_type:
+        return "extraction", task_type
+    inferred = _infer_task_type_from_messages(messages)
+    if inferred:
+        return "extraction", inferred
+    return "chat", None
 ```
 
 ---
@@ -446,7 +486,11 @@ LLM Manager（端口 3001）提供预设配置界面：
 
 ### Q3：不同的 SOP 任务需要不同的 prompt 吗？
 
-**不需要。** 参数提取 prompt 设计为**任务无关**的。它从 SOP 注册表动态接收任务定义，因此一个配置适用于所有 SOP 任务（规则挖掘、评分卡开发等）。
+**不需要手动切换。** 系统通过 `mode` 参数自动分流：
+- **对话模式** (`mode="chat"`)：注入任务列表简介，LLM 可识别用户意图并引导
+- **参数提取模式** (`mode="extraction"`)：自动注入目标任务的参数 Schema 和 JSON 格式要求
+
+模式由 `_determine_chat_mode()` 根据 `task_type` 参数或消息内容自动判定。
 
 ### Q4：如果没有选择配置会怎样？
 
@@ -456,13 +500,14 @@ LLM Manager（端口 3001）提供预设配置界面：
 
 ## 8. 版本信息
 
-- **文档版本**：2.2
+- **文档版本**：3.0
 - **创建日期**：2025-12-08
-- **更新日期**：2026-03-02
+- **更新日期**：2026-03-11
 - **适用版本**：DeepAnalyze LLM+Pipeline 架构
 - **文档状态**：✅ 已实现（与代码同步）
 - **相关文档**：
   - `CHANGELOG.md` - 功能开发日志
   - `docs/LLM_Manager_Guide.md` - LLM Manager 使用指南
   - `docs/analysis_prompt_refactor_plan.md` - 任务结果 AI 分析 prompt 重构计划
+  - `docs/system_prompt_restructuring_plan.md` - 对话/参数提取路径 Prompt 重构方案
   - `routing_architecture.md` - API 路由架构
