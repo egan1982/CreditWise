@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deepanalyze-creditwise"
-version = "1.0.0"
+version = "1.0.0-beta.1"
 description = "DeepAnalyze CreditWise - AI-Powered Credit Risk Management Platform"
 readme = "README.md"
 license = {text = "MIT"}

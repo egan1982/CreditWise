@@ -34,8 +34,8 @@
 | 项目 | 内容 |
 |------|------|
 | 项目名称 | DeepAnalyze |
-| 当前版本 | 1.0.0 (deepanalyze/__init__.py) |
-| 目标版本 | v1.0.0 (Git Tag) |
+| 当前版本 | 1.0.0-beta.1 (deepanalyze/__init__.py) |
+| 目标版本 | v1.0.0-beta.1 (Git Tag) |
 | 许可证 | MIT |
 | 预计工期 | 2-3 周 |
 | 关键阻塞项 | Git 仓库已初始化，待推送至 GitHub |

@@ -62,7 +62,7 @@ except (ValueError, TypeError):
 API_PORT = api_port_value
 
 API_TITLE = "DeepAnalyze_CreditWise API"
-API_VERSION = "1.0.0"
+API_VERSION = "1.0.0-beta.1"
 
 # Integrated LLM Manager Backend - using class for better state management
 from typing import Callable, List
