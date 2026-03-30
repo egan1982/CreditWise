@@ -826,6 +826,11 @@ def create_app() -> FastAPI:
     if not dev_mode_global:
         frontend_dist = Path(__file__).parent.parent / "demo" / "chat" / "dist"
         if frontend_dist.exists():
+            # 挂载 Next.js 特定的静态资源目录
+            _next_dir = frontend_dist / "_next"
+            if _next_dir.exists():
+                app.mount("/_next", StaticFiles(directory=str(_next_dir)), name="nextjs-assets")
+
             # 已知的 API 路径前缀（这些不应 fallback 到前端）
             _api_prefixes = (
                 "/v1/", "/sop/", "/workspace/", "/health", "/docs",
@@ -837,20 +842,28 @@ def create_app() -> FastAPI:
 
             @app.exception_handler(StarletteHTTPException)
             async def spa_fallback(request, exc):
-                """非 API 路径的 404 返回 index.html（SPA 路由支持）"""
-                if exc.status_code == 404 and not request.url.path.startswith(_api_prefixes):
+                """
+                非 API 路径的 404:
+                - 先看 dist/ 下有没有对应的静态文件（图片、favicon 等）
+                - 没有则返回 index.html（SPA 路由支持）
+                API 路径的错误正常返回 JSON
+                """
+                path = request.url.path
+                if exc.status_code == 404 and not path.startswith(_api_prefixes):
+                    # 尝试在 dist/ 下找到对应的静态文件
+                    static_file = frontend_dist / path.lstrip("/")
+                    if static_file.is_file():
+                        return FileResponse(str(static_file))
+                    # SPA fallback: 返回 index.html
                     index_file = frontend_dist / "index.html"
                     if index_file.exists():
                         return FileResponse(str(index_file))
-                # API 路径或非 404 错误，正常返回错误响应
+                # API 路径或非 404 错误，正常返回 JSON
                 from fastapi.responses import JSONResponse
                 return JSONResponse(
                     status_code=exc.status_code,
                     content={"detail": exc.detail or "Not found"},
                 )
-
-            # 挂载静态文件目录（必须放在所有路由之后）
-            app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend-static")
 
             logger.info(f"[OK] Frontend static files mounted from {frontend_dist}")
         else:
