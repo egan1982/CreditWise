@@ -289,9 +289,9 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
 
-        # 1. OPTIONS 预检请求直接放行
+        # 1. OPTIONS 预检请求：直接返回 CORS 头，不传给后续中间件
         if request.method == "OPTIONS":
-            response = await call_next(request)
+            response = Response(status_code=200)
             return self._patch_cors(request, response)
 
         # 2. 白名单路由放行

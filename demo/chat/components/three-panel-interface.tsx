@@ -15,7 +15,7 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { API_URLS, API_CONFIG, getApiUrl } from "@/lib/config";
+import { API_URLS, API_CONFIG, getApiUrl, authFetch } from "@/lib/config";
 import {
   Dialog,
   DialogContent,
@@ -312,7 +312,7 @@ function ThreePanelInterfaceInner() {
           content: msg.content,
         }));
       const title = getPrevUserQuestionText(messages.length);
-      const res = await fetch(getApiUrl(API_URLS.EXPORT_REPORT), {
+      const res = await authFetch(getApiUrl(API_URLS.EXPORT_REPORT), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -672,7 +672,7 @@ function ThreePanelInterfaceInner() {
   const loadWorkspaceFiles = async () => {
     if (!sessionId) return;
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${getApiUrl(API_URLS.WORKSPACE_FILES)}?session_id=${sessionId}`
       );
       if (response.ok) {
@@ -687,7 +687,7 @@ function ThreePanelInterfaceInner() {
   const loadWorkspaceTree = async () => {
     if (!sessionId) return;
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `${getApiUrl(API_URLS.WORKSPACE_TREE)}?session_id=${sessionId}`
       );
       if (res.ok) {
@@ -733,7 +733,7 @@ function ThreePanelInterfaceInner() {
       const url = `${getApiUrl(API_URLS.WORKSPACE_DELETE_FILE)}?path=${encodeURIComponent(
         p
       )}&session_id=${encodeURIComponent(sessionId)}`;
-      const res = await fetch(url, { method: "DELETE" });
+      const res = await authFetch(url, { method: "DELETE" });
       if (res.ok) {
         await loadWorkspaceTree();
         await loadWorkspaceFiles();
@@ -748,7 +748,7 @@ function ThreePanelInterfaceInner() {
       const url = `${getApiUrl(API_URLS.WORKSPACE_DELETE_DIR)}?path=${encodeURIComponent(
         p
       )}&recursive=true&session_id=${encodeURIComponent(sessionId)}`;
-      const res = await fetch(url, { method: "DELETE" });
+      const res = await authFetch(url, { method: "DELETE" });
       if (res.ok) {
         await loadWorkspaceTree();
         await loadWorkspaceFiles();
@@ -768,7 +768,7 @@ function ThreePanelInterfaceInner() {
       )}&dst_dir=${encodeURIComponent(dstDir)}&session_id=${encodeURIComponent(
         sessionId
       )}`;
-      const res = await fetch(url, { method: "POST" });
+      const res = await authFetch(url, { method: "POST" });
       if (res.ok) {
         await loadWorkspaceTree();
         await loadWorkspaceFiles();
@@ -787,7 +787,7 @@ function ThreePanelInterfaceInner() {
       const url = `${getApiUrl(API_URLS.WORKSPACE_UPLOAD_TO)}?dir=${encodeURIComponent(
         dirPath || ""
       )}&session_id=${encodeURIComponent(sessionId)}`;
-      await fetch(url, { method: "POST", body: form });
+      await authFetch(url, { method: "POST", body: form });
       await loadWorkspaceTree();
       await loadWorkspaceFiles();
       setUploadMsg(`上传成功 ${arr.length} 个文件`);
@@ -1110,7 +1110,7 @@ function ThreePanelInterfaceInner() {
                 )}&dst_dir=${encodeURIComponent(
                   node.path
                 )}&session_id=${encodeURIComponent(sessionId)}`;
-                const res = await fetch(url, { method: "POST" });
+                const res = await authFetch(url, { method: "POST" });
                 if (res.ok) {
                   await loadWorkspaceTree();
                   await loadWorkspaceFiles();
@@ -1183,7 +1183,7 @@ function ThreePanelInterfaceInner() {
   const clearWorkspace = async () => {
     if (!sessionId) return;
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `${getApiUrl(API_URLS.WORKSPACE_CLEAR)}?session_id=${sessionId}`,
         {
           method: "DELETE",
@@ -1389,7 +1389,7 @@ function ThreePanelInterfaceInner() {
       // 对于已知的文本类型文件，通过代理获取内容以避免CORS
       if (textExtensions.includes(ext)) {
         // 通过后端代理以避免 CORS
-        const res = await fetch(
+        const res = await authFetch(
           `${API_CONFIG.BACKEND_BASE_URL}/proxy?url=${encodeURIComponent(fileUrl)}`
         );
         if (res.ok) {
@@ -1404,7 +1404,7 @@ function ThreePanelInterfaceInner() {
       // 其他文件尝试通过代理获取
       const normalized = normalizeToLocalFileUrl(fileUrl);
       // 通过后端代理以避免 CORS
-      const res = await fetch(
+      const res = await authFetch(
         `${API_CONFIG.BACKEND_BASE_URL}/proxy?url=${encodeURIComponent(normalized)}`
       );
       const contentType = res.headers.get("content-type") || "";
@@ -1458,7 +1458,7 @@ function ThreePanelInterfaceInner() {
         previewDownloadUrl || previewContent
       );
       const target = ensureGeneratedInUrl(normalized);
-      const res = await fetch(
+      const res = await authFetch(
         `${API_CONFIG.BACKEND_BASE_URL}/proxy?url=${encodeURIComponent(target)}`
       );
       if (!res.ok) throw new Error("download failed");
@@ -1481,7 +1481,7 @@ function ThreePanelInterfaceInner() {
     try {
       const normalized = normalizeToLocalFileUrl(rawUrl);
       const target = ensureGeneratedInUrl(normalized);
-      const res = await fetch(
+      const res = await authFetch(
         `${API_CONFIG.BACKEND_BASE_URL}/proxy?url=${encodeURIComponent(target)}`
       );
       if (!res.ok) throw new Error("download failed");
@@ -1503,7 +1503,7 @@ function ThreePanelInterfaceInner() {
   const executeCode = async () => {
     setIsExecutingCode(true);
     try {
-      const response = await fetch(getApiUrl(API_URLS.EXECUTE_CODE), {
+      const response = await authFetch(getApiUrl(API_URLS.EXECUTE_CODE), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -2425,7 +2425,7 @@ function ThreePanelInterfaceInner() {
     setIsTyping(true);
 
     try {
-      const response = await fetch(getApiUrl(API_URLS.CHAT_COMPLETIONS), {
+      const response = await authFetch(getApiUrl(API_URLS.CHAT_COMPLETIONS), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -3032,7 +3032,7 @@ function ThreePanelInterfaceInner() {
       // 加载已保存的任务级 AI 分析结果（自动模式）
       if (detail.interaction_mode !== "expert") {
         try {
-          const analysisResponse = await fetch(getApiUrl(`/sop/history/${recordId}/stages/_task_analysis/analysis`));
+          const analysisResponse = await authFetch(getApiUrl(`/sop/history/${recordId}/stages/_task_analysis/analysis`));
           if (analysisResponse.ok) {
             const analysisData = await analysisResponse.json();
             // API 返回结构: { record_id, stage_id, analysis: { analysis_text, model_used } | null }
@@ -3144,7 +3144,7 @@ function ThreePanelInterfaceInner() {
     try {
       // Phase 23: 统一使用后端 API 获取 prompt（与专家模式架构一致）
       // 调用后端 /v1/chat/analysis/prompt 接口获取分析提示词
-      const promptResponse = await fetch(getApiUrl("/v1/chat/analysis/prompt"), {
+      const promptResponse = await authFetch(getApiUrl("/v1/chat/analysis/prompt"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3167,7 +3167,7 @@ function ThreePanelInterfaceInner() {
       
       // 调用Chat API进行流式分析
       // 使用 config_${id} 格式，通过 LLM Manager 渠道处理（与专家模式一致）
-      const response = await fetch(getApiUrl("/v1/chat/completions"), {
+      const response = await authFetch(getApiUrl("/v1/chat/completions"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3257,7 +3257,7 @@ function ThreePanelInterfaceInner() {
       console.log(`[AI Analysis Save] recordId=${recordId}, historyTaskRecordId=${historyTaskRecordId}, sopExecutionStatus.record_id=${sopExecutionStatus?.record_id}`);
       if (recordId && fullContent) {
         try {
-          const saveResponse = await fetch(getApiUrl(`/sop/history/${recordId}/stages/_task_analysis/analysis`), {
+          const saveResponse = await authFetch(getApiUrl(`/sop/history/${recordId}/stages/_task_analysis/analysis`), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -3521,7 +3521,7 @@ function ThreePanelInterfaceInner() {
                       const url = `${getApiUrl(API_URLS.WORKSPACE_UPLOAD_TO)}?dir=${encodeURIComponent(
                         dir
                       )}&session_id=${encodeURIComponent(sessionId)}`;
-                      await fetch(url, { method: "POST", body: form });
+                      await authFetch(url, { method: "POST", body: form });
                       await loadWorkspaceTree();
                       await loadWorkspaceFiles();
                     } catch (err) {

@@ -3,7 +3,7 @@
  * 提供与后端SOP API的交互功能
  */
 
-import { getApiUrl } from './config';
+import { getApiUrl, authFetch } from './config';
 
 // =============================================================================
 // 缓存配置与类型
@@ -290,7 +290,7 @@ class SOPService {
    * 获取所有可用的SOP任务类型
    */
   async getAvailableTasks(): Promise<TaskListItem[]> {
-    const response = await fetch(getApiUrl('/sop/tasks'));
+    const response = await authFetch(getApiUrl('/sop/tasks'));
     if (!response.ok) {
       throw new Error(`Failed to fetch tasks: ${response.status}`);
     }
@@ -301,7 +301,7 @@ class SOPService {
    * 获取指定任务的详细定义
    */
   async getTaskDefinition(taskId: string): Promise<TaskMeta> {
-    const response = await fetch(getApiUrl(`/sop/tasks/${taskId}`));
+    const response = await authFetch(getApiUrl(`/sop/tasks/${taskId}`));
     if (!response.ok) {
       throw new Error(`Failed to fetch task definition: ${response.status}`);
     }
@@ -312,7 +312,7 @@ class SOPService {
    * 预览数据文件
    */
   async previewData(filePath: string, rows: number = 10, sessionId: string): Promise<DataPreviewResponse> {
-    const response = await fetch(getApiUrl('/sop/data/preview'), {
+    const response = await authFetch(getApiUrl('/sop/data/preview'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
@@ -342,7 +342,7 @@ class SOPService {
     apiBase: string = 'http://localhost:8200/v1',
     systemPrompt?: string
   ): Promise<{ execution_id: string; task_id: string; status: string; message: string }> {
-    const response = await fetch(getApiUrl('/sop/execute'), {
+    const response = await authFetch(getApiUrl('/sop/execute'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -367,7 +367,7 @@ class SOPService {
    * 获取任务执行状态
    */
   async getExecutionStatus(executionId: string): Promise<ExecutionStatus> {
-    const response = await fetch(getApiUrl(`/sop/status/${executionId}`));
+    const response = await authFetch(getApiUrl(`/sop/status/${executionId}`));
     if (!response.ok) {
       throw new Error(`Failed to get execution status: ${response.status}`);
     }
@@ -378,7 +378,7 @@ class SOPService {
    * 获取任务执行结果
    */
   async getExecutionResult(executionId: string): Promise<ExecutionResult> {
-    const response = await fetch(getApiUrl(`/sop/results/${executionId}`));
+    const response = await authFetch(getApiUrl(`/sop/results/${executionId}`));
     if (!response.ok) {
       throw new Error(`Failed to get execution result: ${response.status}`);
     }
@@ -428,7 +428,7 @@ class SOPService {
     params: Record<string, any>,
     workspaceFilesInfo: string = ''
   ): Promise<string> {
-    const response = await fetch(getApiUrl('/sop/prompt/build'), {
+    const response = await authFetch(getApiUrl('/sop/prompt/build'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -452,7 +452,7 @@ class SOPService {
    * 暂停任务执行
    */
   async pauseExecution(executionId: string): Promise<TaskControlResponse> {
-    const response = await fetch(getApiUrl(`/sop/executions/${executionId}/pause`), {
+    const response = await authFetch(getApiUrl(`/sop/executions/${executionId}/pause`), {
       method: 'POST',
     });
     if (!response.ok) {
@@ -466,7 +466,7 @@ class SOPService {
    * 停止任务执行
    */
   async stopExecution(executionId: string): Promise<TaskControlResponse> {
-    const response = await fetch(getApiUrl(`/sop/executions/${executionId}/stop`), {
+    const response = await authFetch(getApiUrl(`/sop/executions/${executionId}/stop`), {
       method: 'POST',
     });
     if (!response.ok) {
@@ -480,7 +480,7 @@ class SOPService {
    * 恢复已暂停的任务
    */
   async resumeExecution(executionId: string): Promise<TaskControlResponse> {
-    const response = await fetch(getApiUrl(`/sop/executions/${executionId}/resume`), {
+    const response = await authFetch(getApiUrl(`/sop/executions/${executionId}/resume`), {
       method: 'POST',
     });
     if (!response.ok) {
@@ -508,7 +508,7 @@ class SOPService {
     if (query.limit) params.set('limit', String(query.limit));
     if (query.offset) params.set('offset', String(query.offset));
 
-    const response = await fetch(getApiUrl(`/sop/history?${params.toString()}`));
+    const response = await authFetch(getApiUrl(`/sop/history?${params.toString()}`));
     if (!response.ok) {
       throw new Error(`Failed to get task history: ${response.status}`);
     }
@@ -532,7 +532,7 @@ class SOPService {
     
     // 缓存未命中或强制刷新，调用 API
     console.log('[SOP Cache] Miss taskDetailCache, fetching from API:', recordId);
-    const response = await fetch(getApiUrl(`/sop/history/${recordId}`));
+    const response = await authFetch(getApiUrl(`/sop/history/${recordId}`));
     if (!response.ok) {
       throw new Error(`Failed to get task history detail: ${response.status}`);
     }
@@ -566,7 +566,7 @@ class SOPService {
     
     // 缓存未命中或强制刷新，调用 API
     console.log('[SOP Cache] Miss taskResultCache, fetching from API:', recordId);
-    const response = await fetch(getApiUrl(`/sop/history/${recordId}/result`));
+    const response = await authFetch(getApiUrl(`/sop/history/${recordId}/result`));
     if (!response.ok) {
       throw new Error(`Failed to get task history result: ${response.status}`);
     }
@@ -585,7 +585,7 @@ class SOPService {
    * 删除历史记录（同时清除缓存）
    */
   async deleteTaskHistory(recordId: string): Promise<{ success: boolean; message: string }> {
-    const response = await fetch(getApiUrl(`/sop/history/${recordId}`), {
+    const response = await authFetch(getApiUrl(`/sop/history/${recordId}`), {
       method: 'DELETE',
     });
     if (!response.ok) {
@@ -611,7 +611,7 @@ class SOPService {
     if (taskCategory) params.set('task_category', taskCategory);
     params.set('days', String(days));
 
-    const response = await fetch(getApiUrl(`/sop/statistics?${params.toString()}`));
+    const response = await authFetch(getApiUrl(`/sop/statistics?${params.toString()}`));
     if (!response.ok) {
       throw new Error(`Failed to get task statistics: ${response.status}`);
     }
@@ -631,7 +631,7 @@ class SOPService {
     filePath?: string,
     params?: Record<string, any>
   ): Promise<ExpertExecutionResponse> {
-    const response = await fetch(getApiUrl('/sop/expert/create'), {
+    const response = await authFetch(getApiUrl('/sop/expert/create'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -652,7 +652,7 @@ class SOPService {
    * 获取专家模式执行上下文
    */
   async getExpertExecution(executionId: string): Promise<ExpertExecutionResponse> {
-    const response = await fetch(getApiUrl(`/sop/expert/${executionId}`));
+    const response = await authFetch(getApiUrl(`/sop/expert/${executionId}`));
     if (!response.ok) {
       throw new Error(`Failed to get expert execution: ${response.status}`);
     }
@@ -663,7 +663,7 @@ class SOPService {
    * 执行专家模式单个阶段
    */
   async executeExpertStage(executionId: string, stageId: string): Promise<{ message: string; status: string }> {
-    const response = await fetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/execute`), {
+    const response = await authFetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/execute`), {
       method: 'POST',
     });
     if (!response.ok) {
@@ -680,7 +680,7 @@ class SOPService {
     const params = new URLSearchParams();
     if (reason) params.set('reason', reason);
     
-    const response = await fetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/skip?${params.toString()}`), {
+    const response = await authFetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/skip?${params.toString()}`), {
       method: 'POST',
     });
     if (!response.ok) {
@@ -694,7 +694,7 @@ class SOPService {
    * 重置专家模式阶段
    */
   async resetExpertStage(executionId: string, stageId: string): Promise<ExpertStageResponse> {
-    const response = await fetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/reset`), {
+    const response = await authFetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/reset`), {
       method: 'POST',
     });
     if (!response.ok) {
@@ -712,7 +712,7 @@ class SOPService {
     stageId: string,
     params: Record<string, any>
   ): Promise<ExpertStageResponse> {
-    const response = await fetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/params`), {
+    const response = await authFetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/params`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ params }),
@@ -732,7 +732,7 @@ class SOPService {
     stageId: string,
     code: string
   ): Promise<ExpertStageResponse> {
-    const response = await fetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/code`), {
+    const response = await authFetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/code`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code }),
@@ -748,7 +748,7 @@ class SOPService {
    * 获取专家模式阶段结果
    */
   async getExpertStageResult(executionId: string, stageId: string): Promise<ExpertStageResultResponse> {
-    const response = await fetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/result`));
+    const response = await authFetch(getApiUrl(`/sop/expert/${executionId}/stages/${stageId}/result`));
     if (!response.ok) {
       throw new Error(`Failed to get stage result: ${response.status}`);
     }
@@ -770,7 +770,7 @@ class SOPService {
     stageId: string,
     newParams?: Record<string, any>
   ): Promise<StageRetryResponse> {
-    const response = await fetch(getApiUrl(`/sop/executions/${executionId}/stages/${stageId}/retry`), {
+    const response = await authFetch(getApiUrl(`/sop/executions/${executionId}/stages/${stageId}/retry`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ new_params: newParams }),
@@ -788,7 +788,7 @@ class SOPService {
    * 仅重置状态，不触发执行。
    */
   async resetStage(executionId: string, stageId: string): Promise<TaskControlResponse> {
-    const response = await fetch(getApiUrl(`/sop/executions/${executionId}/stages/${stageId}/reset`), {
+    const response = await authFetch(getApiUrl(`/sop/executions/${executionId}/stages/${stageId}/reset`), {
       method: 'POST',
     });
     if (!response.ok) {
@@ -802,7 +802,7 @@ class SOPService {
    * 获取执行的所有检查点
    */
   async getExecutionCheckpoints(executionId: string): Promise<ExecutionCheckpointsResponse> {
-    const response = await fetch(getApiUrl(`/sop/executions/${executionId}/checkpoints`));
+    const response = await authFetch(getApiUrl(`/sop/executions/${executionId}/checkpoints`));
     if (!response.ok) {
       throw new Error(`Failed to get checkpoints: ${response.status}`);
     }
@@ -816,7 +816,7 @@ class SOPService {
     const params = new URLSearchParams();
     if (sessionId) params.set('session_id', sessionId);
     
-    const response = await fetch(getApiUrl(`/sop/executions/recoverable?${params.toString()}`));
+    const response = await authFetch(getApiUrl(`/sop/executions/recoverable?${params.toString()}`));
     if (!response.ok) {
       throw new Error(`Failed to get recoverable executions: ${response.status}`);
     }
@@ -827,7 +827,7 @@ class SOPService {
    * 获取任务恢复信息
    */
   async getRecoveryInfo(executionId: string): Promise<RecoveryInfoResponse> {
-    const response = await fetch(getApiUrl(`/sop/executions/${executionId}/recovery-info`));
+    const response = await authFetch(getApiUrl(`/sop/executions/${executionId}/recovery-info`));
     if (!response.ok) {
       throw new Error(`Failed to get recovery info: ${response.status}`);
     }
@@ -965,7 +965,7 @@ export interface BuildPromptResponse {
  * 获取任务整体AI分析结果
  */
 export async function getOverallAnalysis(recordId: string): Promise<OverallAnalysisResponse> {
-  const response = await fetch(getApiUrl(`/sop/history/${recordId}/overall-analysis`));
+  const response = await authFetch(getApiUrl(`/sop/history/${recordId}/overall-analysis`));
   if (!response.ok) {
     throw new Error(`Failed to get overall analysis: ${response.status}`);
   }
@@ -981,7 +981,7 @@ export async function saveOverallAnalysis(
   analysisText: string,
   modelUsed?: string
 ): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(getApiUrl(`/sop/history/${recordId}/overall-analysis`), {
+  const response = await authFetch(getApiUrl(`/sop/history/${recordId}/overall-analysis`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1001,7 +1001,7 @@ export async function saveOverallAnalysis(
  * 删除任务整体AI分析结果
  */
 export async function deleteOverallAnalysis(recordId: string): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(getApiUrl(`/sop/history/${recordId}/overall-analysis`), {
+  const response = await authFetch(getApiUrl(`/sop/history/${recordId}/overall-analysis`), {
     method: 'DELETE'
   });
   if (!response.ok) {
@@ -1018,7 +1018,7 @@ export async function buildOverallAnalysisPrompt(
   taskType: string,
   executionId?: string
 ): Promise<BuildPromptResponse> {
-  const response = await fetch(getApiUrl('/sop/overall-analysis/build-prompt'), {
+  const response = await authFetch(getApiUrl('/sop/overall-analysis/build-prompt'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
