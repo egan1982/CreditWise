@@ -1,38 +1,38 @@
 // API配置文件
 
-// 验证并规范化 BASE_URL
-const normalizeBaseUrl = (url: string | undefined): string => {
-  // 浏览器环境下默认使用当前 origin（同源部署），避免硬编码 127.0.0.1
-  const defaultUrl = typeof window !== 'undefined'
-    ? window.location.origin
-    : 'http://127.0.0.1:8200';
-  
-  if (!url) return defaultUrl;
-  
-  // 如果只是端口号，补全为完整URL
-  if (/^\d+$/.test(url)) {
-    console.warn(`[config] BASE_URL "${url}" 只是端口号，已自动补全为 http://127.0.0.1:${url}`);
-    return `http://127.0.0.1:${url}`;
+/**
+ * 运行时获取 API 基础 URL
+ * 
+ * 核心逻辑：
+ * - 浏览器环境：使用 window.location.origin（同源部署，自动适配任何域名/IP）
+ * - 非浏览器环境（SSR/构建）：回退到 127.0.0.1:8200
+ * 
+ * 注意：不使用 process.env.NEXT_PUBLIC_* ，因为 Next.js output:'export'
+ * 模式会在构建时将其替换为字面量，无法在运行时动态获取。
+ */
+function getBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
   }
-  
-  // 如果缺少协议，添加 http://
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    console.warn(`[config] BASE_URL "${url}" 缺少协议，已自动添加 http://`);
-    return `http://${url}`;
+  return 'http://127.0.0.1:8200';
+}
+
+/**
+ * 运行时获取文件服务器 URL
+ */
+function getFileServerBase(): string {
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:8100`;
   }
-  
-  return url;
-};
+  return 'http://localhost:8100';
+}
 
 export const API_URLS = {
-  // 基础API地址，使用环境变量或默认值
-  BASE_URL: normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL),
+  // 基础API地址 — getter 确保每次访问都是运行时求值
+  get BASE_URL() { return getBaseUrl(); },
   
   // 聊天相关API
-  // 使用融合后的Chat API（支持代码执行、任务感知等功能）
-  // model参数支持 "config_123" 格式以使用LLM Manager渠道
   CHAT_COMPLETIONS: '/v1/chat/completions',
-  // 旧版代理路由（已废弃，保留作为备用参考）
   CHAT_COMPLETIONS_PROXY: '/llm-manager/api/proxy/chat/completions',
   STREAM_CHAT: '/chat/stream',
   
@@ -71,25 +71,18 @@ export const API_CONFIG = {
   // 启用流式响应
   ENABLE_STREAMING: true,
   
-  // 后端基础URL
-  BACKEND_BASE_URL: normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL),
+  // 后端基础URL（getter，运行时动态获取）
+  get BACKEND_BASE_URL() { return getBaseUrl(); },
   
-  // HTTP文件服务器基础URL（继承原始项目设计）
-  FILE_SERVER_BASE: process.env.NEXT_PUBLIC_FILE_SERVER_BASE || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8100` : 'http://localhost:8100'),
+  // HTTP文件服务器基础URL
+  get FILE_SERVER_BASE() { return getFileServerBase(); },
 };
 
-// 完整的API URL生成函数（运行时动态计算 base URL）
+// 完整的API URL生成函数（运行时动态计算）
 export const getApiUrl = (path: string): string => {
-  // 运行时获取 base URL：优先环境变量，否则用当前 origin（同源部署）
-  const raw = process.env.NEXT_PUBLIC_API_BASE_URL;
-  const baseUrl = raw
-    ? normalizeBaseUrl(raw)
-    : (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8200');
-  
-  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const baseUrl = getBaseUrl();
   const apiPath = path.startsWith('/') ? path : `/${path}`;
-  
-  return `${cleanBase}${apiPath}`;
+  return `${baseUrl}${apiPath}`;
 };
 
 // =============================================================================
