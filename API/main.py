@@ -201,7 +201,12 @@ def create_app() -> FastAPI:
     # Root endpoint - for health checks and basic info
     @app.get("/")
     async def root():  # pyright: ignore[reportUnusedFunction]
-        """根路径 - 用于健康检查"""
+        """根路径 - 生产模式返回前端页面，开发模式返回 API 信息"""
+        _dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        if not _dev_mode:
+            _frontend_index = Path(__file__).parent.parent / "demo" / "chat" / "dist" / "index.html"
+            if _frontend_index.exists():
+                return FileResponse(str(_frontend_index))
         return {
             "status": "running",
             "service": "DeepAnalyze API Server",
