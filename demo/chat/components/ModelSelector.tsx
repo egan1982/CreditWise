@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Settings, Info } from "lucide-react";
+import { getApiUrl } from "@/lib/config";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // localStorage key for persisting selected model config
@@ -40,8 +41,8 @@ export default function ModelSelector({ selectedConfig, onConfigChange }: ModelS
   const loadConfigs = async () => {
     try {
       setIsLoading(true);
-      // 使用后端API地址（8200端口），路由前缀为 /api/manage
-      const response = await fetch('http://127.0.0.1:8200/llm-manager/api/manage/channels/active-configs');
+      // 使用统一的 API URL 构造函数
+      const response = await fetch(getApiUrl('/llm-manager/api/manage/channels/active-configs'));
       if (!response.ok) throw new Error('Failed to fetch model configs');
       
       const result = await response.json();

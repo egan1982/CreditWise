@@ -40,3 +40,7 @@ requests-toolbelt
 sqlalchemy
 pydantic-settings
 cryptography
+
+# Authentication (内网多用户认证)
+bcrypt                   # 密码哈希验证
+pyyaml                   # 用户配置文件解析

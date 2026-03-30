@@ -65,6 +65,8 @@ dependencies = [
     "sqlalchemy",
     "pydantic-settings",
     "cryptography",
+    "bcrypt",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]

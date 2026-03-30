@@ -33,6 +33,9 @@ llm_manager.db
 .env.local
 .env.*
 
+# User config (contains password hashes)
+config/users.yaml
+
 # Logs
 logs/
 *.log

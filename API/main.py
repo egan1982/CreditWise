@@ -119,6 +119,24 @@ def create_app() -> FastAPI:
         expose_headers=["*"],  # 确保所有响应头对前端可见
     )
 
+    # Basic Auth 认证中间件（内网多用户版）
+    # 通过环境变量 ENABLE_AUTH=true 启用，默认关闭以兼容现有部署
+    if os.getenv("ENABLE_AUTH", "false").lower() == "true":
+        try:
+            from auth_middleware import SimpleAuth, BasicAuthMiddleware
+            auth = SimpleAuth()
+            app.add_middleware(BasicAuthMiddleware, auth=auth)
+            logger.info("[OK] Basic Auth 认证中间件已启用")
+        except FileNotFoundError as e:
+            logger.error(f"[ERROR] 认证配置缺失: {e}")
+            print(f"[ERROR] 认证配置缺失: {e}")
+        except ImportError as e:
+            logger.error(f"[ERROR] 认证依赖缺失: {e}")
+            print(f"[ERROR] 认证依赖缺失（请安装 bcrypt 和 pyyaml）: {e}")
+        except Exception as e:
+            logger.error(f"[ERROR] 认证中间件初始化失败: {e}")
+            print(f"[ERROR] 认证中间件初始化失败: {e}")
+
     # 添加全局异常处理器，确保异常响应也包含CORS头
     from fastapi import Request
     from fastapi.responses import JSONResponse

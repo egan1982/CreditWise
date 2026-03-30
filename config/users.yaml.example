@@ -1,0 +1,23 @@
+# config/users.yaml
+# 内网测试用户配置（管理员手动维护）
+# 密码字段为 bcrypt 哈希值，使用 scripts/hash_password.py 生成
+#
+# 示例：
+#   python scripts/hash_password.py mypassword
+#   → 将输出的哈希值粘贴到 password_hash 字段
+
+users:
+  - username: admin
+    password_hash: "$2b$12$PLACEHOLDER_HASH_USE_hash_password_py"
+    role: admin
+    description: "管理员"
+
+  - username: user1
+    password_hash: "$2b$12$PLACEHOLDER_HASH_USE_hash_password_py"
+    role: user
+    description: "测试用户1"
+
+# 安全配置
+settings:
+  max_login_failures: 5          # 连续失败次数限制
+  lockout_duration_minutes: 15   # 锁定时间（分钟）
