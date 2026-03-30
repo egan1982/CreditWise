@@ -2,7 +2,10 @@
 
 // 验证并规范化 BASE_URL
 const normalizeBaseUrl = (url: string | undefined): string => {
-  const defaultUrl = 'http://127.0.0.1:8200';
+  // 浏览器环境下默认使用当前 origin（同源部署），避免硬编码 127.0.0.1
+  const defaultUrl = typeof window !== 'undefined'
+    ? window.location.origin
+    : 'http://127.0.0.1:8200';
   
   if (!url) return defaultUrl;
   
@@ -72,18 +75,21 @@ export const API_CONFIG = {
   BACKEND_BASE_URL: normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL),
   
   // HTTP文件服务器基础URL（继承原始项目设计）
-  FILE_SERVER_BASE: process.env.NEXT_PUBLIC_FILE_SERVER_BASE || 'http://localhost:8100',
+  FILE_SERVER_BASE: process.env.NEXT_PUBLIC_FILE_SERVER_BASE || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8100` : 'http://localhost:8100'),
 };
 
-// 完整的API URL生成函数
+// 完整的API URL生成函数（运行时动态计算 base URL）
 export const getApiUrl = (path: string): string => {
-  const baseUrl = API_URLS.BASE_URL.endsWith('/') 
-    ? API_URLS.BASE_URL.slice(0, -1) 
-    : API_URLS.BASE_URL;
+  // 运行时获取 base URL：优先环境变量，否则用当前 origin（同源部署）
+  const raw = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = raw
+    ? normalizeBaseUrl(raw)
+    : (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8200');
   
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   const apiPath = path.startsWith('/') ? path : `/${path}`;
   
-  return `${baseUrl}${apiPath}`;
+  return `${cleanBase}${apiPath}`;
 };
 
 // =============================================================================
