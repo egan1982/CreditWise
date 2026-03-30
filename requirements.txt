@@ -1,4 +1,5 @@
 # Core dependencies
+setuptools               # Python 3.12+ 不再内置 pkg_resources，scorecardpy 需要
 numpy
 pandas
 pandas-stubs             # Type stubs for pandas
