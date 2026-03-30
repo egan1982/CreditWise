@@ -1,107 +1,71 @@
 # ============================================
-# CreditWise 信贷风控助手 Docker Environment
-# External API integration with support for multiple LLM providers
+# CreditWise 信贷风控智能助手 Docker Environment
+# 支持两种模式：
+#   - 私有化单用户（默认）
+#   - 内网多用户（ENABLE_AUTH=true）
 # ============================================
 
-# Base image (no GPU needed - using external LLM API)
+# Stage 1: 构建前端
+FROM node:18-slim AS frontend-builder
+
+WORKDIR /build
+
+# 复制前端代码
+COPY demo/chat/package.json demo/chat/package-lock.json* ./
+RUN npm install --production=false
+
+COPY demo/chat/ ./
+RUN npm run build
+
+# Stage 2: 运行时
 FROM python:3.12-slim
 
-# Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    # 默认配置（可通过 docker-compose 或 docker run -e 覆盖）
+    API_HOST=0.0.0.0 \
+    API_PORT=8200 \
+    DEV_MODE=false \
+    ENABLE_AUTH=false
 
-# Set working directory
-WORKDIR /workspace
+WORKDIR /app
 
-# Install system dependencies
+# 安装系统依赖
 RUN apt-get update && apt-get install -y \
     git \
     curl \
-    wget \
-    vim \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install API dependencies
+# 安装 Python 依赖
+COPY requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install \
-    fastapi \
-    uvicorn \
-    openai \
-    httpx \
-    python-multipart
+    pip install -r requirements.txt
 
-# Install data science and analysis tools
-# Data processing and analysis
-RUN pip install \
-    pandasql \
-    pyjanitor \
-    feature-engine \
-    missingno
+# 复制项目代码
+COPY API/ ./API/
+COPY deepanalyze/ ./deepanalyze/
+COPY llm_manager_integrated/ ./llm_manager_integrated/
+COPY scripts/ ./scripts/
+COPY config/users.yaml.example ./config/users.yaml.example
+COPY run.py .
+COPY deepanalyze.py .
+COPY .env.example ./.env.example
 
-# Data visualization
-RUN pip install \
-    plotly \
-    bokeh \
-    squarify \
-    matplotlib-venn \
-    wordcloud \
-    folium \
-    contextily
+# 复制前端构建产物到 LLM Manager 静态目录
+# （生产模式下 FastAPI 直接提供静态文件）
+COPY --from=frontend-builder /build/.next ./demo/chat/.next
+COPY --from=frontend-builder /build/public ./demo/chat/public
 
-# Machine learning / Statistical modeling
-RUN pip install \
-    mlxtend \
-    imbalanced-learn \
-    optuna \
-    shap \
-    lime
+# 创建必要的目录
+RUN mkdir -p workspace execution_states task_results logs config
 
-# Time series and forecasting
-RUN pip install \
-    prophet \
-    pmdarima \
-    tslearn \
-    lifelines
+# 暴露端口
+EXPOSE 8200 8100
 
-# Bayesian / Probabilistic modeling
-RUN pip install \
-    pymc \
-    pystan \
-    cmdstanpy \
-    pyro-ppl
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8200/health || exit 1
 
-# Causal inference
-RUN pip install \
-    dowhy \
-    econml \
-    causalml \
-    CausalInference \
-    zepid
-
-# Geospatial data science
-RUN pip install \
-    geopandas \
-    shapely \
-    rasterio \
-    rasterstats \
-    fiona \
-    rtree \
-    pysal \
-    libpysal \
-    esda \
-    giddy \
-    segregation \
-    spopt \
-    spreg \
-    spglm \
-    splot \
-    spaghetti \
-    tobler
-
-# Expose port for API service
-EXPOSE 8000
-
-# Default command
-CMD ["/bin/bash"]
+# 启动命令
+CMD ["python", "API/main.py"]

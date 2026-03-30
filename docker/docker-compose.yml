@@ -1,36 +1,59 @@
-# Docker Compose configuration for CreditWise API service
-# Usage: docker-compose up -d
+# CreditWise Docker Compose 配置
+#
+# 使用方式：
+#   私有化单用户：  docker-compose up -d
+#   内网多用户：    ENABLE_AUTH=true docker-compose up -d
+#
+# 首次使用内网多用户模式：
+#   1. cp config/users.yaml.example config/users.yaml
+#   2. python scripts/hash_password.py <密码>
+#   3. 编辑 config/users.yaml 填入哈希值
+#   4. ENABLE_AUTH=true docker-compose up -d
 
 version: '3.8'
 
 services:
-  api:
-    # Use pre-built image from Docker Hub or locally built image
-    image: deepanalyze-env:latest
-    # Or pull from Docker Hub:
-    # image: yourusername/deepanalyze-env:latest
-    
-    container_name: deepanalyze-api
-    
-    # Port mapping
+  creditwise:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: creditwise:latest
+    container_name: creditwise-api
+
     ports:
-      - "8200:8200"  # API Server
-      - "3001:3001"  # Management UI
-    
-    # Volume mounts
+      - "8200:8200"   # API 服务 + 前端
+      - "8100:8100"   # 文件下载服务
+
     volumes:
-      - ./workspace:/workspace
-      - ./llm_manager.db:/app/llm_manager.db
-    
-    # Environment variables
+      # 持久化数据（容器重启不丢失）
+      - ../workspace:/app/workspace
+      - ../execution_states:/app/execution_states
+      - ../task_results:/app/task_results
+      - ../logs:/app/logs
+      # 数据库文件
+      - ../llm_manager.db:/app/llm_manager.db
+      - ../task_manager.db:/app/task_manager.db
+      # 用户配置（内网多用户模式需要）
+      - ../config/users.yaml:/app/config/users.yaml
+
     environment:
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # LLM API 密钥（按需配置）
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # 服务配置
       - API_HOST=0.0.0.0
       - API_PORT=8200
-    
-    # Startup command
-    command: python API/main.py
-    
-    # Restart policy
+      - DEV_MODE=false
+      # 认证控制：默认关闭，内网多用户设为 true
+      - ENABLE_AUTH=${ENABLE_AUTH:-false}
+      # CORS（生产模式同源，一般不需要配置）
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+
     restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3

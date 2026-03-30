@@ -1,20 +1,21 @@
-# config/users.yaml
-# 内网测试用户配置（管理员手动维护）
-# 密码字段为 bcrypt 哈希值，使用 scripts/hash_password.py 生成
-#
-# 示例：
-#   python scripts/hash_password.py mypassword
-#   → 将输出的哈希值粘贴到 password_hash 字段
+# config/users.yaml.example
+# 内网测试用户配置模板
+# 使用方式：
+#   1. 复制本文件为 users.yaml:  copy users.yaml.example users.yaml
+#   2. 用 scripts/hash_password.py 生成密码哈希
+#   3. 替换下方 PLACEHOLDER 为真实哈希值
 
 users:
   - username: admin
-    password_hash: "$2b$12$PLACEHOLDER_HASH_USE_hash_password_py"
+    password_hash: "$2b$12$PLACEHOLDER_USE_hash_password_py"
     role: admin
+    org: ""
     description: "管理员"
 
   - username: user1
-    password_hash: "$2b$12$PLACEHOLDER_HASH_USE_hash_password_py"
+    password_hash: "$2b$12$PLACEHOLDER_USE_hash_password_py"
     role: user
+    org: "部门名称"
     description: "测试用户1"
 
 # 安全配置
