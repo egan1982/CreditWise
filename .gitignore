@@ -22,6 +22,7 @@ wheels/
 
 # Auto-generated files
 openapi.json
+.app_pids.txt
 
 # Database files (contain sensitive API keys)
 *.db
