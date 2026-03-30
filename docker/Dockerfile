@@ -51,10 +51,9 @@ COPY config/users.yaml.example ./config/users.yaml.example
 COPY run.py .
 COPY deepanalyze.py .
 
-# 复制前端构建产物到 LLM Manager 静态目录
-# （生产模式下 FastAPI 直接提供静态文件）
-COPY --from=frontend-builder /build/.next ./demo/chat/.next
-COPY --from=frontend-builder /build/public ./demo/chat/public
+# 复制前端构建产物（Next.js static export 模式，输出到 dist/）
+# 生产模式下 FastAPI 直接提供静态文件
+COPY --from=frontend-builder /build/dist ./demo/chat/dist
 
 # 创建必要的目录
 RUN mkdir -p workspace execution_states task_results logs config
