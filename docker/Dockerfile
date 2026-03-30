@@ -50,7 +50,6 @@ COPY scripts/ ./scripts/
 COPY config/users.yaml.example ./config/users.yaml.example
 COPY run.py .
 COPY deepanalyze.py .
-COPY .env.example ./.env.example
 
 # 复制前端构建产物到 LLM Manager 静态目录
 # （生产模式下 FastAPI 直接提供静态文件）

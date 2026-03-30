@@ -32,6 +32,7 @@ llm_manager.db
 .env
 .env.local
 .env.*
+!.env.example
 
 # User config (contains password hashes)
 config/users.yaml
