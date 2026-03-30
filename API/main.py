@@ -815,6 +815,32 @@ def create_app() -> FastAPI:
     
     # Note: API/static backup removed as we now rely on Vite-built frontend for LLM Manager
 
+    # 生产模式下挂载 Next.js 静态导出的前端文件
+    # 开发模式下前端由 Next.js dev server (:3000) 提供
+    dev_mode_global = os.getenv("DEV_MODE", "true").lower() == "true"
+    if not dev_mode_global:
+        frontend_dist = Path(__file__).parent.parent / "demo" / "chat" / "dist"
+        if frontend_dist.exists():
+            # 挂载静态资源（JS/CSS/图片等）
+            app.mount("/static-frontend", StaticFiles(directory=str(frontend_dist)), name="frontend-static")
+
+            # 所有未匹配的路由返回 index.html（SPA 路由支持）
+            @app.get("/{full_path:path}")
+            async def serve_frontend(full_path: str):
+                """Serve the Next.js static export for unmatched routes"""
+                file_path = frontend_dist / full_path
+                if file_path.is_file():
+                    return FileResponse(str(file_path))
+                # SPA fallback
+                index_file = frontend_dist / "index.html"
+                if index_file.exists():
+                    return FileResponse(str(index_file))
+                return {"detail": "Not found"}
+
+            logger.info(f"[OK] Frontend static files mounted from {frontend_dist}")
+        else:
+            logger.warning(f"[WARN] Frontend dist not found at {frontend_dist}, skipping frontend mount")
+
     return app
 
 
