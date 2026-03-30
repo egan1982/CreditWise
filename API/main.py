@@ -826,21 +826,31 @@ def create_app() -> FastAPI:
     if not dev_mode_global:
         frontend_dist = Path(__file__).parent.parent / "demo" / "chat" / "dist"
         if frontend_dist.exists():
-            # 挂载静态资源（JS/CSS/图片等）
-            app.mount("/static-frontend", StaticFiles(directory=str(frontend_dist)), name="frontend-static")
+            # 已知的 API 路径前缀（这些不应 fallback 到前端）
+            _api_prefixes = (
+                "/v1/", "/sop/", "/workspace/", "/health", "/docs",
+                "/openapi", "/llm-manager/", "/download/", "/execute/",
+                "/export/", "/chat/",
+            )
 
-            # 所有未匹配的路由返回 index.html（SPA 路由支持）
-            @app.get("/{full_path:path}")
-            async def serve_frontend(full_path: str):
-                """Serve the Next.js static export for unmatched routes"""
-                file_path = frontend_dist / full_path
-                if file_path.is_file():
-                    return FileResponse(str(file_path))
-                # SPA fallback
-                index_file = frontend_dist / "index.html"
-                if index_file.exists():
-                    return FileResponse(str(index_file))
-                return {"detail": "Not found"}
+            from starlette.exceptions import HTTPException as StarletteHTTPException
+
+            @app.exception_handler(StarletteHTTPException)
+            async def spa_fallback(request, exc):
+                """非 API 路径的 404 返回 index.html（SPA 路由支持）"""
+                if exc.status_code == 404 and not request.url.path.startswith(_api_prefixes):
+                    index_file = frontend_dist / "index.html"
+                    if index_file.exists():
+                        return FileResponse(str(index_file))
+                # API 路径或非 404 错误，正常返回错误响应
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=exc.status_code,
+                    content={"detail": exc.detail or "Not found"},
+                )
+
+            # 挂载静态文件目录（必须放在所有路由之后）
+            app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend-static")
 
             logger.info(f"[OK] Frontend static files mounted from {frontend_dist}")
         else:
