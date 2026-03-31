@@ -1,7 +1,7 @@
 # Core dependencies
 setuptools<82             # Python 3.12+ 不再内置 pkg_resources，scorecardpy 需要；>=82 移除了 pkg_resources
 numpy
-pandas
+pandas<3.0                # pandas 3.0+ 与 scorecardpy 不兼容
 pandas-stubs             # Type stubs for pandas
 scikit-learn
 scikit-learn-stubs       # Type stubs for scikit-learn
