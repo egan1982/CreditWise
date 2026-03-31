@@ -92,6 +92,9 @@ AUTH_WHITELIST = [
     "/docs",
     "/redoc",
     "/openapi.json",
+    # 前端静态资源（JS/CSS/图片等）
+    "/_next",                    # Next.js 静态资源
+    "/llm-manager/static",       # LLM Manager 静态资源
 ]
 
 # SSE 端点白名单（EventSource 不支持自定义 header）
