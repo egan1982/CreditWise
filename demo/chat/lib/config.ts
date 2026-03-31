@@ -4,15 +4,19 @@
  * 运行时获取 API 基础 URL
  * 
  * 核心逻辑：
- * - 浏览器环境：使用 window.location.origin（同源部署，自动适配任何域名/IP）
+ * - 生产模式（同源部署，端口8200）：使用 window.location.origin
+ * - 开发模式（Next.js dev server，端口3000）：使用 127.0.0.1:8200
  * - 非浏览器环境（SSR/构建）：回退到 127.0.0.1:8200
- * 
- * 注意：不使用 process.env.NEXT_PUBLIC_* ，因为 Next.js output:'export'
- * 模式会在构建时将其替换为字面量，无法在运行时动态获取。
  */
 function getBaseUrl(): string {
   if (typeof window !== 'undefined') {
-    return window.location.origin;
+    const port = window.location.port;
+    // 生产模式：前端和 API 同源（都在 8200）
+    if (port === '8200' || port === '') {
+      return window.location.origin;
+    }
+    // 开发模式：前端在 3000，API 在 8200
+    return `${window.location.protocol}//${window.location.hostname}:8200`;
   }
   return 'http://127.0.0.1:8200';
 }
