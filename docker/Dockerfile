@@ -32,9 +32,24 @@ ENV DEBIAN_FRONTEND=noninteractive \
 WORKDIR /app
 
 # 安装系统依赖
+# kaleido（Plotly→PNG渲染引擎）内置 Chromium，需要以下共享库
+# 缺少这些库会导致 Word 报告中所有图表（ROC/KS/评分分布等）生成失败
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    # kaleido/Chromium 运行依赖
+    libgbm1 \
+    libnss3 \
+    libnspr4 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libasound2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libxkbcommon0 \
+    libpango-1.0-0 \
+    libcups2 \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Python 依赖
