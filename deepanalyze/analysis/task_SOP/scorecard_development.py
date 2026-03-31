@@ -485,11 +485,12 @@ class DataPreprocessor:
                     # Remove time_col from feature set if needed (keep original data)
                     # Note: time_col will be excluded from features in feature selection stage
                     
-                    # Split train/test from non-OOT data
-                    train_ratio = 1.0 - test_ratio
-                    data_split = sc.split_df(df_train_test, y=target_col, ratio=train_ratio, seed=random_state)
-                    train_df = data_split['train']
-                    test_df = data_split['test']
+                    # Split train/test from non-OOT data (use sklearn to avoid scorecardpy pandas compat issue)
+                    from sklearn.model_selection import train_test_split
+                    train_df, test_df = train_test_split(
+                        df_train_test, test_size=test_ratio, random_state=random_state,
+                        stratify=df_train_test[target_col]
+                    )
                     
                     logger.info(f"Time-based split: train={len(train_df)}, test={len(test_df)}, oot={len(oot_df)}")
                     return train_df, test_df, oot_df
@@ -499,12 +500,16 @@ class DataPreprocessor:
                 logger.warning(f"Could not parse time column '{time_col}', falling back to random split")
         
         # Mode 3: Random stratified split (no OOT)
+        # Use sklearn to avoid scorecardpy's rep_blank_na() pandas compat issue
         logger.info(f"Using random stratified split: test_ratio={test_ratio}")
-        train_ratio = 1.0 - test_ratio
-        data_split = sc.split_df(df, y=target_col, ratio=train_ratio, seed=random_state)
+        from sklearn.model_selection import train_test_split
+        train_df, test_df = train_test_split(
+            df, test_size=test_ratio, random_state=random_state,
+            stratify=df[target_col]
+        )
         
-        logger.info(f"Random split: train={len(data_split['train'])}, test={len(data_split['test'])}, oot=None")
-        return data_split['train'], data_split['test'], None
+        logger.info(f"Random split: train={len(train_df)}, test={len(test_df)}, oot=None")
+        return train_df, test_df, None
     
     def _parse_time_column(self, col: pd.Series) -> pd.Series | None:
         """
