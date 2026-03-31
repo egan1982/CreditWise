@@ -1,9 +1,25 @@
 #!/bin/bash
 # 同步模型参数配置到 CVM
 # local_deepseek (channel_id=1) 和 local_kimi (channel_id=2)
+#
+# 用法：
+#   ./scripts/sync_model_configs.sh <用户名:密码>
+#   或设置环境变量 CREDITWISE_AUTH="用户名:密码"
+#
+# 示例：
+#   ./scripts/sync_model_configs.sh fjzheng:mypassword
+#   CREDITWISE_AUTH="admin:pass123" ./scripts/sync_model_configs.sh
 
-AUTH="fjzheng:Anna0203"
-BASE="http://localhost:8200/llm-manager/api/manage"
+# 从参数或环境变量获取认证信息
+AUTH="${1:-$CREDITWISE_AUTH}"
+if [ -z "$AUTH" ]; then
+    echo "❌ 请提供认证信息："
+    echo "   用法: $0 <用户名:密码>"
+    echo "   或:   export CREDITWISE_AUTH='用户名:密码' && $0"
+    exit 1
+fi
+
+BASE="${CREDITWISE_BASE_URL:-http://localhost:8200}/llm-manager/api/manage"
 
 # local_deepseek (channel_id=1) 模型配置
 curl -u $AUTH -X POST "$BASE/channels/1/model-config" \
