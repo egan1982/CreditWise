@@ -29,7 +29,7 @@ scipy>=1.7.0
 # Feature Correlation Analysis & Advanced Statistics
 statsmodels              # 偏相关、多变量回归、深度统计分析
 plotly                   # 交互式可视化
-kaleido                  # Plotly图表导出为静态图片（Word报告图表嵌入）
+kaleido<1.0.0              # Plotly图表导出为静态图片（v0.x 自带Chromium，v1.0+ 需外部Chrome）
 
 # LLM Manager Backend - Fully integrated into DeepAnalyze
 # All LLM Manager functionality (backend + frontend) is now self-contained
