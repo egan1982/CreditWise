@@ -1,8 +1,9 @@
 # CreditWise 内网多用户部署指南
 
 > 分支：`feature/intranet-multiuser`  
-> 版本：v1.0.0-beta.1  
-> 适用场景：内网 <5 人测试使用
+> 版本：v1.1.0  
+> 适用场景：内网 <5 人测试使用  
+> 更新：v1.1 新增 Docker 部署方式（推荐），更新部署脚本自动化能力
 
 ---
 
@@ -152,7 +153,90 @@ DeepAnalyze/
 
 ## 4. 部署步骤
 
-### 4.1 环境准备
+### 4.1 方式一：Docker 部署（推荐）
+
+> 一键部署脚本 `deploy_linux.sh` 已自动化处理所有前置条件，包括 Docker 安装、数据库文件预创建、加密密钥自动生成等。
+
+#### 环境要求
+
+| 依赖 | 版本 | 说明 |
+|------|------|------|
+| Linux CVM | CentOS/Ubuntu/Debian | 有 root 或 sudo 权限 |
+| 端口 8200 | 开放 | API + 前端 |
+| 端口 8100 | 开放 | 文件下载服务 |
+
+> Docker 和 Docker Compose 如未安装，部署脚本会自动安装。
+
+#### 部署流程
+
+```bash
+# ① 获取代码
+git clone <仓库地址>
+cd CreditWise
+git checkout feature/intranet-multiuser
+
+# ② 一键部署（7步全自动）
+chmod +x scripts/deploy_linux.sh
+./scripts/deploy_linux.sh
+```
+
+部署脚本自动完成以下 7 步：
+
+| 步骤 | 内容 | 说明 |
+|------|------|------|
+| [1/7] | 检查/安装 Docker | 自动检测并安装 Docker + Compose |
+| [2/7] | 检查用户配置 | 从 `users.yaml.example` 创建 `users.yaml`，**交互式询问是否编辑** |
+| [3/7] | 检查环境配置 | 从 `.env.example` 创建 `.env`，**自动生成加密密钥** |
+| [4/7] | 预创建数据库文件 | `touch llm_manager.db task_manager.db`（避免 Docker 创建为目录） |
+| [5/7] | 构建 Docker 镜像 | 首次约 5-10 分钟 |
+| [6/7] | 启动服务 | `ENABLE_AUTH=true docker-compose up -d` |
+| [7/7] | 健康检查验证 | 最多等待 30 秒确认服务启动 |
+
+#### 部署后需手动完成
+
+| 任务 | 命令 | 是否必须 |
+|------|------|:--------:|
+| 配置用户账号密码 | 编辑 `config/users.yaml`，用 `scripts/hash_password.py` 生成密码哈希 | ✅ 必须 |
+| 创建 LLM 渠道 | 通过 LLM Manager 页面或 API 创建 | ✅ 必须 |
+| 同步模型参数配置 | `./scripts/sync_model_configs.sh <用户名:密码>` | 可选 |
+
+#### 日常运维
+
+```bash
+cd /data/CreditWise/docker
+
+# 查看状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f --tail 50
+
+# 代码更新后重建
+cd /data/CreditWise && git pull
+cd docker && docker compose build && ENABLE_AUTH=true docker compose up -d
+
+# 停止服务
+docker compose down
+
+# 清理无用镜像
+docker image prune -f
+```
+
+#### 部署脚本自动处理的已知坑
+
+以下问题已在 `deploy_linux.sh` 中自动解决，无需手动干预：
+
+| 问题 | 原因 | 脚本处理方式 |
+|------|------|-------------|
+| `llm_manager.db` 被创建为目录 | Docker bind mount 对不存在的文件默认创建为目录 | 步骤 [4/7] 自动 `touch` 预创建空文件 |
+| `LLM_MANAGER_ENCRYPTION_KEY` 为空导致启动失败 | `.env` 不入 Git，clone 后无此配置 | 步骤 [3/7] 自动生成 Fernet 密钥写入 `.env` |
+| `.env` 文件不存在 | 被 `.gitignore` 忽略 | 步骤 [3/7] 自动从 `.env.example` 创建 |
+
+---
+
+### 4.2 方式二：手动部署（不使用 Docker）
+
+#### 环境准备
 
 | 依赖 | 版本 | 说明 |
 |------|------|------|
@@ -161,7 +245,7 @@ DeepAnalyze/
 | 端口 8200 | 开放 | API 服务 |
 | 端口 8100 | 开放 | 文件下载服务 |
 
-### 4.2 部署流程
+#### 部署流程
 
 ```bash
 # ① 拷贝项目到服务器
@@ -222,11 +306,13 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 
 | 任务 | 状态 | 优先级 | 说明 |
 |------|------|:------:|------|
-| 前端生产构建配置 | ❌ | P0 | `npm run build` + FastAPI 提供静态文件 |
-| 生产启动脚本 | ❌ | P0 | `start_production.ps1` |
-| 跨平台启动脚本 | ❌ | P1 | Linux/Mac 版 |
-| 一键打包脚本 | ❌ | P1 | 含依赖的部署包 |
+| ~~前端生产构建配置~~ | ✅ | ~~P0~~ | Docker 多阶段构建自动完成 |
+| ~~生产启动脚本~~ | ✅ | ~~P0~~ | `scripts/deploy_linux.sh`（7步自动化） |
+| ~~跨平台启动脚本~~ | ✅ | ~~P1~~ | Docker 方式天然跨平台 |
+| ~~一键打包脚本~~ | ✅ | ~~P1~~ | Docker 镜像即部署包 |
 | 用户自助改密码 | ❌ | P2 | `/auth/change-password` API |
+| Tailwind CSS 本地化 | ❌ | P3 | LLM Manager UI 依赖外网 CDN，内网样式缺失 |
+| 任务历史按用户隔离 | ❌ | P3 | 当前所有用户共享任务历史列表 |
 
 ---
 
@@ -243,4 +329,5 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 ---
 
 *文档创建日期：2026-03-27*  
+*v1.1 更新日期：2026-03-31*  
 *对应分支：feature/intranet-multiuser*
