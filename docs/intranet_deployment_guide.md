@@ -1,9 +1,9 @@
 # CreditWise 内网多用户部署指南
 
 > 分支：`feature/intranet-multiuser`  
-> 版本：v1.1.0  
+> 版本：v1.2.0  
 > 适用场景：内网 <5 人测试使用  
-> 更新：v1.1 新增 Docker 部署方式（推荐），更新部署脚本自动化能力
+> 更新：v1.2 修复双重登录问题，新增 workspace 基于用户名隔离 TODO
 
 ---
 
@@ -124,7 +124,9 @@ DeepAnalyze/
 
 | 路由 | 认证要求 | 角色要求 |
 |------|---------|---------|
+| `/` (首页 HTML), `/favicon.ico` | 无（精确匹配白名单） | 无 |
 | `/health`, `/docs` | 无 | 无 |
+| `/_next/*` (前端静态资源) | 无 | 无 |
 | `/sop/status/*/stream` (SSE) | 无 | 无 |
 | `/v1/chat/*` | 需登录 | 任意角色 |
 | `/sop/*`（非 SSE） | 需登录 | 任意角色 |
@@ -310,6 +312,8 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 | ~~生产启动脚本~~ | ✅ | ~~P0~~ | `scripts/deploy_linux.sh`（7步自动化） |
 | ~~跨平台启动脚本~~ | ✅ | ~~P1~~ | Docker 方式天然跨平台 |
 | ~~一键打包脚本~~ | ✅ | ~~P1~~ | Docker 镜像即部署包 |
+| ~~双重登录问题~~ | ✅ | ~~P0~~ | v1.5 已修复：`/` 和 `/favicon.ico` 加入精确匹配白名单，认证统一由前端 `authFetch` 处理（commit `55fcbc5`） |
+| workspace 基于用户名隔离 | ❌ | **P1** | 将 workspace 目录从 `session_随机ID` 改为登录用户名，解决同账号不同终端/清缓存后文件"丢失"问题 |
 | 用户自助改密码 | ❌ | P2 | `/auth/change-password` API |
 | Tailwind CSS 本地化 | ❌ | P3 | LLM Manager UI 依赖外网 CDN，内网样式缺失 |
 | 任务历史按用户隔离 | ❌ | P3 | 当前所有用户共享任务历史列表 |
@@ -323,11 +327,12 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 | 传输加密 (HTTPS) | ❌ 未配置 | 中 | 内网可接受，密码以 Base64 明文传输 |
 | 密码存储 | ✅ bcrypt 哈希 | 低 | 即使泄露也不可逆 |
 | 暴力破解防护 | ✅ 账户锁定 | 低 | 5 次失败锁定 15 分钟 |
-| 数据隔离 | ⚠️ 按 session_id | 中 | 非强制绑定用户，但实际不会冲突 |
+| 数据隔离 | ⚠️ 按 session_id | 中 | 非强制绑定用户，不同终端/清缓存后会生成新 sessionId 导致文件"丢失"。**TODO：改为基于登录用户名隔离** |
 | LLM API Key | ✅ admin-only | 低 | 普通用户无法访问管理接口 |
 
 ---
 
 *文档创建日期：2026-03-27*  
 *v1.1 更新日期：2026-03-31*  
+*v1.2 更新日期：2026-04-09（修复双重登录、新增 workspace 用户名隔离 TODO）*  
 *对应分支：feature/intranet-multiuser*
