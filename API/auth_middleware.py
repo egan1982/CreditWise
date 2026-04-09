@@ -97,6 +97,14 @@ AUTH_WHITELIST = [
     "/llm-manager/static",       # LLM Manager 静态资源
 ]
 
+# 不需要认证的精确路径（非前缀匹配）
+# "/" 和 "/favicon.ico" 只返回前端 HTML/图标，不含敏感数据
+# 所有数据操作 API（/workspace/*、/sop/*、/v1/*）仍需认证
+AUTH_WHITELIST_EXACT = [
+    "/",
+    "/favicon.ico",
+]
+
 # SSE 端点白名单（EventSource 不支持自定义 header）
 SSE_WHITELIST_PATTERNS = [
     "/sop/status/",  # /sop/status/{id}/stream
@@ -118,6 +126,10 @@ ADMIN_ONLY_EXACT = [
 
 def _is_whitelisted(path: str) -> bool:
     """检查路由是否在白名单中"""
+    # 精确匹配（如 "/" 首页、"/favicon.ico"）
+    if path in AUTH_WHITELIST_EXACT:
+        return True
+    # 前缀匹配
     for prefix in AUTH_WHITELIST:
         if path == prefix or path.startswith(prefix + "/"):
             return True
