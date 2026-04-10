@@ -43,11 +43,9 @@ services:
       - ../.env:/app/.env
 
     environment:
-      # LLM Manager 加密密钥（必需，用于加密 API Key）
-      - LLM_MANAGER_ENCRYPTION_KEY=${LLM_MANAGER_ENCRYPTION_KEY:-}
-      # LLM API 密钥（按需配置）
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # LLM Manager 加密密钥 和 LLM API 密钥：
+      # 已通过 env_file (../.env) 加载，不在此重复定义
+      # 否则 environment 块的 ${VAR:-} 会在 shell 无此变量时覆盖 env_file 为空值
       # 服务配置
       - API_HOST=0.0.0.0
       - API_PORT=8200
