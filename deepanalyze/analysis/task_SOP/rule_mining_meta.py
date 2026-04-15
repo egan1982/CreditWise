@@ -103,8 +103,35 @@ RULE_MINING_TASK_META: Dict[str, Any] = {
             "default": None,
             "required": False,
             "allow_empty": True,
-            "description": "用于手动划分训练集/测试集的列。列值应为 train/test（或0/1）。设置后将忽略测试集比例参数",
+            "description": "用于手动划分训练集/测试集/OOT验证集的列。列值应为 train/test/oot（或0/1/2）。设置后将忽略测试集比例和时间列参数",
             "stage": "preprocessing"
+        },
+        # P1-5: OOT 验证相关参数
+        {
+            "name": "time_col",
+            "type": "column_select",
+            "label": "时间列（智能OOT划分）",
+            "label_en": "Time Column (Smart OOT Split)",
+            "default": None,
+            "required": False,
+            "allow_empty": True,
+            "description": "用于智能OOT划分的时间列。设置后将按时间顺序自动选取最近的数据作为OOT验证集。支持日期(YYYY-MM-DD)、数值(YYYYMM)等格式",
+            "stage": "preprocessing",
+            "show_when": {"sample_type_col": None}
+        },
+        {
+            "name": "oot_ratio",
+            "type": "number",
+            "label": "OOT验证集比例",
+            "label_en": "OOT Validation Ratio",
+            "default": 0.0,
+            "min": 0.0,
+            "max": 0.3,
+            "step": 0.05,
+            "allow_empty": True,
+            "description": "OOT验证集占总数据的比例（0表示不划分OOT）。仅在设置时间列时生效",
+            "stage": "preprocessing",
+            "show_when": {"time_col": {"$ne": None}}
         },
         
         # Mining Mode Selection
@@ -412,18 +439,40 @@ RULE_MINING_TASK_META: Dict[str, Any] = {
             "stage": "selecting_rules"
         },
         
-        # Advanced: PSI Time Column for Stability Analysis (used in report_generation stage)
+        # P1-5: OOT 验证参数（selecting_rules 阶段）
         {
-            "name": "psi_time_col",
-            "type": "column_combobox",
-            "label": "PSI时间列（可选）",
-            "label_en": "Time Column for PSI (Optional)",
-            "default": None,
-            "required": False,
-            "allow_empty": True,
-            "allow_custom": True,
-            "description": "用于计算规则PSI稳定性的时间列。支持日期(YYYY-MM-DD)、数值(YYYYMM)等格式。设置后将按时间顺序分割数据计算PSI，未设置时自动检测或使用随机分割",
-            "stage": "report_generation",
+            "name": "enable_oot_validation",
+            "type": "checkbox",
+            "label": "启用OOT稳定性验证",
+            "label_en": "Enable OOT Validation",
+            "default": False,
+            "description": "启用后，将在OOT验证集上评估规则的时间稳定性（需先配置时间列或样本类型列含oot标注）",
+            "stage": "selecting_rules",
+            "advanced": True
+        },
+        {
+            "name": "enable_stability_filter",
+            "type": "checkbox",
+            "label": "基于稳定性筛选规则",
+            "label_en": "Enable Stability Filter",
+            "default": False,
+            "description": "启用后，将过滤掉在OOT上表现不稳定的规则（命中率CV超过阈值）",
+            "stage": "selecting_rules",
+            "show_when": {"enable_oot_validation": True},
+            "advanced": True
+        },
+        {
+            "name": "cv_threshold",
+            "type": "number",
+            "label": "变异系数阈值",
+            "label_en": "CV Threshold",
+            "default": 0.35,
+            "min": 0.2,
+            "max": 0.5,
+            "step": 0.05,
+            "description": "命中率变异系数超过此阈值的规则将被标记为不稳定。CV=标准差/均值，越小越稳定",
+            "stage": "selecting_rules",
+            "show_when": {"enable_oot_validation": True},
             "advanced": True
         },
         
@@ -488,11 +537,9 @@ RULE_MINING_SOP_PROMPT_TEMPLATE = """
 
 ## 阶段0a：数据预处理（必需）
 - 如有特征名映射文件，进行特征名映射
-- 删除ID列（如fuuid、user_id等）
-- 删除常量列（只有单一值的列）
+- 智能检测非建模列（ID列、时间列、常量列）并标记排除
 - **特殊缺失值替换**：将以下特殊值视为缺失值并替换为NaN：{special_values}
-- 对日期时间列进行特征提取（年、月、日、星期、小时、距今天数等，衍生列以`_dt_`标识）
-- 对文本列进行特征提取（长度、词数、关键词匹配等，衍生列以`_txt_`标识）
+- 检测日期时间列和文本列（只标记，不衍生，衍生在特征工程阶段执行）
 - **数据质量自动检测**：
   - 分析缺失率分布（高缺失率特征数量）
   - 分析数据类型分布（数值型/分类型/文本型比例）
@@ -504,6 +551,10 @@ RULE_MINING_SOP_PROMPT_TEMPLATE = """
   - 自动识别分类变量（object/category类型、小范围整数编码、稀疏编码等）
   - 用户指定的分类变量：{force_categorical}（如有指定，优先作为分类变量处理）
   - 对分类变量进行One-Hot编码（如不启用特征工程，编码列以`_is_`标识）
+- **数据集划分**（支持三种模式，按优先级执行）：
+  1. 手动标注模式：如指定 sample_type_col，按列值划分 train/test/oot
+  2. 智能OOT模式：如指定 time_col + oot_ratio>0，按时间排序取最近N%为OOT，剩余随机划分train/test
+  3. 随机划分模式：按 test_ratio 随机划分 train/test
 
 ## 阶段0b：特征工程预处理（根据数据质量自动决定或用户指定）
 **执行条件判断**：
@@ -512,10 +563,12 @@ RULE_MINING_SOP_PROMPT_TEMPLATE = """
 - 如果 enable_feature_engineering=False 且数据质量评分 >= 70：跳过特征工程，数据质量良好
 
 **特征工程步骤**（当执行时）：
+- **日期时间衍生**：从日期列提取 year/month/dayofweek/hour/days_since（衍生列以`_dt_`标识）
+- **文本特征衍生**：从文本列提取 length/word_count（衍生列以`_txt_`标识）
+- **分类变量编码**：对分类变量进行One-Hot编码（衍生列以`_is_`标识）
 - 检查缺失值，对缺失率 > {missing_threshold} 的变量进行剔除
 - 计算所有变量的 IV 值
 - 剔除 IV < {iv_threshold} 的弱变量
-- 对分类变量进行One-Hot编码
 
 ## 阶段1：规则生成
 

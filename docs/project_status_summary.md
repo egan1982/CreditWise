@@ -12,7 +12,7 @@
 |------|------|
 | ✅ 已实现/已验证/已完成 | 24个 |
 | ⚠️ 部分实现 | 4个 |
-| 📋 待实施/待开发 | 9个 |
+| 📋 待实施/待开发 | 10个 |
 
 ---
 
@@ -162,7 +162,7 @@
 
 1. **已实现/已验证/已完成**（24个）：文档设计的功能已全部实现或已清理（过时/合并）
 2. **部分实现**（4个）：已完成基础功能，但有明确的后续开发内容
-3. **待实施/待开发**（9个）：尚未开始实现，或仅完成设计阶段
+3. **待实施/待开发**（10个）：尚未开始实现，或仅完成设计阶段
 4. 本报告基于2026-04-15的代码库核实及最新文档状态同步结果更新
 
 ---
@@ -208,6 +208,9 @@
 | **12** | `right_panel_unified_architecture_plan.md` | 架构优化，依赖Chat API融合完成后 | 中期优化 |
 | **13** | `task_report_ai_analysis_design.md` | 仅剩端到端测试验证，可在其他功能完成后统一测试 | - |
 | **14** | `release_readiness_plan.md` | Release发布流程，代码审计已完成，后续Phase按需推进 | 按Phase分阶段 |
+| **15** | 📋 **删除历史记录级联清理** | 删除任务记录时遗漏执行状态文件/检查点/AI分析等关联数据，需级联清理 + 前端确认交互 | ~0.5天 |
+
+> 详细方案见 [`taskSOP_solution/task_management_module_design.md` Phase 25](./taskSOP_solution/task_management_module_design.md#phase-25删除历史记录级联清理待实施)
 
 ---
 
@@ -233,6 +236,7 @@ Week 5:
 
 后续迭代:
   ├─ [P3] report_config_driven_plan Phase 2（业务功能完善后）
+  ├─ [P3] 删除历史记录级联清理（执行状态/检查点/AI分析，~0.5天）
   ├─ [P3] multimodal_chat_plan
   ├─ [P3] right_panel_unified_architecture_plan
   └─ [P3] release_readiness_plan Phase 2-5 (按需推进)

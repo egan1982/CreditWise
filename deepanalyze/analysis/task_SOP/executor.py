@@ -879,11 +879,15 @@ class SOPExecutor:
                 'custom_thresholds': context.params.get('custom_thresholds'),
                 'prior_rules': context.params.get('prior_rules'),
                 'amount_col': context.params.get('amount_col'),
-                # PSI稳定性计算参数（直接从用户参数获取，不经过pipeline_params）
-                'psi_time_col': context.params.get('psi_time_col'),
-                # 数据集划分参数（直接从用户参数获取，与评分卡一致，但规则挖掘只有训练集/测试集，无OOT）
+                # P1-5: 数据集划分参数（与评分卡一致，支持 OOT）
                 'sample_type_col': context.params.get('sample_type_col'),
+                'time_col': context.params.get('time_col'),
+                'oot_ratio': context.params.get('oot_ratio', 0.0),
                 'test_ratio': context.params.get('test_ratio', 0.0),
+                # P1-5: OOT 验证参数
+                'enable_oot_validation': context.params.get('enable_oot_validation', False),
+                'enable_stability_filter': context.params.get('enable_stability_filter', False),
+                'cv_threshold': context.params.get('cv_threshold', 0.35),
             }
         else:
             # 评分卡等其他任务的参数

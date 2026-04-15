@@ -596,6 +596,9 @@ export function RuleMiningResults({
     const allRulesWithStatusRaw = unwrapData(outputs.all_rules_with_status);
     const allRulesWithStatus: RuleWithStatus[] = Array.isArray(allRulesWithStatusRaw) ? allRulesWithStatusRaw : [];
     
+    // P1-5: OOT 稳定性验证报告
+    const ootStabilityReport = unwrapData(outputs.oot_stability_report) as Record<string, any> | null;
+    
     // 摘要信息 - 优先从chart_data.summary获取
     const chartSummary = chartData?.summary as Record<string, number> | undefined;
     const summary: ResultSummary = {
@@ -610,7 +613,7 @@ export function RuleMiningResults({
         (optimalRules.length > 0 ? optimalRules.reduce((sum, r) => sum + (r.lift || 0), 0) / optimalRules.length : 0),
     };
 
-    return { optimalRules, allRules, filteredRules, allRulesWithStatus, summary, chartData, validationReport, psiReport, amountAnalysis, priorAnalysis, treeStructure, ruleSourceStats };
+    return { optimalRules, allRules, filteredRules, allRulesWithStatus, summary, chartData, validationReport, psiReport, amountAnalysis, priorAnalysis, treeStructure, ruleSourceStats, ootStabilityReport };
   };
 
   const data = parseResults();
@@ -1078,6 +1081,36 @@ export function RuleMiningResults({
                       avgPsi < 0.25 ? "text-yellow-600" : "text-red-600"
                     )}>
                       {avgPsi.toFixed(3)}
+                    </span>
+                  </div>
+                </>
+              );
+            })()}
+            
+            {/* P1-5: OOT 时间稳定性 */}
+            {data.ootStabilityReport && (() => {
+              const overallCv = data.ootStabilityReport.overall_hit_rate?.cv || 0;
+              const counts = data.ootStabilityReport.stability_counts || {};
+              const bonus = data.ootStabilityReport.stability_score_bonus || 0;
+              const cvLevel = overallCv < 0.15 ? "高度稳定" : overallCv < 0.25 ? "稳定" : overallCv < 0.35 ? "中等" : "不稳定";
+              const cvColor = overallCv < 0.15 ? "text-green-600" : overallCv < 0.25 ? "text-blue-600" : overallCv < 0.35 ? "text-yellow-600" : "text-red-600";
+              return (
+                <>
+                  <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
+                  <div className="flex items-center gap-2">
+                    <Activity className={cn("h-4 w-4", cvColor)} />
+                    <span className="text-gray-600 dark:text-gray-400">OOT:</span>
+                    <span className={cn("font-semibold", cvColor)}>
+                      CV={overallCv.toFixed(3)} ({cvLevel})
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-gray-500">
+                    <span>🟢{counts.highly_stable || 0}</span>
+                    <span>🟡{counts.stable || 0}</span>
+                    <span>🟠{counts.moderate || 0}</span>
+                    <span>🔴{counts.unstable || 0}</span>
+                    <span className={cn("ml-1", bonus > 0 ? "text-green-600" : bonus < 0 ? "text-red-600" : "text-gray-500")}>
+                      ({bonus > 0 ? "+" : ""}{bonus}分)
                     </span>
                   </div>
                 </>
@@ -3433,7 +3466,8 @@ function SampleFeaturePanel({ stagesData }: SampleFeaturePanelProps) {
   const timeRangeInfo = preprocessingData.time_range_info;
   
   // 解析衍生特征信息
-  const derivedFeatures = preprocessingData.derived_features || {};
+  // P1-4: 数据源从 preprocessingData 迁移到 feData（datetime/text 衍生已移至特征工程阶段）
+  const derivedFeatures = feData.derived_features || preprocessingData.derived_features || {};
   const totalDerived = derivedFeatures.total_derived || 0;
   
   return (

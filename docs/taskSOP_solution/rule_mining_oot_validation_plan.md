@@ -21,8 +21,8 @@
 - 质量评估总分从 100 分扩展到 110 分（时间稳定性附加 +10 分）
 
 **后端变化**：
-- `rule_mining_meta.py`：删除 `psi_time_col`，新增 5 个参数
-- `rule_mining.py`：扩展 `_split_data_with_oot()`、新增 `_evaluate_rules_oot_stability()`、`_filter_by_stability()`
+- `rule_mining_meta.py`：删除 `psi_time_col`，新增 5 个参数（✅ 已完成）
+- `rule_mining.py`：~~新建 `_split_data_with_oot()`~~ → 复用评分卡的 `DataPreprocessor.split_data()`（✅ Phase 2 已完成），新增 `_evaluate_rules_oot_stability()`、`_filter_by_stability()`
 - `AI_analysis_prompts.py`：新增 OOT 分析提示词
 
 **前端变化**：
@@ -202,32 +202,42 @@
 
 ### 6.1 文件变更清单
 
-| 文件路径 | 变更类型 | 变更内容 |
-|---------|---------|---------|
-| `deepanalyze/analysis/task_SOP/rule_mining_meta.py` | 修改 | 删除`psi_time_col`，新增`time_col`/`oot_ratio`等参数 |
-| `deepanalyze/analysis/task_SOP/rule_mining.py` | 修改 | 扩展数据划分逻辑，新增OOT验证方法 |
-| `API/AI_analysis_prompts.py` | 修改 | 新增OOT分析提示词 |
+| 文件路径 | 变更类型 | 变更内容 | 状态 |
+|---------|---------|---------|:----:|
+| `deepanalyze/analysis/task_SOP/rule_mining_meta.py` | 修改 | 删除`psi_time_col`，新增`time_col`/`oot_ratio`等5个参数，更新SOP prompt | ✅ |
+| `deepanalyze/analysis/task_SOP/rule_mining.py` | 修改 | 复用评分卡 `DataPreprocessor.split_data()` 替换内联划分逻辑，新增OOT验证方法 | 🔄 Phase 2 ✅ |
+| `API/AI_analysis_prompts.py` | 修改 | 新增OOT分析提示词 | 待实施 |
 
 ### 6.2 核心方法设计
 
-```python
-# 1. 数据划分扩展（preprocessing阶段）
-def _split_data_with_oot(
-    self,
-    df: pd.DataFrame,
-    sample_type_col: str | None,
-    time_col: str | None,
-    oot_ratio: float,
-    test_ratio: float,
-    target_col: str
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
-    """
-    支持OOT的数据集划分
-    
-    Returns:
-        (train_df, test_df, oot_df) - oot_df可能为None
-    """
+#### 6.2.1 数据划分（✅ Phase 2 已完成）
 
+> **设计变更记录（2026-04-15）**：
+> 
+> 原 plan 设计为在 `rule_mining.py` 中新建 `_split_data_with_oot()` 方法。
+> 实施时发现评分卡已有完整的 `DataPreprocessor.split_data()` 方法（`scorecard_development.py:374-512`），
+> 支持三种划分模式（手动标注/智能OOT/随机划分）、多种时间格式解析、完善的容错处理。
+> 
+> 规则挖掘原有的内联划分代码（~40行）是早期实现，**仅因开发先后顺序不同导致未对齐**，非业务差异。
+> 
+> **实际方案**：删除内联代码，直接调用 `self.preprocessor.split_data()`，确保两个任务共用同一套划分逻辑。
+
+```python
+# 实际实现（复用评分卡的 DataPreprocessor.split_data）
+train_df, test_df, oot_df = self.preprocessor.split_data(
+    df_processed,
+    target_col=target_col,
+    test_ratio=test_ratio,
+    sample_type_col=sample_type_col,
+    time_col=time_col,
+    oot_ratio=oot_ratio
+)
+# 返回 (train_df, test_df, oot_df)，oot_df 为 None 时表示无 OOT 数据
+```
+
+#### 6.2.2 OOT 验证计算（selecting_rules 阶段，待实施）
+
+```python
 # 2. OOT验证计算（selecting_rules阶段）
 def _evaluate_rules_oot_stability(
     self,
@@ -334,15 +344,15 @@ def _filter_by_stability(
 
 ## 八、实施计划
 
-| 阶段 | 任务 | 文件 | 预计工作量 |
-|------|------|------|-----------|
-| Phase 1 | 元数据配置修改 | `rule_mining_meta.py` | 2h |
-| Phase 2 | 预处理阶段数据划分扩展 | `rule_mining.py` | 3h |
-| Phase 3 | 最优选择阶段OOT验证逻辑 | `rule_mining.py` | 4h |
-| Phase 4 | 前端展示更新 | `RuleMiningResults.tsx`, `StageOutputPreview.tsx` | 3h |
-| Phase 5 | AI分析提示词更新 | `AI_analysis_prompts.py` | 1h |
-| Phase 6 | 测试验证 | - | 3h |
-| **总计** | | | **~16h** |
+| 阶段 | 任务 | 文件 | 预计工作量 | 状态 |
+|------|------|------|-----------|:----:|
+| Phase 1 | 元数据配置修改 | `rule_mining_meta.py` | 2h | ✅ |
+| Phase 2 | 预处理阶段数据划分扩展 | `rule_mining.py` | ~~3h~~ 1h（复用评分卡） | ✅ |
+| Phase 3 | 最优选择阶段OOT验证逻辑 | `rule_mining.py` | 4h | 🔄 |
+| Phase 4 | 前端展示更新 | `RuleMiningResults.tsx`, `StageOutputPreview.tsx` | 3h | 待实施 |
+| Phase 5 | AI分析提示词更新 | `AI_analysis_prompts.py` | 1h | 待实施 |
+| Phase 6 | 测试验证 | - | 3h | 待实施 |
+| **总计** | | | **~~16h~~ ~14h** |
 
 ---
 
@@ -406,6 +416,11 @@ def _filter_by_stability(
 
 ---
 
-**文档版本**: v1.0  
-**最后更新**: 2026-02-12  
-**状态**: 已确认，待实施
+**文档版本**: v1.1  
+**最后更新**: 2026-04-15  
+**状态**: Phase 1-2 已完成，Phase 3 进行中
+
+**v1.1 变更记录（2026-04-15）**：
+- Phase 1（元数据）✅ 完成
+- Phase 2（数据划分）✅ 完成：方案变更为复用评分卡 `DataPreprocessor.split_data()`，删除内联代码 ~40 行
+- 实施计划总工时从 ~16h 调整为 ~14h（Phase 2 节省 2h）

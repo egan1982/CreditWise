@@ -186,7 +186,8 @@ STAGE_ROLE_CONFIG = {
             "最优规则数量是否适中（通常3-8条）",
             "累计命中率与召回率的平衡",
             "规则集的整体提升度",
-            "选择模式是否符合业务目标"
+            "选择模式是否符合业务目标",
+            "OOT时间稳定性（如有验证数据，关注命中率CV是否<0.25）"
         ]
     },
     "rule_selection": {
@@ -859,6 +860,22 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
     if psi_report:
         psi_status = f"{stable_rules}/{len(psi_report)}条稳定 (PSI<0.1), {unstable_rules}条不稳定 (PSI≥0.25), 平均PSI={avg_psi}"
     
+    # P1-5: OOT 稳定性数据
+    oot_stability_raw = _unwrap_data(outputs.get("oot_stability_report"))
+    oot_stability_section = ""
+    if oot_stability_raw and isinstance(oot_stability_raw, dict):
+        overall_hr = oot_stability_raw.get("overall_hit_rate", {})
+        counts = oot_stability_raw.get("stability_counts", {})
+        bonus = oot_stability_raw.get("stability_score_bonus", 0)
+        cv = overall_hr.get("cv", 0)
+        oot_stability_section = (
+            f"\n\n### 6.5 OOT时间稳定性验证"
+            f"\n- 整体命中率CV: {cv:.4f}"
+            f" (训练集{overall_hr.get('train', 0):.2%} / 测试集{overall_hr.get('test', 0):.2%} / OOT{overall_hr.get('oot', 0):.2%})"
+            f"\n- 规则稳定性: 高度稳定{counts.get('highly_stable', 0)}条, 稳定{counts.get('stable', 0)}条, 中等{counts.get('moderate', 0)}条, 不稳定{counts.get('unstable', 0)}条"
+            f"\n- 稳定性评分: {'+' if bonus >= 0 else ''}{bonus}分"
+        )
+    
     return f"""## 角色设定
 你是一位资深的规则策略分析专家，专长领域：风控规则挖掘与策略评估。
 
@@ -910,7 +927,7 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
 {issues_summary}
 
 ### 6. 稳定性分析（PSI）
-{psi_status}
+{psi_status}{oot_stability_section}
 
 ### 7. Top规则示例
 {rules_example}
@@ -919,13 +936,14 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
 - **平均提升度**: 入选规则各自Lift的算术平均，反映单条规则的平均质量
 - **累计提升度**: 规则集整体的Lift（累计坏账率/总体坏账率），反映规则组合的整体效果
 - **最小Lift阈值**: 用户配置的筛选参数，低于此值的单条规则会被过滤
+- **命中率CV**: 变异系数(标准差/均值)，衡量规则在训练集/测试集/OOT上的命中率波动，<0.15高度稳定，0.15-0.25稳定，0.25-0.35中等，>0.35不稳定
 
 ## 重点关注维度
 1. 规则质量（单条规则Lift是否≥2，坏账率是否显著高于总体）
 2. 累计效果（召回率与命中率的平衡是否合理，累计提升度是否达标）
 3. 筛选策略（淘汰原因分布是否合理，筛选阈值是否需要调整）
 4. 规则重叠度（重叠度为0说明规则互斥，较高则需关注效率损耗）
-5. 稳定性（PSI是否在可接受范围）
+5. 稳定性（PSI是否在可接受范围，OOT命中率CV是否<0.25）
 6. 规则数量是否适中（6条以内较理想）
 
 ## 输出格式要求
@@ -1338,8 +1356,22 @@ def _build_feature_selection_description(data: dict[str, Any]) -> str:
     warning = data.get("warning")
     warning_str = f"\n- ⚠️ 警告: {warning}" if warning else ""
     
+    # P1-4: datetime/text 衍生信息（从预处理阶段移入）
+    derived_features = data.get("derived_features", {})
+    derivation_str = ""
+    if derived_features.get("total_derived", 0) > 0:
+        dt_info = derived_features.get("datetime", {})
+        txt_info = derived_features.get("text", {})
+        parts = []
+        if dt_info.get("derived_count", 0) > 0:
+            parts.append(f"日期时间衍生+{dt_info['derived_count']}个(来源:{','.join(dt_info.get('source_cols', [])[:3])})")
+        if txt_info.get("derived_count", 0) > 0:
+            parts.append(f"文本衍生+{txt_info['derived_count']}个(来源:{','.join(txt_info.get('source_cols', [])[:3])})")
+        if parts:
+            derivation_str = f"\n- 特征衍生: {', '.join(parts)}"
+    
     return f"""
-- 特征变化流程: {original_count or 'N/A'}{onehot_info} → {selected_count or 'N/A'}（IV筛选后）{onehot_detail}
+- 特征变化流程: {original_count or 'N/A'}{onehot_info} → {selected_count or 'N/A'}（IV筛选后）{onehot_detail}{derivation_str}
 - IV筛选移除: {removed_count or 'N/A'}个特征{iv_dist_info}{selected_str}{method_str}{warning_str}"""
 
 
@@ -1992,9 +2024,42 @@ def _build_selecting_rules_description(data: dict[str, Any]) -> str:
     selection_method = data.get("selection_method")
     method_str = f"\n- 选择方法: {selection_method}" if selection_method else ""
     
+    # P1-5: OOT 稳定性验证信息
+    oot_stability = data.get("oot_stability")
+    oot_str = ""
+    if oot_stability and isinstance(oot_stability, dict):
+        overall = oot_stability.get("overall_hit_rate", {})
+        counts = oot_stability.get("stability_counts", {})
+        bonus = oot_stability.get("stability_score_bonus", 0)
+        overall_cv = overall.get("cv", 0)
+        
+        # 整体稳定性
+        if overall_cv < 0.15:
+            overall_level = "高度稳定"
+        elif overall_cv < 0.25:
+            overall_level = "稳定"
+        elif overall_cv < 0.35:
+            overall_level = "中等"
+        else:
+            overall_level = "不稳定"
+        
+        oot_str = (
+            f"\n- OOT稳定性验证（{oot_stability.get('oot_samples', 0)}条验证数据）:"
+            f"\n  整体命中率: 训练集{overall.get('train', 0):.2%} / 测试集{overall.get('test', 0):.2%} / OOT{overall.get('oot', 0):.2%}, CV={overall_cv:.4f}({overall_level})"
+            f"\n  规则稳定性分布: 高度稳定{counts.get('highly_stable', 0)}条, 稳定{counts.get('stable', 0)}条, 中等{counts.get('moderate', 0)}条, 不稳定{counts.get('unstable', 0)}条"
+            f"\n  稳定性评分加分: {'+' if bonus >= 0 else ''}{bonus}分"
+        )
+        
+        # 列出不稳定规则（如果有）
+        unstable = oot_stability.get("unstable_rules", [])
+        if unstable:
+            oot_str += f"\n  不稳定规则({len(unstable)}条): " + ", ".join(f'"{r[:50]}"' for r in unstable[:3])
+            if len(unstable) > 3:
+                oot_str += f"...等{len(unstable)}条"
+    
     return f"""
 - 候选规则数: {candidate_count or 'N/A'}
-- 最优规则数: {selected_count or 'N/A'}{coverage_str}{avg_lift_str}{mode_str}{method_str}"""
+- 最优规则数: {selected_count or 'N/A'}{coverage_str}{avg_lift_str}{mode_str}{method_str}{oot_str}"""
 
 
 def _build_rule_mining_description(data: dict[str, Any]) -> str:

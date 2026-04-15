@@ -5877,10 +5877,15 @@ class RuleMiningPipeline:
         custom_thresholds: dict[str, list[float]] | None = None,
         prior_rules: list[str] | None = None,
         amount_col: str | None = None,
-        psi_time_col: str | None = None,
-        # 数据集划分参数（可选，与评分卡一致）
+        # P1-5: 数据集划分参数（与评分卡一致，复用 DataPreprocessor.split_data）
         sample_type_col: str | None = None,
+        time_col: str | None = None,
+        oot_ratio: float = 0.0,
         test_ratio: float = 0.0,
+        # P1-5: OOT 验证参数（selecting_rules 阶段使用）
+        enable_oot_validation: bool = False,
+        enable_stability_filter: bool = False,
+        cv_threshold: float = 0.35,
         progress_callback: StageProgressCallback = None,
         start_from_stage: str | None = None,
         cached_state: dict[str, Any] | None = None
@@ -5901,13 +5906,16 @@ class RuleMiningPipeline:
             custom_thresholds: Custom thresholds for single-var mining (dict[var_name, list[threshold]])
             prior_rules: Prior rule expressions for incremental contribution analysis (v6.2)
             amount_col: Amount column name for amount dimension analysis (v6.2)
-            psi_time_col: Time column for PSI stability calculation (v6.3). Supports date (YYYY-MM-DD), 
-                numeric (YYYYMM) formats. If provided, data will be split by time for PSI calculation.
-                If None, auto-detect time columns or use random split.
-            sample_type_col: Column name containing sample type labels ('train'/'test').
-                If provided, data will be split based on this column. Optional for rule mining.
+            sample_type_col: Column name containing sample type labels ('train'/'test'/'oot').
+                If provided, data will be split based on this column. Supports OOT validation.
+            time_col: Time column for smart OOT split. Supports date, numeric formats.
+                If provided with oot_ratio > 0, most recent data will be used as OOT.
+            oot_ratio: OOT validation set ratio (0.0 = no OOT). Only used with time_col.
             test_ratio: Ratio of data to use as test set (0.0 = no split, 0.2 = 20% test).
                 Only used when sample_type_col is not provided. Default 0.0 (no split).
+            enable_oot_validation: Enable OOT stability validation in selecting_rules stage.
+            enable_stability_filter: Filter out unstable rules based on CV threshold.
+            cv_threshold: Hit rate CV threshold for stability classification (default 0.35).
             progress_callback: Progress callback(stage, current, total)
             start_from_stage: 从指定阶段开始重试。之前的阶段会跳过（使用缓存数据），
                 重试阶段及之后的阶段会正常执行。
@@ -5932,7 +5940,7 @@ class RuleMiningPipeline:
         logger = logging.getLogger(__name__)
         
         # 记录关键参数
-        logger.info(f"[RuleMining] run() called with test_ratio={test_ratio}, sample_type_col={sample_type_col}")
+        logger.info(f"[RuleMining] run() called with test_ratio={test_ratio}, sample_type_col={sample_type_col}, time_col={time_col}, oot_ratio={oot_ratio}")
         
         results: dict[str, Any] = {'mining_mode': self.mining_mode}
         df_processed = df.copy()
@@ -6118,13 +6126,13 @@ class RuleMiningPipeline:
             # 合并所有需要排除的列
             auto_detected_cols = set(non_feature_detection['all_non_feature_cols'])
             
-            # 如果用户指定了 weight_col、sample_type_col 或 psi_time_col，确保它们被排除（与评分卡一致）
+            # 如果用户指定了 weight_col、sample_type_col 或 time_col，确保它们被排除（与评分卡一致）
             if weight_col and weight_col in df_processed.columns:
                 auto_detected_cols.add(weight_col)
             if sample_type_col and sample_type_col in df_processed.columns:
                 auto_detected_cols.add(sample_type_col)
-            if psi_time_col and psi_time_col in df_processed.columns:
-                auto_detected_cols.add(psi_time_col)
+            if time_col and time_col in df_processed.columns:
+                auto_detected_cols.add(time_col)
             
             # 最终排除列 = 目标列 + 用户指定 + 自动检测
             exclude_from_features = {target_col} | user_exclude_cols | auto_detected_cols
@@ -6250,20 +6258,31 @@ class RuleMiningPipeline:
             # For single-var mode, we typically don't need One-Hot encoding
             do_onehot = not self.enable_feature_engineering and self.mining_mode == 'multi'
             
-            # 传入用户指定的排除列，确保这些列不进行任何衍生处理（行业惯例）
+            # P1-4 重构：预处理阶段不做 datetime/text 衍生（移至特征工程阶段）
+            # 预处理只做清洗、检测和标记，符合行业标准流程
             df_processed, preprocess_info = self.preprocessor.preprocess(
                 df_processed,
                 target_col=target_col,
                 weight_col=weight_col,
                 exclude_cols=list(exclude_from_features),  # 用户指定的排除列不进行衍生
                 do_onehot=do_onehot,
+                do_datetime=False,  # P1-4: 不在预处理阶段衍生，移至特征工程
+                do_text=False,      # P1-4: 不在预处理阶段衍生，移至特征工程
                 categorical_cols=self.categorical_cols,
                 force_categorical=self.force_categorical
             )
             
+            # P1-4: 保存检测到的 datetime/text 列信息，传递给特征工程阶段
+            # 注意：即使不衍生，preprocessor 内部仍然通过 detect 检测了这些列
+            detected_datetime_cols = self.preprocessor.datetime_cols_
+            detected_text_cols = self.preprocessor.text_cols_
+            
             # 将自动检测结果添加到 preprocess_info
             preprocess_info['auto_exclude_report'] = auto_exclude_report
             preprocess_info['preprocessing_feature_cols'] = preprocessing_feature_cols
+            # P1-4: 保存检测到的列信息到 results，供特征工程阶段使用
+            preprocess_info['detected_datetime_cols'] = detected_datetime_cols
+            preprocess_info['detected_text_cols'] = detected_text_cols
             results['preprocessing'] = preprocess_info
             results['auto_exclude_report'] = auto_exclude_report
             # v2.6: 保存原始坏账率到results，供后续阶段使用（避免重复计算）
@@ -6278,72 +6297,99 @@ class RuleMiningPipeline:
             results['outlier_info'] = outlier_info
             
             # 可选的数据集划分（与评分卡一致）
+            # ============================================================
+            # P1-5: 数据集划分（复用评分卡的 DataPreprocessor.split_data）
+            # 支持三种模式：手动标注(sample_type_col) > 智能OOT(time_col) > 随机划分
+            # ============================================================
             split_info: dict[str, Any] | None = None
             train_df: pd.DataFrame | None = None
             test_df: pd.DataFrame | None = None
+            oot_df: pd.DataFrame | None = None
             
-            if sample_type_col and sample_type_col in df_processed.columns:
-                # 基于样本类型列划分
-                self._update_progress('preprocessing', 80.0, '按样本类型划分数据集...')
-                train_df = df_processed[df_processed[sample_type_col].isin(['train', 'Train', 'TRAIN', 0])].copy()
-                test_df = df_processed[df_processed[sample_type_col].isin(['test', 'Test', 'TEST', 1])].copy()
-                
-                if len(train_df) > 0 and len(test_df) > 0:
-                    # 计算训练集和测试集的坏账率
+            # 确定是否需要划分
+            has_split_config = (
+                (sample_type_col and sample_type_col in df_processed.columns) or
+                (time_col and time_col in df_processed.columns and oot_ratio > 0) or
+                test_ratio > 0
+            )
+            
+            if has_split_config:
+                self._update_progress('preprocessing', 80.0, '划分数据集...')
+                try:
+                    # P1-5: 复用评分卡的 DataPreprocessor.split_data（支持三种模式）
+                    # 注意：规则挖掘的 self.preprocessor 是 rule_mining 内部的 DataPreprocessor，
+                    # 没有 split_data 方法。需要使用评分卡的 DataPreprocessor。
+                    from .scorecard_development import DataPreprocessor as ScorecardDataPreprocessor
+                    splitter = ScorecardDataPreprocessor(
+                        test_ratio=test_ratio if test_ratio > 0 else 0.3,
+                        time_col=time_col,
+                        oot_ratio=oot_ratio
+                    )
+                    train_df, test_df, oot_df = splitter.split_data(
+                        df_processed,
+                        target_col=target_col,
+                        sample_type_col=sample_type_col,
+                        time_col=time_col,
+                        oot_ratio=oot_ratio
+                    )
+                    
+                    # 构建 split_info
                     train_target_rate = train_df[target_col].mean() if len(train_df) > 0 else 0
                     test_target_rate = test_df[target_col].mean() if len(test_df) > 0 else 0
+                    
+                    # 确定划分方式描述
+                    if sample_type_col and sample_type_col in df_processed.columns:
+                        split_method = "sample_type_col"
+                    elif time_col and time_col in df_processed.columns and oot_ratio > 0:
+                        split_method = "time_based"
+                    else:
+                        split_method = "random"
+                    
                     split_info = {
                         "train": len(train_df),
                         "test": len(test_df),
-                        "train_target_rate": train_target_rate,
-                        "test_target_rate": test_target_rate,
-                        "split_method": "sample_type_col",
+                        "oot": len(oot_df) if oot_df is not None else 0,
+                        "train_target_rate": float(train_target_rate),
+                        "test_target_rate": float(test_target_rate),
+                        "oot_target_rate": float(oot_df[target_col].mean()) if oot_df is not None and len(oot_df) > 0 else None,
+                        "split_method": split_method,
+                        "test_ratio": test_ratio if split_method == "random" else None,
                     }
+                    
                     results['train_data'] = train_df
                     results['test_data'] = test_df
-                    logger.info(f"[RuleMining] 数据集划分完成: 训练集 {len(train_df)} 行 (坏账率 {train_target_rate:.2%}), 测试集 {len(test_df)} 行 (坏账率 {test_target_rate:.2%})")
-                else:
-                    logger.warning(f"[RuleMining] 样本类型列 {sample_type_col} 划分失败，使用全量数据")
-            elif test_ratio > 0:
-                # 基于比例随机划分
-                self._update_progress('preprocessing', 80.0, f'随机划分数据集 (测试集比例: {test_ratio:.0%})...')
-                from sklearn.model_selection import train_test_split
-                train_df, test_df = train_test_split(
-                    df_processed, test_size=test_ratio, random_state=42, stratify=df_processed[target_col]
-                )
-                # 计算训练集和测试集的坏账率
-                train_target_rate = train_df[target_col].mean() if len(train_df) > 0 else 0
-                test_target_rate = test_df[target_col].mean() if len(test_df) > 0 else 0
-                split_info = {
-                    "train": len(train_df),
-                    "test": len(test_df),
-                    "train_target_rate": train_target_rate,
-                    "test_target_rate": test_target_rate,
-                    "split_method": "random",
-                    "test_ratio": test_ratio,
-                }
-                results['train_data'] = train_df
-                results['test_data'] = test_df
-                logger.info(f"[RuleMining] 数据集随机划分完成: 训练集 {len(train_df)} 行 (坏账率 {train_target_rate:.2%}), 测试集 {len(test_df)} 行 (坏账率 {test_target_rate:.2%})")
+                    results['oot_data'] = oot_df
+                    
+                    # 日志
+                    oot_msg = f", OOT验证集 {len(oot_df)} 行" if oot_df is not None else ""
+                    logger.info(f"[RuleMining] 数据集划分完成({split_method}): "
+                               f"训练集 {len(train_df)} 行 (坏账率 {train_target_rate:.2%}), "
+                               f"测试集 {len(test_df)} 行 (坏账率 {test_target_rate:.2%}){oot_msg}")
+                    
+                except Exception as split_err:
+                    logger.warning(f"[RuleMining] 数据集划分失败: {split_err}，使用全量数据")
+                    train_df = None
+                    test_df = None
+                    oot_df = None
             
             if split_info:
                 results['split_info'] = split_info
             
-            # 计算时间范围信息（与评分卡一致）
-            # 优先使用用户指定的 psi_time_col，否则自动检测时间列
+            # P1-5: 计算时间范围信息（与评分卡一致）
+            # 优先使用用户指定的 time_col，否则自动检测
             time_range_info: dict[str, Any] | None = None
             effective_time_col: str | None = None
             
-            if psi_time_col and psi_time_col in df_processed.columns:
-                effective_time_col = psi_time_col
-                logger.info(f"[RuleMining] 使用用户指定的时间列计算时间范围: {psi_time_col}")
+            if time_col and time_col in df_processed.columns:
+                effective_time_col = time_col
+                logger.info(f"[RuleMining] 使用用户指定的时间列计算时间范围: {time_col}")
             else:
-                # 自动检测时间列（与 PSI 计算时的逻辑一致）
+                # 自动检测时间列
                 time_keywords = ['time', 'date', 'period', '日期', '时间', '期数', 'month', '月份']
-                time_cols = [c for c in df_processed.columns 
+                detected_time_cols = [c for c in df_processed.columns 
                              if any(kw in c.lower() for kw in time_keywords)]
-                if time_cols:
-                    effective_time_col = time_cols[0]
+                if detected_time_cols:
+                    effective_time_col = detected_time_cols[0]
                     logger.info(f"[RuleMining] 自动检测到时间列: {effective_time_col}")
             
             if effective_time_col:
@@ -6358,7 +6404,6 @@ class RuleMiningPipeline:
                             return None
                         min_time = valid_times.min()
                         max_time = valid_times.max()
-                        # 格式化为日期字符串（YYYY-MM-DD）
                         return {
                             "min": min_time.strftime('%Y-%m-%d') if pd.notna(min_time) else None,
                             "max": max_time.strftime('%Y-%m-%d') if pd.notna(max_time) else None,
@@ -6372,6 +6417,7 @@ class RuleMiningPipeline:
                     "overall": _get_time_range(df_processed, effective_time_col),
                     "train": _get_time_range(train_df, effective_time_col) if train_df is not None else None,
                     "test": _get_time_range(test_df, effective_time_col) if test_df is not None else None,
+                    "oot": _get_time_range(oot_df, effective_time_col) if oot_df is not None else None,
                 }
                 
                 logger.info(f"[RuleMining] 时间范围信息: column={effective_time_col}, "
@@ -6383,13 +6429,14 @@ class RuleMiningPipeline:
             outlier_feature_count = len([k for k, v in outlier_info.items() if v.get('count', 0) > 0])
             
             # 获取衍生列信息
+            # P1-4: datetime/text 不再在预处理阶段衍生，只有 onehot（如果启用了且非特征工程模式）
             onehot_new_cols = preprocess_info.get('onehot_new_cols', [])
-            datetime_new_cols = preprocess_info.get('datetime_new_cols', [])
-            text_new_cols = preprocess_info.get('text_new_cols', [])
+            # P1-4: datetime_new_cols 和 text_new_cols 现在始终为空（衍生移至特征工程）
+            datetime_new_cols: list[str] = []
+            text_new_cols: list[str] = []
             
-            # 更新特征列表，包含衍生特征（用于后续阶段）
-            # preprocessing_feature_cols 是原始特征（preprocess之前），需要加上衍生特征
-            all_derived_cols = onehot_new_cols + datetime_new_cols + text_new_cols
+            # 更新特征列表（P1-4: 不再包含 datetime/text 衍生列）
+            all_derived_cols = onehot_new_cols  # 只有 onehot 衍生列
             post_preprocess_feature_cols = preprocessing_feature_cols + all_derived_cols
             
             progress_msg = f"数据预处理完成，{len(df_processed)}行"
@@ -6416,18 +6463,26 @@ class RuleMiningPipeline:
                 "quality_score": quality_assessment['quality_score'],
                 "quality_issues": quality_assessment['issues'][:3] if quality_assessment['issues'] else [],
                 "needs_feature_engineering": quality_assessment['needs_feature_engineering'],
-                # 衍生列信息
+                # P1-4: 衍生列信息（datetime/text 已移至特征工程，此处为 0）
                 "derived_features": {
-                    "onehot_count": len(onehot_new_cols),  # One-Hot编码新增特征数
-                    "datetime_count": len(datetime_new_cols),  # 日期时间衍生特征数
-                    "text_count": len(text_new_cols),  # 文本衍生特征数
-                    "total_derived": len(onehot_new_cols) + len(datetime_new_cols) + len(text_new_cols),
+                    "onehot_count": len(onehot_new_cols),  # One-Hot编码新增特征数（仅非特征工程模式）
+                    "datetime_count": 0,  # P1-4: 已移至特征工程阶段
+                    "text_count": 0,      # P1-4: 已移至特征工程阶段
+                    "total_derived": len(onehot_new_cols),
                 },
+                # P1-4: 保存检测到的 datetime/text 列，供特征工程阶段使用
+                "detected_datetime_cols": detected_datetime_cols,
+                "detected_text_cols": detected_text_cols,
                 # Phase 6: 添加完整阶段数据用于检查点保存
                 "_full_stage_data": {
                     "df_processed": df_processed,
                     "results": dict(results),  # 复制当前累积结果
-                    "feature_cols": post_preprocess_feature_cols,  # 使用包含衍生特征的特征列
+                    "feature_cols": post_preprocess_feature_cols,  # 不含 datetime/text 衍生列
+                    # P1-4: 保存检测到的列信息，阶段重试时恢复
+                    "detected_datetime_cols": detected_datetime_cols,
+                    "detected_text_cols": detected_text_cols,
+                    # P1-5: 保存 OOT 数据，供 selecting_rules 阶段使用
+                    "oot_df": oot_df,
                 }
             }
             
@@ -6476,8 +6531,56 @@ class RuleMiningPipeline:
                 input_feature_cols = [c for c in df_processed.columns if c not in exclude_cols]
                 logger.warning(f"[Pipeline] feature_cols not available, inferred {len(input_feature_cols)} features from df_processed")
             
-            # 保存特征工程前的特征数（用于output_preview）
+            # ============================================================
+            # P1-4: 日期时间/文本衍生（从预处理阶段移入）
+            # 在 One-Hot 编码和 IV 筛选之前执行
+            # ============================================================
+            
+            # 获取预处理阶段检测到的 datetime/text 列
+            # 优先从 results 获取（正常执行），重试时从 cached_state 恢复
+            fe_detected_datetime_cols: list[str] = []
+            fe_detected_text_cols: list[str] = []
+            if 'preprocessing' in results:
+                fe_detected_datetime_cols = results['preprocessing'].get('detected_datetime_cols', [])
+                fe_detected_text_cols = results['preprocessing'].get('detected_text_cols', [])
+            
+            datetime_new_cols_fe: list[str] = []
+            text_new_cols_fe: list[str] = []
+            
+            # Step 1: 日期时间衍生
+            if fe_detected_datetime_cols:
+                self._update_progress('feature_engineering', 10.0, f'日期时间特征衍生 ({len(fe_detected_datetime_cols)}列)...')
+                df_processed, datetime_new_cols_fe = self.preprocessor.preprocess_datetime(
+                    df_processed,
+                    datetime_cols=fe_detected_datetime_cols,
+                    exclude_cols=list(exclude_from_features)
+                )
+                input_feature_cols = input_feature_cols + datetime_new_cols_fe
+                # 移除被删除的原始日期列
+                input_feature_cols = [c for c in input_feature_cols if c in df_processed.columns]
+                logger.info(f"[Pipeline] P1-4: datetime衍生完成, +{len(datetime_new_cols_fe)} cols from {fe_detected_datetime_cols}")
+            
+            # Step 2: 文本衍生
+            if fe_detected_text_cols:
+                self._update_progress('feature_engineering', 20.0, f'文本特征衍生 ({len(fe_detected_text_cols)}列)...')
+                df_processed, text_new_cols_fe = self.preprocessor.preprocess_text(
+                    df_processed,
+                    text_cols=fe_detected_text_cols,
+                    exclude_cols=list(exclude_from_features)
+                )
+                input_feature_cols = input_feature_cols + text_new_cols_fe
+                # 移除被删除的原始文本列
+                input_feature_cols = [c for c in input_feature_cols if c in df_processed.columns]
+                logger.info(f"[Pipeline] P1-4: text衍生完成, +{len(text_new_cols_fe)} cols from {fe_detected_text_cols}")
+            
+            # ============================================================
+            # P1-4 END: 日期时间/文本衍生完成，继续原有的 One-Hot + IV 流程
+            # ============================================================
+            
+            # 保存特征工程前的特征数（用于output_preview，包含衍生后的特征）
             before_feature_count = len(input_feature_cols)
+            
+            self._update_progress('feature_engineering', 30.0, f'One-Hot编码 + IV计算 ({before_feature_count}个特征)...')
             
             df_processed, iv_table, feature_cols = self.feature_engineer.preprocess(
                 df_processed, 
@@ -6643,6 +6746,11 @@ class RuleMiningPipeline:
             # One-Hot 是转换操作，不放入 added_reasons 避免误解
             # 信息已在 onehot_stats 区块展示
             added_reasons: dict[str, int] = {}
+            # P1-4: 记录 datetime/text 衍生新增的特征
+            if len(datetime_new_cols_fe) > 0:
+                added_reasons["日期时间衍生"] = len(datetime_new_cols_fe)
+            if len(text_new_cols_fe) > 0:
+                added_reasons["文本衍生"] = len(text_new_cols_fe)
             
             # 构建缺失率筛选详情（始终输出，即使移除0个也显示，让用户知道该步骤已执行）
             missing_filter_stats: dict[str, Any] = {
@@ -6653,16 +6761,37 @@ class RuleMiningPipeline:
             }
             
             # 构建 selection_flow（特征变化流程），与前端展示保持一致
-            # 流程：初始 → 缺失率筛选 → One-Hot后 → IV筛选
+            # P1-4 新流程：初始(原始) → datetime/text衍生 → 缺失率筛选 → One-Hot后 → IV筛选
             selection_flow: list[dict[str, Any]] = []
             
-            # Step 1: 初始特征数
-            selection_flow.append({
-                "step": "初始",
-                "count": before_feature_count,
-                "removed": 0,
-                "added": 0
-            })
+            # P1-4: 计算衍生前的原始特征数
+            original_before_derivation = before_feature_count - len(datetime_new_cols_fe) - len(text_new_cols_fe)
+            total_derivation_added = len(datetime_new_cols_fe) + len(text_new_cols_fe)
+            # 衍生时删除的原始列数（datetime 和 text 列被 drop_original=True 删除）
+            total_derivation_removed = len(fe_detected_datetime_cols) + len(fe_detected_text_cols)
+            
+            # Step 1: 初始特征数（衍生前）
+            if total_derivation_added > 0:
+                selection_flow.append({
+                    "step": "初始",
+                    "count": original_before_derivation,
+                    "removed": 0,
+                    "added": 0
+                })
+                # Step 1.5: datetime/text 衍生后
+                selection_flow.append({
+                    "step": "特征衍生",
+                    "count": before_feature_count,
+                    "removed": total_derivation_removed,
+                    "added": total_derivation_added
+                })
+            else:
+                selection_flow.append({
+                    "step": "初始",
+                    "count": before_feature_count,
+                    "removed": 0,
+                    "added": 0
+                })
             
             # Step 2: 缺失率筛选
             after_missing_count = before_feature_count - len(dropped_missing)
@@ -6703,6 +6832,20 @@ class RuleMiningPipeline:
                 "missing_filter_stats": missing_filter_stats,  # 缺失率筛选统计
                 "selection_flow": selection_flow,  # 特征变化流程（前端展示用）
                 "feature_details": feature_details,  # 特征详情列表（用于CSV下载）
+                # P1-4: 衍生特征统计（从预处理阶段移入）
+                "derived_features": {
+                    "datetime": {
+                        "source_cols": fe_detected_datetime_cols,
+                        "derived_count": len(datetime_new_cols_fe),
+                        "derived_cols": datetime_new_cols_fe[:10],
+                    },
+                    "text": {
+                        "source_cols": fe_detected_text_cols,
+                        "derived_count": len(text_new_cols_fe),
+                        "derived_cols": text_new_cols_fe[:10],
+                    },
+                    "total_derived": len(datetime_new_cols_fe) + len(text_new_cols_fe),
+                },
                 # Phase 6: 添加完整阶段数据用于检查点保存
                 "_full_stage_data": {
                     "df_processed": df_processed,
@@ -6714,6 +6857,9 @@ class RuleMiningPipeline:
                     # 保存决策树用于可视化（Full Tree 模式）
                     "full_tree": self.full_tree_,
                     "full_tree_features": self.full_tree_features_,
+                    # P1-4: 保存检测到的列信息，阶段重试时恢复衍生逻辑
+                    "detected_datetime_cols": fe_detected_datetime_cols,
+                    "detected_text_cols": fe_detected_text_cols,
                 }
             }
             
@@ -6762,9 +6908,9 @@ class RuleMiningPipeline:
         # 合并所有需要排除的列
         auto_detected_cols = set(non_feature_detection['all_non_feature_cols'])
         
-        # 如果用户指定了 psi_time_col，确保它被排除
-        if psi_time_col and psi_time_col in df_processed.columns:
-            auto_detected_cols.add(psi_time_col)
+        # 如果用户指定了 time_col，确保它被排除
+        if time_col and time_col in df_processed.columns:
+            auto_detected_cols.add(time_col)
         
         # 最终排除列 = 目标列 + 权重列 + 用户指定 + 自动检测
         exclude_from_features = {target_col, '_weight_'} | user_exclude_cols | auto_detected_cols
@@ -7272,6 +7418,144 @@ class RuleMiningPipeline:
                 if 'dev_cum_lift' in optimal_rules.columns:
                     optimal_cum_lift = float(optimal_rules['dev_cum_lift'].iloc[-1]) if pd.notna(optimal_rules['dev_cum_lift'].iloc[-1]) else 0.0
             
+            # ============================================================
+            # P1-5: OOT 稳定性验证（在最优规则选择之后执行）
+            # ============================================================
+            oot_stability_report: dict[str, Any] | None = None
+            oot_df = results.get('oot_data')  # 从预处理阶段获取 OOT 数据
+            
+            if enable_oot_validation and oot_df is not None and len(oot_df) > 0 and len(optimal_rules) > 0:
+                self._update_progress('selecting_rules', 60.0, f'OOT稳定性验证 ({len(oot_df)}条验证数据)...')
+                try:
+                    import numpy as np
+                    
+                    rule_stability_list: list[dict[str, Any]] = []
+                    unstable_rule_ids: list[str] = []
+                    
+                    # 获取各数据集
+                    train_data = results.get('train_data', df_processed)
+                    test_data = results.get('test_data')
+                    
+                    for _, row in optimal_rules.iterrows():
+                        rule_str = str(row.get('rule', row.get('condition', '')))
+                        
+                        # 计算规则在各数据集上的命中率
+                        hit_rates: dict[str, float] = {}
+                        for ds_name, ds_df in [('train', train_data), ('test', test_data), ('oot', oot_df)]:
+                            if ds_df is not None and len(ds_df) > 0:
+                                try:
+                                    mask = ds_df.eval(rule_str)
+                                    hit_rates[ds_name] = float(mask.sum()) / len(ds_df)
+                                except Exception:
+                                    hit_rates[ds_name] = 0.0
+                            else:
+                                hit_rates[ds_name] = 0.0
+                        
+                        # 计算命中率的变异系数（CV = std / mean）
+                        rates = [v for v in hit_rates.values() if v > 0]
+                        if len(rates) >= 2:
+                            cv = float(np.std(rates) / np.mean(rates)) if np.mean(rates) > 0 else 0.0
+                        else:
+                            cv = 0.0
+                        
+                        # 稳定性分级
+                        if cv < 0.15:
+                            stability_level = "highly_stable"
+                        elif cv < 0.25:
+                            stability_level = "stable"
+                        elif cv < cv_threshold:
+                            stability_level = "moderate"
+                        else:
+                            stability_level = "unstable"
+                            unstable_rule_ids.append(rule_str)
+                        
+                        rule_stability_list.append({
+                            "rule": rule_str,
+                            "hit_rate_train": hit_rates.get('train', 0.0),
+                            "hit_rate_test": hit_rates.get('test', 0.0),
+                            "hit_rate_oot": hit_rates.get('oot', 0.0),
+                            "cv": round(cv, 4),
+                            "stability_level": stability_level,
+                        })
+                    
+                    # 计算整体规则集在各数据集上的命中率
+                    overall_hit_rates: dict[str, float] = {}
+                    for ds_name, ds_df in [('train', train_data), ('test', test_data), ('oot', oot_df)]:
+                        if ds_df is not None and len(ds_df) > 0:
+                            try:
+                                combined_mask = pd.Series(False, index=ds_df.index)
+                                for _, r in optimal_rules.iterrows():
+                                    r_str = str(r.get('rule', r.get('condition', '')))
+                                    try:
+                                        combined_mask |= ds_df.eval(r_str)
+                                    except Exception:
+                                        pass
+                                overall_hit_rates[ds_name] = float(combined_mask.sum()) / len(ds_df)
+                            except Exception:
+                                overall_hit_rates[ds_name] = 0.0
+                    
+                    overall_rates = [v for v in overall_hit_rates.values() if v > 0]
+                    overall_cv = float(np.std(overall_rates) / np.mean(overall_rates)) if len(overall_rates) >= 2 and np.mean(overall_rates) > 0 else 0.0
+                    
+                    # 稳定性分布统计
+                    stability_counts = {
+                        "highly_stable": sum(1 for r in rule_stability_list if r["stability_level"] == "highly_stable"),
+                        "stable": sum(1 for r in rule_stability_list if r["stability_level"] == "stable"),
+                        "moderate": sum(1 for r in rule_stability_list if r["stability_level"] == "moderate"),
+                        "unstable": sum(1 for r in rule_stability_list if r["stability_level"] == "unstable"),
+                    }
+                    
+                    # 计算稳定性附加评分（+10/-5 分）
+                    if overall_cv < 0.15:
+                        stability_score_bonus = 10
+                    elif overall_cv < 0.25:
+                        stability_score_bonus = 5
+                    elif overall_cv < 0.35:
+                        stability_score_bonus = 0
+                    else:
+                        stability_score_bonus = -5
+                    
+                    oot_stability_report = {
+                        "overall_hit_rate": {**overall_hit_rates, "cv": round(overall_cv, 4)},
+                        "rule_stability": rule_stability_list,
+                        "unstable_rules": unstable_rule_ids,
+                        "stability_counts": stability_counts,
+                        "stability_score_bonus": stability_score_bonus,
+                        "cv_threshold": cv_threshold,
+                        "oot_samples": len(oot_df),
+                    }
+                    results['oot_stability_report'] = oot_stability_report
+                    
+                    logger.info(f"[RuleMining] OOT稳定性验证完成: overall_cv={overall_cv:.4f}, "
+                               f"高度稳定{stability_counts['highly_stable']}, 稳定{stability_counts['stable']}, "
+                               f"中等{stability_counts['moderate']}, 不稳定{stability_counts['unstable']}")
+                    
+                    # P1-5: 基于稳定性筛选（可选）
+                    if enable_stability_filter and len(unstable_rule_ids) > 0:
+                        self._update_progress('selecting_rules', 70.0, f'过滤不稳定规则 ({len(unstable_rule_ids)}条)...')
+                        before_filter = len(optimal_rules)
+                        optimal_rules = optimal_rules[
+                            ~optimal_rules['rule'].astype(str).isin(unstable_rule_ids)
+                        ].reset_index(drop=True)
+                        results['optimal_rules'] = optimal_rules
+                        
+                        # 重新计算累计指标
+                        if len(optimal_rules) > 0 and 'dev_cum_hit_rate' in optimal_rules.columns:
+                            optimal_cum_hit_rate = float(optimal_rules['dev_cum_hit_rate'].iloc[-1]) if pd.notna(optimal_rules['dev_cum_hit_rate'].iloc[-1]) else 0.0
+                            optimal_cum_recall = float(optimal_rules['dev_cum_recall'].iloc[-1]) if pd.notna(optimal_rules['dev_cum_recall'].iloc[-1]) else 0.0
+                            optimal_cum_bad_rate = float(optimal_rules['dev_cum_bad_rate'].iloc[-1]) if pd.notna(optimal_rules['dev_cum_bad_rate'].iloc[-1]) else 0.0
+                            optimal_cum_lift = float(optimal_rules['dev_cum_lift'].iloc[-1]) if pd.notna(optimal_rules['dev_cum_lift'].iloc[-1]) else 0.0
+                        
+                        logger.info(f"[RuleMining] 稳定性筛选: {before_filter} → {len(optimal_rules)} 条规则")
+                    
+                except Exception as oot_err:
+                    logger.warning(f"[RuleMining] OOT稳定性验证失败: {oot_err}")
+                    oot_stability_report = None
+            
+            # ============================================================
+            # P1-5 END: OOT 验证完成
+            # ============================================================
+            
             # Build output preview for selecting_rules stage
             selection_mode = "允许重叠" if self.allow_overlap else "贪婪算法"
             
@@ -7335,6 +7619,8 @@ class RuleMiningPipeline:
                 ] if len(optimal_rules) > 0 else [],
                 # v2.0: 全量最优规则（用于CSV下载）
                 "all_optimal_rules": all_optimal_rules_list,
+                # P1-5: OOT 稳定性验证结果
+                "oot_stability": oot_stability_report,
                 # Phase 6: 添加完整阶段数据用于检查点保存
                 "_full_stage_data": {
                     "df_processed": df_processed,
@@ -7346,6 +7632,9 @@ class RuleMiningPipeline:
                     # 保存决策树用于可视化（Full Tree 模式）
                     "full_tree": self.full_tree_,
                     "full_tree_features": self.full_tree_features_,
+                    # P1-5: 保存 OOT 相关数据，阶段重试时恢复
+                    "oot_df": oot_df,
+                    "oot_stability_report": oot_stability_report,
                 }
             }
             
@@ -7716,13 +8005,12 @@ class RuleMiningPipeline:
                     psi_rules = optimal_rules if len(optimal_rules) > 0 else filtered_rules[:20]  # 最多取前20条
                     
                     # 确定用于PSI计算的时间列
-                    # 优先级：1. 用户指定的psi_time_col  2. 自动检测  3. 随机分割
+                    # P1-5: 优先级：1. 用户指定的time_col  2. 自动检测  3. 随机分割
                     effective_time_col = None
                     
-                    if psi_time_col and psi_time_col in df_processed.columns:
-                        # 用户明确指定了时间列
-                        effective_time_col = psi_time_col
-                        logger.info(f"使用用户指定的PSI时间列: {psi_time_col}")
+                    if time_col and time_col in df_processed.columns:
+                        effective_time_col = time_col
+                        logger.info(f"使用用户指定的时间列计算PSI: {time_col}")
                     else:
                         # 自动检测时间列
                         time_keywords = ['time', 'date', 'period', '日期', '时间', '期数']
@@ -7737,7 +8025,7 @@ class RuleMiningPipeline:
                             psi_rules, df_processed, effective_time_col, target_col
                         )
                         results['psi_report'] = psi_report.to_dict('records')
-                        results['psi_time_col_used'] = effective_time_col
+                        results['psi_time_col_used'] = effective_time_col  # 向后兼容
                     else:
                         # 无时间列时，使用简单的随机分割
                         n_samples = len(df_processed)

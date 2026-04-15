@@ -2167,6 +2167,7 @@ const categoryOptions = [
 
 | 版本 | 日期 | 作者 | 说明 |
 |------|------|------|------|
+| 1.7 | 2026-04-15 | AI Assistant | 新增待实施：删除历史记录时级联清理执行状态文件和关联数据（P3） |
 | 1.6 | 2025-01-12 | AI Assistant | 新增 Phase 24：评估数据字段持久化修复（已完成），补充 `_full_stage_data` 机制说明 |
 | 1.5 | 2025-01-07 | AI Assistant | 新增 Phase 8：推理任务记录集成（已完成） |
 | 1.4 | 2025-01-07 | AI Assistant | 更新实施状态：Phase 5、6、7 全部已完成 |
@@ -2192,6 +2193,69 @@ const categoryOptions = [
 | Phase 7 | 阶段 AI 分析结果持久化 | ✅ 已完成 |
 | Phase 8 | 推理任务记录集成（AI对话任务） | ✅ 已完成 |
 | Phase 24 | 评估数据字段持久化修复 | ✅ 已完成 |
+| **Phase 25** | **删除历史记录级联清理** | 📋 待实施（P3） |
+
+### Phase 25：删除历史记录级联清理（待实施）
+
+> **优先级**: P3 | **预计工作量**: ~0.5天 | **创建日期**: 2026-04-15
+
+#### 现状问题
+
+`DELETE /sop/history/{record_id}` 当前只清理了 2 项：
+1. ✅ DB `task_records` 表记录（`TaskHistoryService.delete_record()`）
+2. ✅ `task_results/{record_id}/` 目录（`storage.delete_result()`）
+
+**遗漏项**（成为孤儿数据，无入口访问、只占磁盘/数据库空间）：
+
+| 遗漏项 | 存储位置 | 内容 | 关联键 |
+|--------|---------|------|--------|
+| 执行状态文件 | `execution_states/{execution_id}/` | 各阶段 checkpoint pkl（DataFrame 快照等） | execution_id |
+| DB 执行状态 | `execution_states` 表 | 执行上下文元数据 | execution_id |
+| DB 检查点 | `execution_checkpoints` 表 | 阶段检查点记录 | execution_id |
+| DB AI 分析 | `stage_ai_analyses` 表 | 阶段 AI 分析文本 | record_id |
+| DB 整体分析 | `overall_ai_analyses` 表 | 任务整体 AI 分析 | record_id |
+
+**根因**：`task_records` 表通过 `execution_id` 字段关联执行状态，但 `delete_task_history()` 未查询此关联做级联删除。
+
+#### 优化方案
+
+**后端**（`sop_api.py` `delete_task_history()`）：
+```python
+# 当前
+TaskHistoryService.delete_record(record_id)
+storage.delete_result(record_id)
+
+# 优化后
+record = TaskHistoryService.get_record(record_id)  # 先获取关联的 execution_id
+execution_id = record.get("execution_id") if record else None
+
+TaskHistoryService.delete_record(record_id)          # DB 记录
+storage.delete_result(record_id)                     # 结果文件
+if execution_id:
+    PersistentExecutionStore.delete(execution_id)    # 执行状态 + 检查点 + 状态文件
+StageAnalysisService.delete_all_by_record(record_id) # 所有阶段 AI 分析
+OverallAnalysisService.delete_analysis(record_id)    # 整体 AI 分析
+```
+
+**前端交互**（`TaskHistoryList.tsx` / `TaskHistoryCompact.tsx`）：
+```
+确认删除任务记录 "规则挖掘 - 2026-04-15 16:25"？
+
+☑ 同时删除任务产生的阶段数据文件（推荐）
+   └ 包含 N 个阶段输出文件，约 XX MB
+
+[删除]  [取消]
+```
+- 默认勾选（绝大多数场景不需要保留孤儿文件）
+- 展示文件数量和大小（需新增 API 或在 delete 响应中返回清理统计）
+- DELETE API 增加 query param：`?cleanup_files=true`（默认 true）
+
+#### 补充：定期清理机制
+
+`PersistentExecutionStore.cleanup_expired_states()` 已有 3 天自动清理，但：
+- 仅清理 `execution_states/` 目录中超过 3 天的文件
+- **不清理** `task_results/` 和 DB 中的关联数据
+- 建议在定期清理中也加入孤儿检测（DB 中有记录但 task_records 中无关联的记录）
 
 **已实现的文件结构**：
 ```
