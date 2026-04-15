@@ -28,6 +28,7 @@ interface TaskProgressProps {
   onComplete?: (status: ExecutionStatus) => void;
   onClose?: () => void;
   onStatusUpdate?: (status: ExecutionStatus) => void;  // Phase 3: 状态更新回调
+  pollTrigger?: number;  // 改变此值会重启轮询（用于 paused 停止后的恢复/重试/跳过操作）
   className?: string;
 }
 
@@ -75,6 +76,7 @@ export function TaskProgress({
   onComplete,
   onClose,
   onStatusUpdate,
+  pollTrigger,
   className,
 }: TaskProgressProps) {
   // 根据taskId获取默认任务名称
@@ -100,6 +102,7 @@ export function TaskProgress({
     let isMounted = true;
     let pollTimeout: NodeJS.Timeout | null = null;
     let lastStatus: string | null = null;  // 跟踪上一次状态，用于检测状态变化
+    let pausedStableCount = 0;  // 连续检测到 paused 的次数，用于判断状态稳定
 
     const pollStatus = async () => {
       try {
@@ -132,6 +135,7 @@ export function TaskProgress({
         let nextInterval = 500; // 默认500ms（更快的基础轮询）
         
         if (currentStatus.status === "running") {
+          pausedStableCount = 0;  // 重置 paused 稳定计数
           // 运行时更频繁轮询
           const runningStages = Object.values(currentStatus.stages).filter(s => s.status === "running");
           if (runningStages.length > 0) {
@@ -156,8 +160,14 @@ export function TaskProgress({
             nextInterval = 200;
           }
         } else if (currentStatus.status === "paused") {
-          // 暂停状态使用慢轮询
-          nextInterval = 5000;
+          pausedStableCount++;
+          if (pausedStableCount >= 2) {
+            // 连续2次检测到 paused，状态已稳定，停止轮询
+            // 后续通过 pollTrigger 变化重启（用户点击继续/重试/跳过时触发）
+            console.log("[TaskProgress] Paused state stable, stopping poll. Use pollTrigger to restart.");
+            return; // 不再调度下一次轮询
+          }
+          nextInterval = 500; // 首次检测到 paused，快速确认一次
         }
         
         // 继续下一次轮询
@@ -205,7 +215,7 @@ export function TaskProgress({
         clearTimeout(pollTimeout);
       }
     };
-  }, [executionId]);  // 只依赖executionId，回调通过ref访问
+  }, [executionId, pollTrigger]);  // 添加 pollTrigger 依赖：变化时重启轮询
 
   const getStatusIcon = () => {
     if (!status) return <Loader2 className="h-4 w-4 animate-spin" />;

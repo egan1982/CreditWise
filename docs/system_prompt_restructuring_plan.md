@@ -4,7 +4,31 @@
 > 
 > **创建日期**：2026-03-11  
 > **关联文档**：`docs/system_prompt_guide.md`（架构指南）  
-> **状态**：📋 方案设计完成，待实施
+> **状态**：✅ 已完成（2026-04-15 核实：代码库已包含全部改动，此前已实施但文档状态未更新）  
+> **开发评审**: 🟢 无需评审，可直接实施 — 方案极其详细（565 行设计文档），文件变更清单、代码示例、测试要点齐全（2026-04-15 评估）
+
+### 📌 快速回顾（开发前必读）
+
+**作用与目标**：消除 `chat_api.py` 中通过关键词嗅探（`_is_param_extraction_mode()`）判断"对话/参数提取"模式的隐式逻辑，改用显式 `mode` 参数分流。
+
+**当前实现的问题**：
+- `_is_param_extraction_mode()` 用关键词（"参数提取助手"、"task_type"等）嗅探 system prompt 判断模式，但这些关键词可能在普通对话中出现，导致**误判**
+- 对话模式被错误追加 JSON 格式要求，LLM 返回 JSON 而非自然语言
+- `_append_json_instruction()` 在消息中**重复追加** JSON 指令（system prompt 和消息各一次）
+
+**优化内容**：
+- 新增 `_determine_chat_mode()` 函数：根据前端传入的 `task_type` 或消息推断，**显式**返回 `mode="chat"` 或 `"extraction"`
+- `TaskPromptProvider.build_system_prompt(mode=...)` 按 mode 分流构建不同 prompt
+- 删除 `_is_param_extraction_mode()`、`_append_json_instruction()` 两个函数
+
+**后端变化**：
+- `chat_api.py`：删除 2 个函数，新增 `_determine_chat_mode()`，修改 `_build_enhanced_system_prompt()` 传递 mode
+- `task_prompt_provider.py`：`build_system_prompt()` 新增 mode 参数，新增 `DEFAULT_EXTRACTION_ROLE`、`JSON_OUTPUT_FORMAT` 常量
+- `llm_param_extractor.py`：**不改动**（维持独立，方案 A）
+
+**前端变化**：无（mode 判定完全在后端）
+
+**不受影响**：AI 分析路径（`/v1/analysis/prompt` → `AI_analysis_prompts.py`）完全独立，不经过本次重构的任何函数
 
 ---
 

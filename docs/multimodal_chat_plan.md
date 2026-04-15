@@ -5,6 +5,30 @@
 - **任务状态**: 待实施
 - **优先级**: 中
 - **预计工作量**: 1-2天
+- **开发评审**: 🔴 建议正式评审（plan review） — 涉及前后端 + 多 LLM 供应商格式适配（OpenAI/Claude/Gemini），降级策略和模型静默忽略图片的风险需评审确认（2026-04-15 评估）
+
+### 📌 快速回顾（开发前必读）
+
+**作用与目标**：让 AI 对话支持图片输入——用户可通过 Ctrl+V 粘贴截图或拖拽图片到输入框，结合文字一起发送给支持视觉的 LLM（如 GPT-4o、Claude 3）。
+
+**当前实现**：
+- 已有：文件上传按钮（📎）、拖拽文件到工作区、右键"添加到 AI 对话"
+- 缺失：粘贴图片、拖拽图片到输入框、图片预览、多模态消息格式（OpenAI Vision API）
+
+**优化内容**：
+- 前端：`onPaste` 粘贴图片、`onDrop` 拖拽图片、图片缩略图预览、Base64 编码
+- 消息格式：支持 OpenAI `image_url` 多模态格式
+- 模型检测：前端白名单检测模型是否支持多模态，不支持时拦截/警告
+- 多供应商适配：OpenAI 原生、Claude 需转 Anthropic 格式、Gemini 需转 Google 格式
+
+**前端变化**（主要）：
+- 新增 `ImageAttachment.tsx`、`ImageAttachmentList.tsx` 组件
+- `three-panel-interface.tsx`：新增 `imageAttachments` state、`handlePaste`、`handleDrop` 事件
+- `handleSendMessage`：调用 `buildMultimodalMessage()` 转换消息格式
+
+**后端变化**：
+- `chat_api.py`：支持接收多模态消息格式、不支持时降级为纯文本
+- 新增多供应商格式转换函数（`convert_to_anthropic_format` 等）
 
 ---
 

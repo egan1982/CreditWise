@@ -5,8 +5,31 @@
 > **最后更新**: 2026-03-02（核实实现状态并更新文档）
 > **状态**: 
 > - ✅ Part 1: 模型评估参数已实现（代码库已验证）
-> - ⏳ Part 2: CSI指标待实现（`calculate_csi_for_variables`未实现）
+> - ✅ Part 2: CSI指标已实现（2026-04-15 由 Team agent 实施，含后端计算+前端展示）
+> 
+> **开发评审**: 🟢 无需评审，可直接实施 — Part 1 已完成，CSI 为增量开发，模式成熟（2026-04-15 评估）
 > - ✅ 单调性验证：模型分单调性已实现（`scorecard_viz.py:_check_monotonicity`），变量WOE单调性通过完整评分卡表格展示
+
+### 📌 快速回顾（开发前必读）
+
+**作用与目标**：为评分卡开发任务的模型评估阶段补充 **CSI（Characteristic Stability Index，特征稳定性指数）** 指标，监控各入模特征的分布变化。
+
+**当前实现的问题**：
+- 模型评估已有 PSI（模型整体评分稳定性），但**缺少 CSI**（各特征维度的稳定性）
+- 文档中定义了 `calculate_csi_for_variables` 函数签名，但代码库中**未找到实现**
+- 无法定位是哪个特征分布漂移导致了模型 PSI 劣化
+
+**优化内容**：
+- 实现 `calculate_csi_for_variables()` 函数：对每个入模特征计算 CSI（训练集 vs 测试集/OOT）
+- 在模型评估阶段 output_preview 中新增 CSI 报告
+- CSI 阈值标准与 PSI 一致：<0.1 稳定、0.1-0.25 轻微变化、≥0.25 显著变化
+
+**后端变化**：
+- `scorecard_development.py` 或 `scorecard_viz.py`：新增 CSI 计算函数
+- 模型评估阶段 output_preview 新增 `csi_report` 字段
+
+**前端变化**：
+- `ScorecardResults.tsx`：评估 Tab 或新 Tab 中展示 CSI 表格（特征名、CSI 值、稳定性级别）
 > **实现核实**: 
 > - ✅ `score_distribution_bins`、`ranking_analysis_bins`、`overfit_ks_threshold`、模型分单调性校验 已在代码库实现
 > - ⏳ `calculate_csi_for_variables` 仅在文档中定义，未在代码库中找到实现

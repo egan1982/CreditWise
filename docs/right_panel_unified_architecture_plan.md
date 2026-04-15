@@ -3,7 +3,31 @@
 > 创建时间：2025-12-22  
 > 状态：待实施  
 > 优先级：中期优化  
-> 前置依赖：Chat API 融合方案完成后
+> 前置依赖：Chat API 融合方案完成后  
+> **开发评审**: 🔴 建议正式评审（plan review） — **8-12 天工作量**，前端架构重构（Context/Reducer/组件拆分），需确认分阶段迁移策略、回归测试范围、与现有 SOP 组件的兼容性（2026-04-15 评估）
+
+### 📌 快速回顾（开发前必读）
+
+**作用与目标**：重构三列式界面的右侧面板（Code 列），消除代码冗余、统一状态管理，提升扩展性。
+
+**当前实现的问题**：
+- Monaco Editor 实例化了**两份**：`three-panel-interface.tsx` 内联一份（Chat 代码块）+ `StageCodeEditor.tsx` 独立一份（SOP 阶段代码）
+- `executeCode()` 函数**重复实现**两份，状态变量也分散在两处（`isExecutingCode` vs `isExecuting`）
+- `three-panel-interface.tsx` 同时承担布局 + 代码编辑逻辑，职责过重
+- 模式切换（code ↔ preview）时上下文丢失
+
+**优化内容**：
+- 新建 `RightPanelProvider`（React Context）统一管理右侧面板状态
+- 新建 `RightPanel` 容器组件，根据 mode（empty/code/preview/result/log）渲染子组件
+- 新建 `UnifiedCodeEditor` 统一代码编辑器，复用于 Chat 代码块和 SOP 阶段
+- 模式切换时保留 history（code ↔ preview 可来回切换不丢失）
+
+**前端变化**（纯前端重构）：
+- 新增 5 个文件：`RightPanelContext.tsx`、`RightPanel.tsx`、`UnifiedCodeEditor.tsx`、`ExecutionResultView.tsx`、`EmptyState.tsx`
+- `three-panel-interface.tsx`：删除内联 Monaco Editor 和相关状态（约 200+ 行），改用 `useRightPanel()` hook
+- `StageOutputPreview.tsx`：适配新 Context
+
+**后端变化**：无
 
 ---
 

@@ -5,7 +5,26 @@
 > 版本：v1.8  
 > 日期：2026-03-04  
 > 状态：发布前代码审计修复已全部完成（P0 全部完成，P1 必修全部完成，P1 建议级完成 14/16，P2 已修复 2/8）  
-> 目标：完成第一个 Release (v1.0.0) 发布（含私有化部署配置）
+> 目标：完成第一个 Release (v1.0.0) 发布（含私有化部署配置）  
+> **开发评审**: 🔴 建议正式评审（plan review） — Phase 2-5 涉及 CI/CD、Docker 生产配置、跨平台脚本（9 个待创建），属于基础设施级变更，需确认发布范围和优先级（2026-04-15 评估）
+
+### 📌 快速回顾（开发前必读）
+
+**作用与目标**：完成项目从"可运行"到"可发布"的全部工程化工作，包括 CI/CD、质量保障、正式 Release、私有化部署打包。
+
+**当前已完成**：
+- Phase 1（代码准备）：Git 仓库初始化 ✅、pyproject.toml 创建 ✅、版本号统一（1.0.0）✅、代码清理 ✅
+- 发布前代码审计：P0 全部修复（9/9）、P1 必修全部修复（3/3）、P1 建议级 14/16
+
+**Phase 2-5 待做**：
+- **Phase 2 GitHub 配置**：CI/CD 工作流（`.github/workflows/ci.yml`）、Issue/PR 模板、SECURITY.md、CODE_OF_CONDUCT.md
+- **Phase 3 质量保障**：测试套件运行验证、代码风格检查（black/flake8）、安全扫描（bandit/safety）
+- **Phase 4 发布执行**：Release Branch、Git Tag v1.0.0、GitHub Release 创建
+- **Phase 5 私有化部署**：跨平台安装/启动/更新脚本（Windows/Mac/Linux 共 9 个待创建）、`Dockerfile.prod`、`docker-compose.prod.yml`
+
+**后端变化**：新增脚本文件（install.ps1/update.ps1/start.ps1 + Mac/Linux 对应 shell 脚本）、Docker 生产配置
+
+**前端变化**：`next.config.mjs` 配置 `output: 'export'` 生成纯静态文件（当前 dist 含 server/cache 开发产物需重新构建）
 
 ---
 

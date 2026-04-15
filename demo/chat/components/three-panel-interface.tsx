@@ -406,6 +406,9 @@ function ThreePanelInterfaceInner() {
   const [showResults, setShowResults] = useState(false);
   const [completedExecutionId, setCompletedExecutionId] = useState<string | null>(null);
   const [sopExecutionStatus, setSopExecutionStatus] = useState<ExecutionStatus | null>(null);
+  // 轮询重启触发器：paused 状态停止轮询后，用户操作（继续/重试/跳过）时递增此值重启轮询
+  const [pollTrigger, setPollTrigger] = useState(0);
+  const restartPolling = () => setPollTrigger(prev => prev + 1);
   // 结果视图模式：results=显示最终结果，stages=显示阶段详情
   const [resultViewMode, setResultViewMode] = useState<"results" | "stages">("results");
   
@@ -2837,22 +2840,9 @@ function ThreePanelInterfaceInner() {
         description: "恢复请求已发送，任务将继续执行",
       });
       
-      // 快速轮询直到状态变为running（最多尝试10次，每次200ms）
-      // 这样可以避免等待后端处理RESUME信号的延迟
-      const maxRetries = 10;
-      const retryInterval = 200; // 200ms
-      
-      for (let i = 0; i < maxRetries; i++) {
-        await new Promise(resolve => setTimeout(resolve, retryInterval));
-        const updatedStatus = await sopService.getExecutionStatus(currentExecutionId);
-        if (updatedStatus) {
-          setSopExecutionStatus(updatedStatus);
-          // 如果状态已经变为running，停止轮询
-          if (updatedStatus.status === "running") {
-            break;
-          }
-        }
-      }
+      // 重启 TaskProgress 轮询（paused 稳定后已停止，需要通过 pollTrigger 重启）
+      // TaskProgress 重启后会立即拉取最新状态，无需独立快速轮询
+      restartPolling();
     } catch (err) {
       console.error("Failed to resume execution:", err);
       toast({
@@ -2894,6 +2884,8 @@ function ThreePanelInterfaceInner() {
       if (updatedStatus) {
         setSopExecutionStatus(updatedStatus);
       }
+      // 重启轮询（跳过后后端状态可能变化，需要 TaskProgress 继续追踪）
+      restartPolling();
     } catch (err) {
       console.error("Failed to skip stage:", err);
       toast({
@@ -4054,6 +4046,7 @@ function ThreePanelInterfaceInner() {
                   <div className="hidden">
                     <TaskProgress
                       executionId={currentExecutionId}
+                      pollTrigger={pollTrigger}
                       taskId={sopExecutionStatus?.task_id || selectedTaskId || undefined}
                       onComplete={handleSOPComplete}
                       onClose={handleCloseProgress}
@@ -4441,7 +4434,8 @@ function ThreePanelInterfaceInner() {
                       
                       if (result.success) {
                         toast({ description: result.message || `阶段 ${stageId} 正在重试` });
-                        // 轮询会自动在下一次间隔拉取新状态
+                        // 重启轮询（paused 停止后需要 pollTrigger 重启以追踪重试进度）
+                        restartPolling();
                       } else {
                         toast({ description: `重试失败: ${result.message}`, variant: "destructive" });
                       }

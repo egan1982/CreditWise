@@ -1,5 +1,29 @@
 # 特征衍生阶段重构方案
 
+> **开发评审**: 🟡 建议轻量评审 — 两个 Pipeline 阶段职责调整，实施前确认 output_preview 结构变更对前端的影响、阶段重试时缓存恢复的衍生列传递（2026-04-15 评估）
+
+### 📌 快速回顾（开发前必读）
+
+**作用与目标**：将规则挖掘 Pipeline 中的 datetime 衍生、text 衍生逻辑从"数据预处理"阶段移至"特征工程"阶段，符合行业标准流程。
+
+**当前实现的问题**：
+- 数据预处理阶段同时做清洗 + datetime 衍生（`_dt_` 前缀列）+ text 衍生（`_txt_` 前缀列），职责过重
+- 行业惯例：预处理只做清洗和质量评估，特征衍生属于特征工程范畴
+
+**优化内容**：
+- 预处理阶段：`do_datetime=False, do_text=False`，只做清洗、检测日期/文本列并**标记**（不衍生）
+- 特征工程阶段：新增 datetime/text 衍生步骤，在 One-Hot 编码和 IV 筛选之前执行
+- 更新两个阶段的 output_preview 数据结构
+
+**后端变化**：
+- `rule_mining.py`：预处理阶段移除 `do_datetime=True, do_text=True`；特征工程阶段新增 `DatetimeProcessor`、`TextProcessor` 调用
+- `rule_mining_meta.py`：更新两个阶段的 SOP prompt 模板描述
+- `AI_analysis_prompts.py`：更新阶段摘要构建函数
+
+**前端变化**：
+- 预处理结果卡片：移除 `derived_features` 展示区块
+- 特征工程结果卡片：新增 datetime/text 衍生特征展示（来源列、衍生数量、示例列名）
+
 ## 1. 背景与目标
 
 ### 1.1 当前问题

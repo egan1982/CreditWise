@@ -122,6 +122,7 @@ STAGE_ROLE_CONFIG = {
             "模型区分能力（KS≥0.2、AUC≥0.7为合格，KS≥0.3、AUC≥0.75为良好）",
             "过拟合风险（训练集与测试集KS/AUC差异<0.05为正常）",
             "模型稳定性（PSI<0.1为稳定，0.1-0.25轻微偏移，≥0.25不稳定）",
+            "特征稳定性（CSI<0.1稳定，0.1-0.25轻微漂移，≥0.25显著漂移，关注CSI异常的特征是否影响模型整体PSI）",
             "排序性分析-单调性（评分从低到高，坏样本率应单调递减，违反说明排序能力存在局部缺陷）",
             "排序性分析-首组Lift（最低分段的风险倍数，≥2为良好，≥2.5为优秀，反映低分段的风险识别能力）",
             "排序性分析-末组Lift（最高分段的风险倍数，≤0.5为良好，≤0.3为优秀，反映高分段的优质客户识别能力）",
@@ -423,6 +424,26 @@ def _build_scorecard_overall_prompt(outputs: dict[str, Any], stages: dict[str, A
         if psi_comparison:
             psi_status += f" [{psi_comparison}]"
     
+    # ========== 4.1. CSI 特征稳定性（与PSI互补）==========
+    csi_report = (model_eval_data or {}).get("csi_train_vs_oot") or (model_eval_data or {}).get("csi_train_vs_test")
+    csi_section = ""
+    if csi_report and isinstance(csi_report, dict):
+        csi_features = csi_report.get("features", [])
+        csi_summary = csi_report.get("summary", {})
+        csi_comparison = csi_report.get("comparison", "")
+        if csi_features:
+            total = csi_summary.get("total_features", len(csi_features))
+            stable = csi_summary.get("stable", 0)
+            slight = csi_summary.get("slight_change", 0)
+            significant = csi_summary.get("significant_change", 0)
+            csi_section = f"\n- CSI特征稳定性（{csi_comparison}）: 共{total}个入模特征，稳定{stable}个，轻微漂移{slight}个，显著漂移{significant}个"
+            # 列出不稳定特征
+            unstable = [f for f in csi_features if f.get("csi", 0) >= 0.1]
+            if unstable:
+                csi_section += "\n  需关注特征: " + ", ".join(
+                    f"{f['feature']}(CSI={_format_number(f['csi'])})" for f in unstable[:5]
+                )
+
     # ========== 4.5. Gini系数（从AUC计算）==========
     train_gini = "N/A"
     test_gini = "N/A"
@@ -657,7 +678,7 @@ def _build_scorecard_overall_prompt(outputs: dict[str, Any], stages: dict[str, A
 {f'- {overfit_warning}' if overfit_warning else ''}
 
 ### 4. 稳定性分析
-- PSI: {psi_status}
+- PSI: {psi_status}{csi_section}
 
 ### 5. 评分卡概况（最终结果）
 - **最终入模变量数**: {scorecard_var_count}个（经逐步回归/系数验证后的实际入模数，请以此为准）
@@ -672,6 +693,7 @@ def _build_scorecard_overall_prompt(outputs: dict[str, Any], stages: dict[str, A
 - **AUC（Area Under ROC Curve）**: ROC曲线下面积，评估模型整体判别能力
 - **Gini**: 2*AUC-1，与AUC等价但更直观（0-1范围，越高越好）
 - **PSI（Population Stability Index）**: 评分分布稳定性指标，<0.1稳定，0.1-0.25轻微偏移，≥0.25不稳定
+- **CSI（Characteristic Stability Index）**: 各入模特征的分布稳定性指标，计算方法与PSI相同但针对各特征的WOE分箱分布，用于定位PSI劣化的根因特征
 - **首组Lift**: 最高分段的坏样本率/整体坏样本率，理想值≥2（高分段应少坏样本）
 - **末组Lift**: 最低分段的坏样本率/整体坏样本率，理想值≤0.5（低分段应多坏样本）
 - **好坏样本分离度**: 好/坏样本评分均值差，≥60分优秀，≥40分良好，≥20分合格
@@ -680,7 +702,7 @@ def _build_scorecard_overall_prompt(outputs: dict[str, Any], stages: dict[str, A
 1. **模型整体有效性（首要）**: 似然比检验p<0.05为模型有效的前提条件，p≥0.05说明模型整体不显著，需谨慎使用
 2. 模型区分能力（KS≥0.2、AUC≥0.7、Gini≥0.4为合格，KS≥0.3、AUC≥0.75、Gini≥0.5为良好）
 3. 过拟合风险（训练集与测试集KS/AUC差异<0.05为正常）
-4. 模型稳定性（PSI<0.1为稳定）
+4. 模型稳定性（PSI<0.1为稳定；CSI关注各特征分布漂移，CSI≥0.1的特征需重点分析）
 5. 排序性（单调性应通过，首组Lift≥2、末组Lift≤0.5为优秀）
 6. 评分分布形态（好坏样本分离度应明显，分布应相对均匀）
 7. 入模变量合理性（数量适中、IV分布合理、业务可解释）
@@ -697,7 +719,7 @@ def _build_scorecard_overall_prompt(outputs: dict[str, Any], stages: dict[str, A
 
 **排序性与分布分析** 1-2句话，评价单调性、首尾Lift、评分分布形态是否符合预期
 
-**综合评估** 2-3句话，客观总结本次评分卡开发的整体情况，包括主要优点、存在的问题点，以及是否具备业务应用条件
+**综合评估** 2-3句话，客观总结本次评分卡开发的整体情况，包括主要优点、存在的问题点、稳定性结论（PSI+CSI），以及是否具备业务应用条件
 
 **优化建议** 1-3条具体可行的建议"""
 
@@ -1567,6 +1589,35 @@ def _build_model_evaluation_description(data: dict[str, Any]) -> str:
     _gini_str = f"\n- Gini: {_format_number(gini)}" if gini is not None else ""  # 保留备用
     warning_str = f"\n- ⚠️ 过拟合警告: {overfit_warning}" if overfit_warning else ""
     
+    # ========== CSI 特征稳定性（与 PSI 互补）==========
+    # CSI 监控各入模特征的分布变化，定位 PSI 劣化的根因
+    csi_str = ""
+    csi_report = data.get("csi_train_vs_oot") or data.get("csi_train_vs_test")
+    if csi_report and isinstance(csi_report, dict):
+        csi_features = csi_report.get("features", [])
+        csi_summary = csi_report.get("summary", {})
+        csi_comparison = csi_report.get("comparison", "")
+        
+        if csi_features:
+            total = csi_summary.get("total_features", len(csi_features))
+            stable = csi_summary.get("stable", 0)
+            slight = csi_summary.get("slight_change", 0)
+            significant = csi_summary.get("significant_change", 0)
+            
+            csi_str = f"\n\n### CSI 特征稳定性（{csi_comparison}）"
+            csi_str += f"\n- 总特征数: {total}，稳定: {stable}，轻微漂移: {slight}，显著漂移: {significant}"
+            
+            # 列出不稳定的特征（CSI ≥ 0.1）
+            unstable_features = [f for f in csi_features if f.get("csi", 0) >= 0.1]
+            if unstable_features:
+                csi_str += "\n- 需关注特征:"
+                for feat in unstable_features[:5]:
+                    csi_str += f"\n  - {feat['feature']}: CSI={_format_number(feat['csi'])}（{feat.get('stability', '')}）"
+                if len(unstable_features) > 5:
+                    csi_str += f"\n  - ...等{len(unstable_features)}个特征"
+            else:
+                csi_str += "\n- 所有入模特征分布稳定（CSI均<0.1）"
+    
     # ========== 区分能力指标展示（有OOT时优先OOT）==========
     # 行业标准：OOT验证集最能反映模型在实际业务中的表现
     if has_oot:
@@ -1731,7 +1782,7 @@ def _build_model_evaluation_description(data: dict[str, Any]) -> str:
 - 训练集 AUC: {_format_number(train_auc)}
 - 训练集 KS: {_format_number(train_ks)}
 
-### 稳定性与过拟合{psi_str}{warning_str}{rank_ordering_str}{summary_str}"""
+### 稳定性与过拟合{psi_str}{warning_str}{csi_str}{rank_ordering_str}{summary_str}"""
 
 
 def _build_evaluating_rules_description(data: dict[str, Any]) -> str:

@@ -1497,6 +1497,24 @@ export function ScorecardResults({
       }
     }
 
+    // CSI（特征稳定性指标）
+    type CSIFeature = { feature: string; csi: number; stability: string; level: string };
+    type CSIReport = { comparison: string; features: CSIFeature[]; summary: { total_features: number; stable: number; slight_change: number; significant_change: number } };
+    let csiTrainVsTest: CSIReport | null = null;
+    let csiTrainVsOot: CSIReport | null = null;
+    if (outputs.csi_train_vs_test) {
+      const csiOutput = outputs.csi_train_vs_test;
+      if (csiOutput.data && Array.isArray(csiOutput.data.features)) {
+        csiTrainVsTest = csiOutput.data as CSIReport;
+      }
+    }
+    if (outputs.csi_train_vs_oot) {
+      const csiOutput = outputs.csi_train_vs_oot;
+      if (csiOutput.data && Array.isArray(csiOutput.data.features)) {
+        csiTrainVsOot = csiOutput.data as CSIReport;
+      }
+    }
+
     return {
       metrics,
       multiDatasetMetrics,
@@ -1512,6 +1530,8 @@ export function ScorecardResults({
       psiResult,
       psiTrainVsTest,
       psiTrainVsOot,
+      csiTrainVsTest,
+      csiTrainVsOot,
     };
   };
 
@@ -1807,7 +1827,7 @@ export function ScorecardResults({
     );
   }
 
-  const { metrics, multiDatasetMetrics, multiDatasetChartData, overfitWarning, scorecardData, ivData, coefficients, intercept, selectedFeatures, chartData, selectionDetail, psiResult, psiTrainVsTest, psiTrainVsOot } = parsedResults;
+  const { metrics, multiDatasetMetrics, multiDatasetChartData, overfitWarning, scorecardData, ivData, coefficients, intercept, selectedFeatures, chartData, selectionDetail, psiResult, psiTrainVsTest, psiTrainVsOot, csiTrainVsTest, csiTrainVsOot } = parsedResults;
 
   // 计算入模变量数（从评分卡或系数中获取，排除basepoints）
   const modelVariables = coefficients.length > 0 
@@ -2532,6 +2552,94 @@ export function ScorecardResults({
                           psiValue={psiOotData.value}
                           stability={psiOotData.stability}
                         />
+                      </div>
+                    );
+                  })()}
+                  
+                  {/* CSI 特征稳定性报告 */}
+                  {(csiTrainVsTest || csiTrainVsOot) && (() => {
+                    // 优先展示 OOT CSI（行业惯例），无 OOT 时展示 Test CSI
+                    const csiReport = csiTrainVsOot || csiTrainVsTest;
+                    if (!csiReport || !csiReport.features || csiReport.features.length === 0) return null;
+                    
+                    return (
+                      <div className="border rounded-lg p-4 col-span-2">
+                        <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                          <Activity className="h-4 w-4 text-blue-500" />
+                          CSI 特征稳定性（{csiReport.comparison}）
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                <p className="text-xs">
+                                  CSI（Characteristic Stability Index）衡量各入模特征的分布稳定性。
+                                  计算方法与PSI相同，但针对各特征的WOE分箱分布。
+                                  CSI&lt;0.1稳定，0.1-0.25轻微变化，≥0.25显著变化。
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </h4>
+                        {/* 汇总统计 */}
+                        <div className="flex items-center gap-4 mb-3 text-xs">
+                          <span className="text-muted-foreground">共 {csiReport.summary.total_features} 个特征：</span>
+                          <span className="flex items-center gap-1">
+                            <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+                            稳定 {csiReport.summary.stable}
+                          </span>
+                          {csiReport.summary.slight_change > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 rounded-full bg-yellow-500"></span>
+                              轻微变化 {csiReport.summary.slight_change}
+                            </span>
+                          )}
+                          {csiReport.summary.significant_change > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 rounded-full bg-red-500"></span>
+                              显著变化 {csiReport.summary.significant_change}
+                            </span>
+                          )}
+                        </div>
+                        {/* CSI 表格 */}
+                        <div className="max-h-[300px] overflow-auto">
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-background">
+                              <tr className="border-b">
+                                <th className="text-left py-1.5 px-2 font-medium">特征名</th>
+                                <th className="text-right py-1.5 px-2 font-medium">CSI</th>
+                                <th className="text-center py-1.5 px-2 font-medium">稳定性</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {csiReport.features.map((feat, idx) => (
+                                <tr key={idx} className="border-b border-dashed last:border-0 hover:bg-muted/50">
+                                  <td className="py-1.5 px-2 font-mono">{feat.feature}</td>
+                                  <td className="text-right py-1.5 px-2 font-mono">{feat.csi.toFixed(4)}</td>
+                                  <td className="text-center py-1.5 px-2">
+                                    <span className={cn(
+                                      "inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium",
+                                      feat.level === 'good' 
+                                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                        : feat.level === 'warning'
+                                          ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                          : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                    )}>
+                                      {feat.stability}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {/* 如果同时有 Test 和 OOT CSI，展示切换提示 */}
+                        {csiTrainVsTest && csiTrainVsOot && (
+                          <div className="text-xs text-muted-foreground mt-2">
+                            当前展示 OOT 对比结果（行业惯例：OOT 更能反映真实稳定性）
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

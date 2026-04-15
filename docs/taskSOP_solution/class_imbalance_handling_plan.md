@@ -3,7 +3,32 @@
 > **文档状态**: 待开发  
 > **创建日期**: 2026-01-12  
 > **关联任务**: 规则挖掘、评分卡开发  
-> **优先级**: 中
+> **优先级**: 中  
+> **开发评审**: 🟡 建议轻量评审 — 确认 WOE 分箱阶段不采样的设计约束、`imbalanced-learn` 依赖引入、auto 策略的阈值分界点（2026-04-15 评估）
+
+### 📌 快速回顾（开发前必读）
+
+**作用与目标**：当数据集存在类别不平衡（如坏账率 5%）时，AI 分析评估已能检测并提示，但目前**只有文字建议，没有可操作的处理选项**。本方案为规则挖掘和评分卡开发任务添加类别不平衡的自动/手动处理能力。
+
+**当前实现的问题**：
+- 第一阶段 AI 分析会提示"5.13%的坏账率存在类别不平衡"，但没有对应参数让用户选择处理策略
+- 规则挖掘的决策树硬编码了 `class_weight='balanced'`，用户无法控制
+- 评分卡的逻辑回归训练未使用任何类别加权
+
+**优化内容**：
+- 新增 `imbalance_strategy` 参数（none/auto/class_weight/smote/undersample/smote_tomek）
+- `auto` 模式根据坏账率和样本量自动选择最优策略
+- **关键约束**：评分卡 WOE 分箱阶段**不采样**（保持原始分布），采样仅在 model_training 阶段
+
+**后端变化**：
+- `rule_mining_meta.py` / `scorecard_meta.py`：新增 `imbalance_strategy` 参数定义
+- `rule_mining.py`：决策树训练根据策略选择 `class_weight` 或采样后数据
+- `scorecard_development.py`：逻辑回归训练根据策略选择 `class_weight` 或 SMOTE/欠采样
+- `requirements.txt`：新增 `imbalanced-learn>=0.10.0` 依赖
+
+**前端变化**：
+- 参数配置面板：新增策略选择下拉框
+- `StageOutputPreview.tsx`：第一阶段结果卡片新增不平衡分析信息（比例、程度、应用策略）
 
 ---
 

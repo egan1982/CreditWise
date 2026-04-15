@@ -3113,6 +3113,73 @@ function ModelEvaluationPreview({ data }: { data: Record<string, any> }) {
           <span className="text-sm">{data.overfit_warning}</span>
         </div>
       )}
+
+      {/* CSI 特征稳定性报告 */}
+      {(() => {
+        // 优先展示 OOT CSI（行业惯例），无 OOT 时展示 Test CSI
+        const csiReport = data.csi_train_vs_oot || data.csi_train_vs_test;
+        if (!csiReport || !csiReport.features || csiReport.features.length === 0) return null;
+
+        return (
+          <div className="space-y-2 border-t pt-3 mt-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-medium flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-blue-500" />
+                CSI 特征稳定性（{csiReport.comparison}）
+              </h4>
+              <div className="flex items-center gap-3 text-[10px]">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                  稳定 {csiReport.summary.stable}
+                </span>
+                {csiReport.summary.slight_change > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-500"></span>
+                    轻微 {csiReport.summary.slight_change}
+                  </span>
+                )}
+                {csiReport.summary.significant_change > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                    显著 {csiReport.summary.significant_change}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="max-h-[200px] overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-background">
+                  <tr className="border-b text-gray-500">
+                    <th className="text-left py-1 px-1.5 font-medium">特征</th>
+                    <th className="text-right py-1 px-1.5 font-medium">CSI</th>
+                    <th className="text-center py-1 px-1.5 font-medium">状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {csiReport.features.map((feat: any, idx: number) => (
+                    <tr key={idx} className="border-b border-dashed last:border-0">
+                      <td className="py-1 px-1.5 font-mono text-[11px]">{feat.feature}</td>
+                      <td className="text-right py-1 px-1.5 font-mono text-[11px]">{feat.csi.toFixed(4)}</td>
+                      <td className="text-center py-1 px-1.5">
+                        <span className={cn(
+                          "inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium",
+                          feat.level === 'good'
+                            ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                            : feat.level === 'warning'
+                              ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                              : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                        )}>
+                          {feat.stability}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
       
       {/* 排序性分析 / 评分分布（新增） */}
       {scoreDistribution && availableDatasets.length > 0 && (

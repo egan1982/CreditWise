@@ -223,11 +223,44 @@ async def _get_llm_client_and_model(model: str) -> Tuple[Any, str, Optional[Any]
     return llm_client, model, None
 
 
+def _determine_chat_mode(
+    task_type: Optional[str],
+    messages: List[Dict[str, Any]],
+    enable_code_execution: bool,
+) -> Tuple[str, Optional[str]]:
+    """
+    显式判定聊天模式
+    
+    根据前端传入的 task_type 或消息推断，返回 mode 和有效的 task_type。
+    
+    规则：
+    1. 非代码执行模式（简单模式）→ chat
+    2. 前端传入了 task_type → extraction
+    3. 从消息中推断出 task_type → extraction
+    4. 其他情况 → chat
+    
+    Returns:
+        (mode, effective_task_type)
+    """
+    if not enable_code_execution:
+        return "chat", None
+    
+    if task_type:
+        return "extraction", task_type
+    
+    inferred = _infer_task_type_from_messages(messages)
+    if inferred:
+        return "extraction", inferred
+    
+    return "chat", None
+
+
 def _build_enhanced_system_prompt(
     user_system_prompt: Optional[str] = None,
     task_type: Optional[str] = None,
     workspace_files: Optional[List[str]] = None,
     include_task_list: bool = True,
+    mode: str = "chat",
 ) -> str:
     """
     构建增强的系统提示词，集成任务说明
@@ -237,6 +270,7 @@ def _build_enhanced_system_prompt(
         task_type: 指定任务类型（可选，用于注入特定任务引导）
         workspace_files: 工作区文件列表（可选）
         include_task_list: 是否包含所有可用任务列表
+        mode: "chat"（对话模式）或 "extraction"（参数提取模式）
         
     Returns:
         增强后的系统提示词
@@ -247,93 +281,16 @@ def _build_enhanced_system_prompt(
     
     try:
         provider = get_prompt_provider()
-        enhanced_prompt = provider.build_system_prompt(
+        return provider.build_system_prompt(
             base_prompt=user_system_prompt or "",
             task_type=task_type,
             include_all_tasks=include_task_list,
             workspace_files=workspace_files,
+            mode=mode,
         )
-        
-        # 检测是否为参数推断模式，如果是则追加 JSON 输出格式要求到系统提示词
-        if _is_param_extraction_mode(enhanced_prompt):
-            json_format_instruction = """
-
-## 输出格式要求
-
-**严格返回 JSON 格式，不要有任何解释文字或自然语言回复。**
-
-```json
-{
-    "task_type": "任务类型ID（如 rule_mining 或 scorecard_dev）",
-    "confidence": 0.95,
-    "params": {
-        "target_col": "目标变量列名",
-        "data_file": "数据文件路径"
-    },
-    "missing_params": ["缺失的必需参数名"],
-    "clarification_needed": false,
-    "clarification_question": ""
-}
-```
-
-**字段说明**：
-- `clarification_needed`: 仅当 missing_params 不为空（有必需参数缺失）时设为 true
-- `clarification_question`: 仅当 clarification_needed=true 时填写，询问缺失的参数
-- 当所有必需参数都已提取到时，clarification_needed 必须为 false
-
-**重要**：
-1. 只返回 JSON，不要有任何解释文字
-2. 不要用自然语言回复用户
-3. 参数齐全时 clarification_needed=false，前端会显示参数确认卡片让用户选择执行模式"""
-            enhanced_prompt += json_format_instruction
-        
-        return enhanced_prompt
     except Exception as e:
         logger.warning(f"Failed to build enhanced system prompt: {e}")
         return user_system_prompt or ""
-
-
-def _is_param_extraction_mode(system_prompt: str) -> bool:
-    """检测是否为参数推断模式
-    
-    通过系统提示词中的关键词判断是否需要强制 JSON 输出
-    """
-    if not system_prompt:
-        return False
-    
-    # 检测参数推断模式的关键词
-    keywords = [
-        "参数提取助手",
-        "参数推断",
-        "智能入口",
-        "task_type",
-        "clarification_needed",
-    ]
-    
-    return any(kw in system_prompt for kw in keywords)
-
-
-def _append_json_instruction(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """在最后一条用户消息后追加 JSON 输出指令
-    
-    用于强制 LLM 输出 JSON 格式而非自然语言
-    """
-    if not messages:
-        return messages
-    
-    # 复制消息列表，避免修改原始数据
-    modified_messages = [msg.copy() for msg in messages]
-    
-    # 找到最后一条用户消息
-    for i in range(len(modified_messages) - 1, -1, -1):
-        if modified_messages[i].get("role") == "user":
-            original_content = modified_messages[i].get("content", "")
-            # 追加 JSON 输出指令
-            json_instruction = "\n\n【请以 JSON 格式回复，包含 task_type, confidence, params, missing_params, clarification_needed, clarification_question 字段】"
-            modified_messages[i]["content"] = original_content + json_instruction
-            break
-    
-    return modified_messages
 
 
 def _infer_task_type_from_messages(messages: List[Dict[str, Any]]) -> Optional[str]:
@@ -513,36 +470,43 @@ async def chat_completions(
             logger.info(f"渠道 {channel_info.channel_name} 已禁用流式输出，使用非流式模式")
     
     # 确定基础系统提示词来源
-    # 简单模式（enable_code_execution=False）：只使用请求参数的system_prompt，不使用渠道预设
-    # 完整模式：优先级为 渠道配置的system_prompt > 请求参数的system_prompt
+    # 显式判定聊天模式（替代原有的关键词嗅探逻辑）
+    # 注意：mode 判定必须在 base_system_prompt 选择之前，因为 chat mode 不使用渠道预设 prompt
+    mode, effective_task_type = _determine_chat_mode(task_type, messages, enable_code_execution)
+    if effective_task_type and effective_task_type != task_type:
+        logger.info(f"自动推断任务类型: {effective_task_type}")
+    
+    # 根据 mode 选择 base_system_prompt
+    # - extraction 模式：使用渠道预设 prompt（含参数提取角色和 JSON 格式要求）
+    # - chat 模式：不使用渠道预设 prompt（渠道 prompt 是为 extraction 设计的，含 JSON 指令会污染对话）
+    #   chat mode 下 _build_chat_prompt 会使用 DEFAULT_BASE_PROMPT 作为角色定义
+    # - 简单模式（enable_code_execution=False）：只使用请求参数的 system_prompt
     base_system_prompt = None
     
-    if enable_code_execution and channel_info is not None:
-        # 完整模式：使用渠道配置的预设提示词作为基础
+    if enable_code_execution and channel_info is not None and mode == "extraction":
+        # 仅 extraction 模式使用渠道配置的预设提示词
         channel_system_prompt = getattr(channel_info, 'system_prompt', None)
         if channel_system_prompt and channel_system_prompt.strip():
             base_system_prompt = channel_system_prompt
-            logger.info(f"使用渠道 {channel_info.channel_name} 的预设系统提示词 (长度: {len(channel_system_prompt)})")
+            logger.info(f"[extraction] 使用渠道 {channel_info.channel_name} 的预设系统提示词 (长度: {len(channel_system_prompt)})")
     
-    # 如果渠道没有配置预设提示词，或者是简单模式，使用请求参数中的
     if not base_system_prompt:
-        base_system_prompt = system_prompt
-    
-    # 如果前端未传递 task_type，尝试从用户消息中推断（仅在完整模式下）
-    effective_task_type = task_type
-    if enable_code_execution and not effective_task_type:
-        inferred_task_type = _infer_task_type_from_messages(messages)
-        if inferred_task_type:
-            effective_task_type = inferred_task_type
-            logger.info(f"自动推断任务类型: {effective_task_type}")
+        if mode == "chat":
+            # chat 模式：传空字符串，让 _build_chat_prompt 使用 DEFAULT_BASE_PROMPT
+            base_system_prompt = ""
+            logger.info(f"[chat] 使用默认对话角色（不使用渠道预设 prompt）")
+        else:
+            # fallback：使用请求参数中的 system_prompt
+            base_system_prompt = system_prompt
     
     # Build enhanced system prompt with task awareness
     # 简单模式下，include_task_list强制为False，避免注入任务相关提示词
     effective_include_task_list = include_task_list if enable_code_execution else False
     enhanced_system_prompt = _build_enhanced_system_prompt(
         user_system_prompt=base_system_prompt,
-        task_type=effective_task_type if enable_code_execution else None,
+        task_type=effective_task_type,
         include_task_list=effective_include_task_list,
+        mode=mode,
     )
     
     # Simple mode: no code execution, just forward to LLM
@@ -578,13 +542,6 @@ async def chat_completions(
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
             )
-    
-    # 检测是否为参数推断模式，如果是则修改消息以强制 JSON 输出
-    # 注意：只在代码执行模式下检测，简单模式已在上面return
-    is_param_mode = _is_param_extraction_mode(enhanced_system_prompt)
-    if is_param_mode:
-        messages = _append_json_instruction(messages)
-        print("[Chat API] 检测到参数推断模式，已追加 JSON 输出指令")
     
     # Full DeepAnalyze mode with code execution
     # Create temporary thread for workspace management

@@ -2,7 +2,32 @@
 
 > 创建时间: 2026-02-12  
 > 状态: 已确认，待实施  
-> 预计工作量: ~16小时
+> 预计工作量: ~16小时  
+> **开发评审**: 🟡 建议轻量评审 — 参数删除（`psi_time_col`）的向后兼容、数据划分三模式的优先级逻辑、CV 阈值标准需实施前确认（2026-04-15 评估）
+
+### 📌 快速回顾（开发前必读）
+
+**作用与目标**：为规则挖掘任务添加 OOT（Out-of-Time）验证能力，评估规则在时间维度上的稳定性。评分卡已有此功能，规则挖掘需对齐。
+
+**当前实现的问题**：
+- 规则挖掘仅支持 train/test 随机划分，无法按时间划分 OOT 验证集
+- 现有 `psi_time_col` 参数功能混淆（用户易与 `time_col` 搞混），且放在报告生成阶段位置不合理
+- 规则质量评估缺少时间稳定性维度（当前只有 Lift、召回率、命中率、独立性、复杂度）
+
+**优化内容**：
+- 删除 `psi_time_col`，新增 `time_col` + `oot_ratio` + `sample_type_col` 三个参数
+- 支持三种划分模式：手动标注列 > 智能 OOT（按时间排序取最近 N%）> 随机划分
+- 最优选择阶段新增 OOT 验证：计算每条规则在 train/test/oot 上的命中率变异系数（CV）
+- 质量评估总分从 100 分扩展到 110 分（时间稳定性附加 +10 分）
+
+**后端变化**：
+- `rule_mining_meta.py`：删除 `psi_time_col`，新增 5 个参数
+- `rule_mining.py`：扩展 `_split_data_with_oot()`、新增 `_evaluate_rules_oot_stability()`、`_filter_by_stability()`
+- `AI_analysis_prompts.py`：新增 OOT 分析提示词
+
+**前端变化**：
+- `StageOutputPreview.tsx`：预处理阶段展示 OOT 数据集信息和时间范围
+- `RuleMiningResults.tsx`：新增 OOT 稳定性卡片、规则列表增加稳定性标签列（🟢🟡🟠🔴）
 
 ---
 

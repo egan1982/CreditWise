@@ -1,6 +1,23 @@
 # AI分析评估System Prompt重构计划
 
-> 本文档记录将`StageOutputPreview.tsx`中的AI分析评估system prompt抽离为独立模块的分析结论和实施方案。
+> 本文档记录将`StageOutputPreview.tsx`中的AI分析评估system prompt抽离为独立模块的分析结论和实施方案。  
+> **开发评审**: 🟢 无需评审，可直接实施 — Phase 0/1/1.5 已完成，Phase 2 延续既有模式（2026-04-15 评估）
+
+### 📌 快速回顾（开发前必读）
+
+**作用与目标**：Phase 2 的目标是让 AI 分析评估的 system prompt 支持"深度变体"——同一阶段可根据不同分析深度（快速/标准/详细）生成不同 prompt，而非当前的一刀切模板。
+
+**当前实现**：
+- Phase 0/1/1.5 已完成：AI 分析评估 prompt 已从前端 `StageOutputPreview.tsx`（550 行硬编码）抽离到后端 `API/AI_analysis_prompts.py`（~1900 行），前端冗余代码已清理约 860 行
+- 每个阶段有独立的角色配置（`STAGE_ROLE_CONFIG`）、数据描述模板、关注维度
+
+**Phase 2 待做**：
+- 支持分析深度变体（快速摘要 / 标准分析 / 详细报告）
+- 可选：Phase 3 LLM Manager 集成（让分析 prompt 的 LLM 参数可在管理界面配置）
+
+**后端变化**：`AI_analysis_prompts.py` 扩展 `get_stage_analysis_prompt()` 支持 `depth` 参数
+
+**前端变化**：`StageOutputPreview.tsx` AI 分析按钮可选择分析深度（下拉选项）
 
 ---
 

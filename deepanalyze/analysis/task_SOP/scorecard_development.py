@@ -5182,6 +5182,47 @@ class ScorecardPipeline:
                     psi_train_vs_test = None
                     psi_train_vs_oot = None
                 
+                # ===== CSI (Characteristic Stability Index) Calculation =====
+                # CSI measures the stability of each feature's WOE distribution
+                # Uses the same formula as PSI but applied to individual feature distributions
+                csi_train_vs_test = None
+                csi_train_vs_oot = None
+                try:
+                    self._update_progress("model_evaluation", 88.0, "计算CSI特征稳定性指标...")
+                    
+                    # 获取入模特征名（去掉 _woe 后缀）
+                    csi_feature_names = [f.replace('_woe', '') for f in woe_features]
+                    
+                    # 始终计算 Train vs Test CSI
+                    csi_train_vs_test = self._calculate_csi_for_variables(
+                        train_woe_df=df_woe,
+                        compare_woe_df=test_woe,
+                        feature_cols=csi_feature_names,
+                        comparison_label="训练集 vs 测试集"
+                    )
+                    logger.info(f"[Model Evaluation] CSI (Train vs Test): {csi_train_vs_test['summary']}")
+                    
+                    # 有OOT时额外计算 Train vs OOT CSI
+                    if oot_df is not None and len(oot_df) > 0:
+                        try:
+                            # oot_woe 在OOT评估时已计算（line ~5071）
+                            oot_woe_for_csi = self.woe_transformer.transform(oot_df, self.bins_)
+                            csi_train_vs_oot = self._calculate_csi_for_variables(
+                                train_woe_df=df_woe,
+                                compare_woe_df=oot_woe_for_csi,
+                                feature_cols=csi_feature_names,
+                                comparison_label="训练集 vs OOT"
+                            )
+                            logger.info(f"[Model Evaluation] CSI (Train vs OOT): {csi_train_vs_oot['summary']}")
+                        except Exception as e:
+                            logger.warning(f"[Model Evaluation] CSI (Train vs OOT) calculation failed: {e}")
+                            csi_train_vs_oot = None
+                    
+                except Exception as e:
+                    logger.warning(f"[Model Evaluation] CSI calculation failed: {e}")
+                    csi_train_vs_test = None
+                    csi_train_vs_oot = None
+                
                 # ===== Score Distribution for Stage Preview =====
                 # Generate score distribution data for model_evaluation stage output_preview
                 score_distribution_data = {}
@@ -5246,6 +5287,9 @@ class ScorecardPipeline:
                 # 2026-02-10: 新增双PSI结果，供前端同时展示两个PSI对比图
                 results['psi_train_vs_test'] = psi_train_vs_test  # 始终存在
                 results['psi_train_vs_oot'] = psi_train_vs_oot    # 仅有OOT时存在
+                # CSI（特征稳定性指标）
+                results['csi_train_vs_test'] = csi_train_vs_test  # 始终存在
+                results['csi_train_vs_oot'] = csi_train_vs_oot    # 仅有OOT时存在
                 
                 # Build output preview for model_evaluation stage (with _full_stage_data)
                 model_evaluation_preview: dict[str, Any] = {
@@ -5256,6 +5300,9 @@ class ScorecardPipeline:
                     # 2026-02-10: 新增双PSI结果
                     "psi_train_vs_test": psi_train_vs_test,
                     "psi_train_vs_oot": psi_train_vs_oot,
+                    # CSI（特征稳定性指标）
+                    "csi_train_vs_test": csi_train_vs_test,
+                    "csi_train_vs_oot": csi_train_vs_oot,
                     "score_distribution": score_distribution_data if score_distribution_data else None,  # Phase 32: 评分分布数据
                     # Phase 6: 添加完整阶段数据用于检查点保存
                     "_full_stage_data": {
@@ -5581,6 +5628,100 @@ class ScorecardPipeline:
         psi = np.sum((actual_pct - expected_pct) * np.log(actual_pct / expected_pct))
         
         return abs(psi)  # PSI is always positive
+    
+    def _calculate_csi_for_variables(
+        self,
+        train_woe_df: pd.DataFrame,
+        compare_woe_df: pd.DataFrame,
+        feature_cols: list[str],
+        comparison_label: str = "训练集 vs 测试集"
+    ) -> dict[str, Any]:
+        """
+        计算各入模特征的 CSI（Characteristic Stability Index，特征稳定性指数）。
+        
+        CSI 计算方式与 PSI 相同，但针对的是各特征的 WOE 分箱分布而非评分分布。
+        对每个特征，比较训练集和测试集/OOT 中各分箱的样本占比。
+        
+        Args:
+            train_woe_df: 训练集 WOE 转换后的 DataFrame
+            compare_woe_df: 对比集（测试集或OOT）WOE 转换后的 DataFrame
+            feature_cols: 入模特征名列表（原始特征名，不带 _woe 后缀）
+            comparison_label: 对比标签，如 "训练集 vs 测试集"
+            
+        Returns:
+            {
+                "comparison": "训练集 vs 测试集",
+                "features": [
+                    {"feature": "age", "csi": 0.05, "stability": "稳定", "level": "good"},
+                    ...
+                ],
+                "summary": {
+                    "total_features": 10,
+                    "stable": 8,
+                    "slight_change": 1,
+                    "significant_change": 1
+                }
+            }
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        csi_features: list[dict[str, Any]] = []
+        summary = {"total_features": 0, "stable": 0, "slight_change": 0, "significant_change": 0}
+        
+        for feat in feature_cols:
+            woe_col = f"{feat}_woe"
+            
+            # 确保两个数据集中都有该 WOE 列
+            if woe_col not in train_woe_df.columns or woe_col not in compare_woe_df.columns:
+                logger.warning(f"[CSI] WOE column '{woe_col}' not found in one of the datasets, skipping")
+                continue
+            
+            train_vals = train_woe_df[woe_col].dropna().values
+            compare_vals = compare_woe_df[woe_col].dropna().values
+            
+            if len(train_vals) == 0 or len(compare_vals) == 0:
+                logger.warning(f"[CSI] Empty values for '{woe_col}', skipping")
+                continue
+            
+            try:
+                csi_value = self._calculate_psi(train_vals, compare_vals)
+                csi_value = round(csi_value, 4)
+            except Exception as e:
+                logger.warning(f"[CSI] Failed to calculate CSI for '{feat}': {e}")
+                continue
+            
+            # 稳定性判定（与 PSI 阈值一致）
+            if csi_value < 0.1:
+                stability, level = "稳定", "good"
+            elif csi_value < 0.25:
+                stability, level = "轻微变化", "warning"
+            else:
+                stability, level = "显著变化", "danger"
+            
+            csi_features.append({
+                "feature": feat,
+                "csi": csi_value,
+                "stability": stability,
+                "level": level
+            })
+            
+            summary["total_features"] += 1
+            if level == "good":
+                summary["stable"] += 1
+            elif level == "warning":
+                summary["slight_change"] += 1
+            else:
+                summary["significant_change"] += 1
+        
+        # 按 CSI 值降序排列（最不稳定的排前面）
+        csi_features.sort(key=lambda x: x["csi"], reverse=True)
+        
+        return {
+            "comparison": comparison_label,
+            "features": csi_features,
+            "summary": summary
+        }
     
     # Note: _validate_scorecard method has been moved to validators.py module
     # Use ScorecardValidator.validate_simple() instead
