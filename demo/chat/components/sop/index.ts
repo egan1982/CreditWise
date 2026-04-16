@@ -5,6 +5,8 @@
 // 任务配置组件 - 统一使用TaskConfigPanel
 export { TaskSelector } from "./TaskSelector";
 export { TaskConfigPanel } from "./TaskConfigPanel";
+export { TaskConfirmCard } from "./TaskConfirmCard";
+export type { CardStatus } from "./TaskConfirmCard";
 export { DynamicParamRenderer, ParamGroupRenderer, shouldShowParam } from "./DynamicParamRenderer";
 
 // 旧配置面板组件已废弃并删除，由TaskConfigPanel统一替代

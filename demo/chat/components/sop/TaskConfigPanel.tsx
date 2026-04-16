@@ -72,6 +72,8 @@ export interface TaskConfigPanelProps {
   isExecuting?: boolean;
   /** 自定义类名 */
   className?: string;
+  /** P2-8: 外部注入的初始参数（来自 Chat 确认卡片 LLM 提取的参数） */
+  initialParams?: Record<string, any> | null;
 }
 
 // =============================================================================
@@ -246,6 +248,7 @@ export function TaskConfigPanel({
   onClose,
   isExecuting = false,
   className,
+  initialParams,
 }: TaskConfigPanelProps) {
   // 状态
   const [taskMeta, setTaskMeta] = useState<TaskMeta | null>(null);
@@ -281,6 +284,14 @@ export function TaskConfigPanel({
             }
           }
         );
+        // P2-8: 合并外部注入的初始参数（覆盖默认值）
+        if (initialParams) {
+          Object.entries(initialParams).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== "") {
+              defaults[key] = value;
+            }
+          });
+        }
         setFormValues(defaults);
       } catch (err) {
         console.error("Failed to load task meta:", err);
@@ -291,6 +302,22 @@ export function TaskConfigPanel({
 
     loadTaskMeta();
   }, [taskId]);
+
+  // P2-8: 当 initialParams 变化时（例如从 Chat 确认卡片二次打开同一任务），
+  // 在 taskMeta 已加载的情况下补充 merge 外部参数
+  useEffect(() => {
+    if (initialParams && taskMeta && !loading) {
+      setFormValues(prev => {
+        const updated = { ...prev };
+        Object.entries(initialParams).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== "") {
+            updated[key] = value;
+          }
+        });
+        return updated;
+      });
+    }
+  }, [initialParams, taskMeta, loading]);
 
   // ==========================================================================
   // 加载数据列

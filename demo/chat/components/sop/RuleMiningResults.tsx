@@ -3184,7 +3184,7 @@ function AdvancedAnalysisPanel({ amountAnalysis, priorAnalysis }: AdvancedAnalys
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="p-3">
-                <AmountAnalysisPanel amountAnalysis={amountAnalysis} />
+                <AmountAnalysisPanel analysis={amountAnalysis} />
               </div>
             </CollapsibleContent>
           </div>

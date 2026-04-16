@@ -156,6 +156,22 @@ SCORECARD_TASK_META: Dict[str, Any] = {
             "stage": "data_loading",
             "show_when": {"time_col": {"$ne": None}, "sample_type_col": {"$eq": None}}
         },
+        # P2-6: 类别不平衡处理
+        {
+            "name": "imbalance_strategy",
+            "type": "select",
+            "label": "类别不平衡处理",
+            "label_en": "Imbalance Strategy",
+            "options": [
+                {"value": "auto", "label": "自动选择（推荐）"},
+                {"value": "none", "label": "不处理"},
+                {"value": "class_weight", "label": "类别加权"}
+            ],
+            "default": "auto",
+            "description": "当坏样本率<10%时建议启用。auto模式会根据坏账率自动决定是否使用类别加权。注意：WOE分箱阶段不受影响，仅在模型训练阶段应用",
+            "stage": "data_loading",
+            "advanced": False
+        },
         
         # WOE Binning
         {

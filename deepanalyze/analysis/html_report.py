@@ -503,8 +503,13 @@ def _add_filtered_rules_table(rules: list, max_rows: int = 50) -> str:
         rules: all_rules_with_status 中 is_valid=False 的规则列表
         max_rows: 最大显示行数
     """
-    if not rules:
+    # FIX-3: 安全的空值检查（兼容 DataFrame 和 list）
+    if rules is None or (isinstance(rules, list) and len(rules) == 0):
         return '<p>暂无被过滤的规则</p>'
+    if isinstance(rules, pd.DataFrame):
+        if rules.empty:
+            return '<p>暂无被过滤的规则</p>'
+        rules = rules.to_dict(orient='records')
     
     table_html = ['<table class="data-table">']
     table_html.append('''
@@ -1261,7 +1266,8 @@ def _generate_rule_mining_html_report(
     
     # Summary metrics cards
     optimal_rules = results.get('optimal_rules', results.get('rules', []))
-    if optimal_rules:
+    # Phase 25: 兼容 DataFrame 和 list
+    if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
         n_rules = len(optimal_rules)
         
         # Calculate cumulative metrics from last rule
@@ -1304,8 +1310,13 @@ def _generate_rule_mining_html_report(
     
     # Helper function for rule tables
     def add_rules_table(rules: List[Dict], max_rows: int = 50) -> str:
-        if not rules:
+        # FIX-3: 安全的空值检查（兼容 DataFrame 和 list）
+        if rules is None or (isinstance(rules, list) and len(rules) == 0):
             return '<p>暂无规则数据</p>'
+        if isinstance(rules, pd.DataFrame):
+            if rules.empty:
+                return '<p>暂无规则数据</p>'
+            rules = rules.to_dict(orient='records')
         
         table_html = ['<table class="data-table">']
         table_html.append('''

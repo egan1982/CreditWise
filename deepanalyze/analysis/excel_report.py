@@ -281,9 +281,10 @@ class ExcelReportGenerator:
         
         # 汇总指标卡片
         optimal_rules = results.get('optimal_rules', results.get('rules', []))
-        if optimal_rules and isinstance(optimal_rules, list) and len(optimal_rules) > 0:
+        # Phase 25: 兼容 DataFrame 和 list
+        if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
             n_rules = len(optimal_rules)
-            last_rule = optimal_rules[-1]
+            last_rule = optimal_rules.iloc[-1].to_dict()
             final_recall = last_rule.get('cumulative_recall', last_rule.get('cum_recall', last_rule.get('dev_cum_recall', 0)))
             final_hit_rate = last_rule.get('cumulative_hit_rate', last_rule.get('cum_hit_rate', last_rule.get('dev_cum_hit_rate', 0)))
             final_lift = last_rule.get('cumulative_lift', last_rule.get('cum_lift', last_rule.get('dev_cum_lift', last_rule.get('lift', 0))))
@@ -318,7 +319,7 @@ class ExcelReportGenerator:
         
         # ========== 三、最优规则 ==========
         row = self._write_section_header(ws, row, "三、最优规则")
-        if optimal_rules:
+        if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
             row = self._write_rules_table_to_report(ws, optimal_rules, row, max_rules=15)
         else:
             ws.cell(row=row, column=1, value="暂无数据").font = self.styles.DATA_FONT
@@ -2588,20 +2589,53 @@ class ExcelReportGenerator:
         return row
     
     def _write_advanced_analysis_section(self, ws, amount_analysis: dict | None, prior_analysis: dict | None, start_row: int) -> int:
-        """写入附加分析章节"""
+        """写入附加分析章节（FIX-4: 匹配 FIX-1 扁平化后的 amount_analysis 结构）"""
         row = start_row
         
         # 金额分析
-        if amount_analysis and isinstance(amount_analysis, dict):
+        if amount_analysis and isinstance(amount_analysis, dict) and amount_analysis.get('enabled'):
             ws.cell(row=row, column=1, value="💰 金额维度分析").font = self.styles.SUBHEADER_FONT
             row += 1
             
             # 汇总指标
-            summary = amount_analysis.get('summary', amount_analysis)
-            for key, value in list(summary.items())[:10]:
-                if not key.startswith('_'):
-                    ws.cell(row=row, column=1, value=str(key)).font = self.styles.DATA_FONT
-                    ws.cell(row=row, column=2, value=self._format_value(value)).font = self.styles.DATA_FONT
+            summary_items = [
+                ("总金额", self._format_value(amount_analysis.get('total_amount', 0))),
+                ("总坏账金额", self._format_value(amount_analysis.get('total_bad_amount', 0))),
+                ("整体金额坏账率", self._format_percent(amount_analysis.get('overall_amount_bad_rate', 0))),
+            ]
+            cumulative = amount_analysis.get('cumulative', {})
+            if cumulative:
+                summary_items.append(("累计命中金额", self._format_value(cumulative.get('cum_hit_amount', 0))))
+                summary_items.append(("金额召回率", self._format_percent(cumulative.get('amount_recall', 0))))
+            
+            for label, value in summary_items:
+                ws.cell(row=row, column=1, value=label).font = self.styles.DATA_FONT
+                ws.cell(row=row, column=2, value=str(value)).font = self.styles.DATA_FONT
+                row += 1
+            
+            # 规则金额明细
+            rules_amount = amount_analysis.get('rules_amount', [])
+            if rules_amount:
+                row += 1
+                ws.cell(row=row, column=1, value="规则金额明细").font = self.styles.SUBHEADER_FONT
+                row += 1
+                headers = ['规则', '命中金额', '金额占比', '坏账金额', '金额坏账率', '金额Lift']
+                for col, header in enumerate(headers, 1):
+                    cell = ws.cell(row=row, column=col, value=header)
+                    cell.font = self.styles.HEADER_FONT
+                    cell.fill = self.styles.HEADER_FILL
+                    cell.border = self.styles.THIN_BORDER
+                row += 1
+                for item in rules_amount[:20]:
+                    ws.cell(row=row, column=1, value=str(item.get('rule', '')))
+                    ws.cell(row=row, column=2, value=self._format_value(item.get('hit_amount', 0)))
+                    ws.cell(row=row, column=3, value=self._format_percent(item.get('hit_amount_pct', 0)))
+                    ws.cell(row=row, column=4, value=self._format_value(item.get('bad_amount', 0)))
+                    ws.cell(row=row, column=5, value=self._format_percent(item.get('amount_bad_rate', 0)))
+                    ws.cell(row=row, column=6, value=round(item.get('amount_lift', 0), 2))
+                    for col in range(1, 7):
+                        ws.cell(row=row, column=col).border = self.styles.THIN_BORDER
+                        ws.cell(row=row, column=col).font = self.styles.DATA_FONT
                     row += 1
             row += 1
         

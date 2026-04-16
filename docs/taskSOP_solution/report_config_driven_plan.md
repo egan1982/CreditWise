@@ -846,6 +846,109 @@ tabs=[
 | 2026-02-12 | ✅ 完成 Phase 1.5 | Word 报告重构为6章节结构（~2h） |
 | 2026-02-12 | ✅ 完成 Phase 1.6 | Excel 报告重构为6章节结构（~1.5h） |
 | 2026-02-12 | ✅ P0 任务全部完成 | Word + Excel 报告重构完成，Phase 2 配置驱动方案障碍已清除 |
+| 2026-04-15 | 📋 发现导出报告缺少新增指标数据 | P0-3（CSI）和 P1-5（OOT 稳定性）新增的指标仅在前端和 AI prompt 中展示，四种格式导出报告均未包含。详见下方 Phase 1.7 |
+
+### Phase 1.7：导出报告新增指标同步（持续更新）
+
+> **优先级**: P3 | **预计工作量**: 按批次评估 | **创建日期**: 2026-04-15
+> **前置条件**: 无（可独立实施，不依赖 Phase 2 配置驱动）
+> **定位**: 随着 Pipeline 阶段新增指标/数据，导出报告需要同步补充对应内容。
+> 此 Phase 作为**统一登记处**，记录所有"前端/AI Prompt 已有但导出报告缺失"的指标，按批次实施。
+
+#### 通用根因
+
+`sop_api.py` 的 `/report/export` 端点在组装各格式报告的 results dict 时，**未传递新增字段**到报告生成器。报告生成器（html/word/excel/markdown_report.py）也未编写对应的渲染逻辑。
+
+#### 通用修复模式
+
+每个新增指标需要两步：
+1. **`sop_api.py`**：在对应任务的报告导出 results dict 中传递新字段
+2. **报告生成器**：在对应章节中新增渲染逻辑（四种格式各一处）
+
+---
+
+#### 批次 1（2026-04-15 登记）
+
+**来源**: P0-3（CSI 特征稳定性）、P1-5（OOT 命中率稳定性）
+
+| # | 缺失指标 | 来源任务 | 数据 key | 所属 Pipeline 阶段 | 前端 | AI Prompt | HTML | Word | Excel | MD |
+|---|----------|---------|----------|-------------------|:---:|:---------:|:---:|:---:|:---:|:---:|
+| 1 | **CSI 特征稳定性** | P0-3（评分卡） | `csi_train_vs_test` / `csi_train_vs_oot` | model_evaluation | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 2 | **OOT 命中率稳定性** | P1-5（规则挖掘） | `oot_stability_report` | selecting_rules | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 3 | **评分卡 HTML 双 PSI** | 早期遗漏 | `psi_train_vs_test` / `psi_train_vs_oot` | model_evaluation | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+
+**Step 1**: `sop_api.py` — 传递新增字段
+
+```python
+# 评分卡 HTML 导出（~2295行）补充：
+'psi_train_vs_test': outputs.get("psi_train_vs_test", {}).get("data"),
+'psi_train_vs_oot': outputs.get("psi_train_vs_oot", {}).get("data"),
+'csi_train_vs_test': outputs.get("csi_train_vs_test", {}).get("data"),
+'csi_train_vs_oot': outputs.get("csi_train_vs_oot", {}).get("data"),
+
+# 评分卡 Excel/Word/MD 导出补充（已有 psi_train_vs_*）：
+'csi_train_vs_test': outputs.get("csi_train_vs_test", {}).get("data"),
+'csi_train_vs_oot': outputs.get("csi_train_vs_oot", {}).get("data"),
+
+# 规则挖掘 HTML/Word/Excel/MD 导出补充：
+'oot_stability_report': outputs.get("oot_stability_report", {}).get("data"),
+```
+
+**Step 2**: 四个报告生成器 — 新增渲染
+
+| 生成器 | 评分卡 CSI | 规则挖掘 OOT 稳定性 | 预估 |
+|--------|:---------:|:------------------:|------|
+| `html_report.py` | PSI 后加 CSI 表格 | 稳定性章节加 OOT CV 表格 | ~50-80 行 |
+| `word_report.py` | 同上 | 同上 | ~40-60 行 |
+| `excel_report.py` | 同上 | 同上 | ~40-60 行 |
+| `markdown_report.py` | 同上 | 同上 | ~30-40 行 |
+
+**预计工作量**: ~0.5-1天
+
+---
+
+#### 批次 2（2026-04-16 登记）
+
+**来源**: 策略诊断方案评估中发现的空白项
+
+| # | 缺失项 | 来源 | 数据 key | 所属阶段 | 前端 | AI Prompt | 导出报告 |
+|---|--------|------|----------|---------|:---:|:---------:|:-------:|
+| 4 | **金额维度分析 AI 引导** | 现有 AmountAnalyzer（规则挖掘） | `amount_analysis` | amount_analysis | ✅ | ❌ | ✅ |
+
+**说明**：`AmountAnalyzer` 已全栈实现（后端 + 前端 + 四格式报告），但 `AI_analysis_prompts.py` 中完全未引导 AI 分析金额维度指标（命中金额、金额Lift、金额召回率等）。需在 `amount_analysis` 阶段的 AI prompt 中加入金额指标解读引导。
+
+**预计工作量**: ~0.5天（仅 Prompt 文本更新）
+
+---
+
+#### 批次 3（2026-04-16 登记 — P2-10 金额维度分析测试发现）— ✅ 已修复
+
+**来源**: `amount_analysis_test_plan.md` §7.3 测试发现的报告 Bug
+**修复日期**: 2026-04-16 | **修复方案**: FIX-1~FIX-6（详见 `amount_analysis_test_plan.md` §7.5）
+
+| # | 缺陷 | 位置 | 严重性 | 修复 |
+|---|------|------|:------:|------|
+| 5 | **`if optimal_rules` DataFrame truthiness Bug** | `markdown_report.py` `word_report.py` `html_report.py`（6 处） | 🔴 | ✅ FIX-3：统一改为 `rules is None or (isinstance(rules, list) and len(rules) == 0)` + DataFrame 自动 `to_dict` |
+| 6 | **Excel 金额章节生成失败** | `excel_report.py` `_write_advanced_analysis_section` | 🟡 | ✅ FIX-4：重写为结构化字段读取（汇总指标 + 规则金额明细表格） |
+| 7 | **Markdown 报告不输出金额分析章节** | `markdown_report.py` `_format_amount_analysis` | 🟡 | ✅ FIX-5：重写为匹配扁平化结构（HTML/Word 代码已正确，无需改） |
+| 8 | **全栈数据流断裂（B4 关键 Bug）** | Pipeline → `safe_serialize` → 前端 | 🔴 | ✅ FIX-1：Pipeline 输出时扁平化（summary 提升+DF 转 list）；FIX-2：prop 名 `amountAnalysis` → `analysis`；FIX-6：`AmountAnalyzer.fit()` 添加 `pd.to_numeric` 类型校验 |
+
+**预计工作量**: ~2天（✅ 实际 ~0.5天完成）
+
+---
+
+#### 批次 4（2026-04-16 登记 — P2-6 类别不平衡处理）
+
+**来源**: P2-6 类别不平衡处理 MVP（`class_imbalance_handling_plan.md`）
+
+| # | 缺失项 | 来源 | 数据 key | 所属阶段 | 前端 | AI Prompt | 导出报告 |
+|---|--------|------|----------|---------|:---:|:---------:|:-------:|
+| 9 | **不平衡处理策略信息** | P2-6 imbalance_strategy | `output_preview.imbalance_analysis` | preprocessing / data_loading | ✅ 卡片展示 | ✅ focusPoints + 数据描述 | ❌ 未包含 |
+
+**说明**：`imbalance_analysis` 包含 severity（程度）、applied_strategy（实际策略）、imbalance_ratio（比例）等信息。前端和 AI Prompt 已展示，但四格式导出报告的"概览"章节未包含不平衡处理策略说明。建议在报告"概览"或"附加分析"章节中添加一行"不平衡处理策略: xxx"。
+
+**优先级**: 低（非必要指标，仅增强报告完整性）  
+**预计工作量**: ~0.5天
 
 ---
 

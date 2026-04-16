@@ -305,6 +305,49 @@ function DataLoadingPreview({ data, taskType }: { data: Record<string, any>; tas
         </div>
       </div>
 
+      {/* P2-6: 类别不平衡分析卡片 */}
+      {data.imbalance_analysis && data.imbalance_analysis.severity !== "无" && (
+        <div className={cn(
+          "p-3 rounded-lg border",
+          data.imbalance_analysis.applied_strategy === 'none' && data.imbalance_analysis.severity !== "无"
+            ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
+            : "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+        )}>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="text-sm font-medium flex items-center gap-1.5">
+              <span>⚖️ 类别不平衡分析</span>
+              <Badge variant="outline" className={cn("text-[10px]", {
+                "border-yellow-400 text-yellow-700": data.imbalance_analysis.severity === "轻度",
+                "border-orange-400 text-orange-700": data.imbalance_analysis.severity === "中度",
+                "border-red-400 text-red-700": data.imbalance_analysis.severity === "重度" || data.imbalance_analysis.severity === "极端",
+              })}>
+                {data.imbalance_analysis.severity}
+              </Badge>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="text-center p-1.5 bg-white/60 dark:bg-gray-800/40 rounded">
+              <div className="font-bold">{data.imbalance_analysis.imbalance_ratio}</div>
+              <div className="text-gray-500">好:坏比例</div>
+            </div>
+            <div className="text-center p-1.5 bg-white/60 dark:bg-gray-800/40 rounded">
+              <div className="font-bold">{data.imbalance_analysis.applied_strategy === 'class_weight' ? '类别加权' : '不处理'}</div>
+              <div className="text-gray-500">应用策略</div>
+            </div>
+            <div className="text-center p-1.5 bg-white/60 dark:bg-gray-800/40 rounded">
+              <div className="font-bold">{data.imbalance_analysis.user_strategy === 'auto' ? '自动' : data.imbalance_analysis.user_strategy}</div>
+              <div className="text-gray-500">用户选择</div>
+            </div>
+          </div>
+          {data.imbalance_analysis.applied_strategy === 'none' && (data.imbalance_analysis.severity === "中度" || data.imbalance_analysis.severity === "重度" || data.imbalance_analysis.severity === "极端") && (
+            <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              建议启用类别不平衡处理（调整参数为"自动选择"或"类别加权"）
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 数据划分配置 - 评分卡任务特有，展示影响后续阶段的关键参数 */}
       {/* 只有存在 var_filter_result（数据质量筛选结果）时才显示，这是评分卡任务的特征 */}
       {data.var_filter_result?.missing_limit !== undefined && (

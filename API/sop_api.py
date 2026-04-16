@@ -3447,6 +3447,57 @@ async def clear_all_caches() -> Dict[str, Any]:
     }
 
 
+class BatchDeleteRequest(BaseModel):
+    """批量删除请求（Phase 25）"""
+    record_ids: List[str] = Field(..., description="要删除的记录ID列表", min_length=1, max_length=100)
+    cleanup_files: bool = Field(True, description="是否同时清理关联文件")
+
+
+@router.post("/history/batch-delete")
+async def batch_delete_task_history(request: BatchDeleteRequest) -> Dict[str, Any]:
+    """
+    批量删除历史记录（Phase 25）
+    
+    同时删除数据库记录、AI分析、执行状态和结果文件。
+    运行中/待执行的任务会被跳过。
+    
+    Args:
+        request: 包含 record_ids 列表和 cleanup_files 标志
+        
+    Returns:
+        删除统计（deleted/failed/skipped_running）
+    """
+    if not TASK_MANAGER_AVAILABLE:
+        raise HTTPException(status_code=501, detail="Task manager not available")
+    
+    # 批量删除数据库记录 + 执行状态
+    result = TaskHistoryService.batch_delete_records(
+        record_ids=request.record_ids,
+        cleanup_files=request.cleanup_files
+    )
+    
+    # 批量删除结果文件
+    if request.cleanup_files:
+        storage = get_result_storage()
+        for record_id in request.record_ids:
+            if record_id not in result.get("skipped_running", []) and record_id not in result.get("failed_ids", []):
+                try:
+                    storage.delete_result(record_id)
+                except Exception as e:
+                    logger.warning(f"Failed to delete result files for {record_id}: {e}")
+    
+    return {
+        "success": True,
+        "deleted": result["deleted"],
+        "failed": result["failed"],
+        "skipped_running": result.get("skipped_running", []),
+        "cleanup_files": request.cleanup_files,
+        "message": f"已删除 {result['deleted']} 条记录"
+            + (f"，{len(result.get('skipped_running', []))} 条运行中已跳过" if result.get("skipped_running") else "")
+            + (f"，{result['failed']} 条失败" if result["failed"] > 0 else "")
+    }
+
+
 @router.delete("/history/{record_id}")
 async def delete_task_history(record_id: str) -> Dict[str, Any]:
     """

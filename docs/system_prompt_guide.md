@@ -207,7 +207,7 @@ DeepAnalyze 有两种主要的 Prompt 构建场景，架构各不相同：
 #### 4.2.1 对话/参数提取（mode 分流架构）- ✅ 已实现
 
 > **重构说明**：采用显式 `mode` 参数分流，取代了旧版的关键词嗅探隐式模式识别。
-> 详细重构方案见 `docs/system_prompt_restructuring_plan.md`。
+> 详细重构方案见 `docs/system_prompt_restructuring_design.md`。
 
 通过 `TaskPromptProvider.build_system_prompt(mode=...)` 统一构建中心，根据 mode 参数选择不同的 Prompt 构建策略：
 
@@ -509,5 +509,5 @@ LLM Manager（端口 3001）提供预设配置界面：
   - `CHANGELOG.md` - 功能开发日志
   - `docs/LLM_Manager_Guide.md` - LLM Manager 使用指南
   - `docs/analysis_prompt_refactor_plan.md` - 任务结果 AI 分析 prompt 重构计划
-  - `docs/system_prompt_restructuring_plan.md` - 对话/参数提取路径 Prompt 重构方案
+  - `docs/system_prompt_restructuring_design.md` - 对话/参数提取路径 Prompt 重构方案
   - `routing_architecture.md` - API 路由架构

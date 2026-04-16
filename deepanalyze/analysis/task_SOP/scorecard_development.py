@@ -2645,7 +2645,9 @@ class ScorecardPipeline:
         # Progress callback
         progress_callback: StageProgressCallback = None,
         # Stop check callback
-        stop_check_callback: Callable[[], bool] | None = None
+        stop_check_callback: Callable[[], bool] | None = None,
+        # P2-6: 类别不平衡处理策略
+        imbalance_strategy: str = 'auto'
     ):
         """
         Initialize ScorecardPipeline.
@@ -2725,6 +2727,8 @@ class ScorecardPipeline:
         self.overfit_auc_threshold = overfit_auc_threshold
         self.progress_callback = progress_callback
         self.stop_check_callback = stop_check_callback
+        # P2-6: 类别不平衡处理
+        self.imbalance_strategy = imbalance_strategy
         
         # Initialize components
         self.preprocessor = DataPreprocessor(
@@ -2775,6 +2779,40 @@ class ScorecardPipeline:
         self._y_pred_proba: np.ndarray | None = None
         self._y_oot: pd.Series | None = None
         self._y_oot_pred_proba: np.ndarray | None = None
+    
+    def _build_imbalance_analysis(self, target_rate: float) -> dict[str, Any]:
+        """P2-6: 构建不平衡分析信息（用于 output_preview 展示）"""
+        if target_rate >= 0.2:
+            severity = "无"
+        elif target_rate >= 0.1:
+            severity = "轻度"
+        elif target_rate >= 0.05:
+            severity = "中度"
+        elif target_rate >= 0.01:
+            severity = "重度"
+        else:
+            severity = "极端"
+        
+        applied_strategy = self.imbalance_strategy
+        if applied_strategy == 'auto':
+            applied_strategy = 'class_weight' if target_rate < 0.1 else 'none'
+        
+        strategy_desc = {
+            'none': '不处理',
+            'class_weight': '类别加权（balanced）— 仅在模型训练阶段应用，WOE分箱不受影响',
+            'auto': '自动选择',
+        }
+        
+        imbalance_ratio = f"1:{(1 - target_rate) / target_rate:.1f}" if target_rate > 0 else "N/A"
+        
+        return {
+            "target_rate": round(target_rate, 4),
+            "imbalance_ratio": imbalance_ratio,
+            "severity": severity,
+            "user_strategy": self.imbalance_strategy,
+            "applied_strategy": applied_strategy,
+            "strategy_description": strategy_desc.get(applied_strategy, applied_strategy),
+        }
     
     def _should_stop(self) -> bool:
         """Check if execution should stop.
@@ -3562,6 +3600,8 @@ class ScorecardPipeline:
                 # var_filter筛选结果（参考scorecardpy库设计）
                 # 数据质量筛选应在数据预处理阶段完成，明确展示被移除的特征
                 "var_filter_result": var_filter_result,
+                # P2-6: 不平衡分析信息
+                "imbalance_analysis": self._build_imbalance_analysis(target_rates["overall"]),
                 # Phase 6: 添加完整阶段数据用于检查点保存
                 "_full_stage_data": {
                     "train_df": train_df,
@@ -4215,6 +4255,18 @@ class ScorecardPipeline:
                     logger.info(f"Feature {col}: min={X_train[col].min():.4f}, max={X_train[col].max():.4f}, mean={X_train[col].mean():.4f}, nunique={X_train[col].nunique()}")
                 
                 # ========== B+方案：迭代验证循环 ==========
+                # P2-6: 解析 imbalance_strategy 为实际的 class_weight
+                resolved_class_weight = None
+                if self.imbalance_strategy == 'class_weight':
+                    resolved_class_weight = 'balanced'
+                elif self.imbalance_strategy == 'auto':
+                    bad_rate = float(y_train.mean()) if len(y_train) > 0 else 0.0
+                    if bad_rate < 0.1:
+                        resolved_class_weight = 'balanced'
+                        logger.info(f"[P2-6] auto策略: bad_rate={bad_rate:.4f} < 10%, 启用 class_weight='balanced'")
+                    else:
+                        logger.info(f"[P2-6] auto策略: bad_rate={bad_rate:.4f} >= 10%, 不处理")
+                
                 # 迭代训练模型，每次检查显著性和系数方向，直到所有变量都通过验证或达到最大迭代次数
                 post_validation_log: list[dict[str, Any]] = []  # 记录每次迭代的验证结果
                 iteration = 0
@@ -4233,7 +4285,8 @@ class ScorecardPipeline:
                         solver='lbfgs',
                         max_iter=1000,
                         fit_intercept=True,
-                        random_state=self.random_state
+                        random_state=self.random_state,
+                        class_weight=resolved_class_weight  # P2-6
                     )
                     model.fit(X_train, y_train)
                     

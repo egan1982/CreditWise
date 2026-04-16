@@ -1,10 +1,145 @@
 # 类别不平衡处理功能设计方案
 
-> **文档状态**: 待开发  
+> **文档状态**: ✅ Phase 1 MVP 已实施 + 测试通过（2026-04-16，10/10 PASS）  
 > **创建日期**: 2026-01-12  
 > **关联任务**: 规则挖掘、评分卡开发  
-> **优先级**: 中  
-> **开发评审**: 🟡 建议轻量评审 — 确认 WOE 分箱阶段不采样的设计约束、`imbalanced-learn` 依赖引入、auto 策略的阈值分界点（2026-04-15 评估）
+> **优先级**: P2  
+> **开发评审**: Eng Review + Design Review 已完成（2026-04-16），详见下方评审记录
+
+### 📋 Eng Review 评审记录（2026-04-16）
+
+> **审查方法**: plan-eng-review（架构/代码质量/测试/性能 四维评审）
+
+#### ⚠️ 重要修正：方案事实错误
+
+经代码验证，方案原文中**两处关于 `class_weight='balanced'` 的描述不正确**：
+
+| 原文描述 | 代码实际情况 |
+|---------|------------|
+| "规则挖掘决策树硬编码了 `class_weight='balanced'`" | ❌ 不存在。`DecisionTreeClassifier` 通过 `sample_weight` 传入 `weight_col`（默认为 1），**当前未做任何不平衡处理** |
+| "`weight_col` 与 `class_weight` 冲突，sklearn 不支持同时使用" | ❌ sklearn 中 `class_weight` 和 `sample_weight` 是**叠加关系**（class_weight 权重 × sample_weight），不是冲突 |
+
+> 原 2026-04-15 初步评审的 #1（向后兼容风险）和 #2（weight_col 冲突）基于错误前提，已废弃并替换为以下更新评审。
+
+#### 🔴 必须修订（开发前解决）
+
+| # | 问题 | 说明 | 建议修复 |
+|---|------|------|---------|
+| **E1** | **方案事实错误** | 第 56、113 行声称"硬编码了 `class_weight='balanced'`"，实际代码中不存在。误导开发者 | 修正为"通过 `sample_weight` 传入 `weight_col`（默认为 1），当前未做任何不平衡处理" |
+| **E2** | **遗漏 `executor.py` 修改** | 文件修改清单未列出 `executor.py`。P1-5 已证明新增参数不在 executor 中传递 → 参数到不了 `run()` → 功能静默失效 | 文件清单补充 `executor.py`（传递 `imbalance_strategy` 参数） |
+| **E3** | **`StatisticalLogisticRegression` + `class_weight` 兼容性** | 评分卡使用自定义 `StatisticalLogisticRegression`（继承 sklearn LR），加 `class_weight='balanced'` 后统计信息计算（p-value、标准误）是否仍正确？加权样本的统计推断方法与无加权不同 | 开发时添加对比测试，验证加权后统计输出的合理性 |
+
+#### 🟡 建议修订
+
+| # | 建议 | 理由 |
+|---|------|------|
+| **E4** | **分阶段实施（MVP 优先）** | 先只实现 `none`/`auto`/`class_weight` 三个选项，不引入 `imbalanced-learn` 依赖。工作量 ~3天→~1天，覆盖 90%+ 场景 |
+| **E5** | **伪代码映射到实际修改位置** | 方案只写了一个 `_build_decision_tree` 伪函数，但实际 `DecisionTreeClassifier` 出现在 3 处：`_get_rules_from_tree`(L2235)、`get_split_point`(L2480)、分箱 DT(L1818，不需改) |
+| **E6** | **补充 AI Prompt 更新** | 方案遗漏 `AI_analysis_prompts.py` 变更。应用不平衡处理后，AI 分析应知道用了什么策略 |
+| **E7** | **auto 策略 MVP 简化** | 原 auto 有 5 个分支 + 样本量判断，MVP 只有 `none`/`class_weight` 两个输出，简化为：`bad_rate < 0.1 → class_weight，否则 → none` |
+| **E8** | **weight_col + class_weight 叠加说明** | sklearn 中两者是叠加关系，UI 和 output_preview 中应说明叠加效果 |
+
+#### 📋 测试覆盖度 — ✅ 已完成（2026-04-16）
+
+方案原有 5 个测试用例，评审补充 4 个，实际扩展为 10 个（真实数据版）。
+
+**测试脚本**: `tests/test_imbalance_strategy.py`  
+**数据集**: `starrel_train_with_amount.csv`（23349行, 85列, bad_rate=5.13%）  
+**结果**: 10/10 全部通过，耗时 ~109s
+
+| # | 用例 | 任务类型 | 策略 | 结果 | 关键验证 |
+|---|------|---------|------|:----:|---------|
+| **E8** | `_build_imbalance_analysis` 信息完整性 | 单元 | 7种组合 | ✅ | severity 分级边界值 + auto 解析 + 字段完整性 |
+| **T6-none** | 规则挖掘向后兼容基线 | 规则挖掘 | none | ✅ | class_weight=None, 291 条规则 |
+| **T6-CW** | 规则挖掘 class_weight 对照 | 规则挖掘 | class_weight | ✅ | class_weight=balanced, 184 条规则 |
+| **T6-AUTO** | 规则挖掘 auto 策略 | 规则挖掘 | auto | ✅ | bad_rate=5.2%→class_weight, 184 条 |
+| **T8-RM** | 规则挖掘 SamplingWeight+CW 叠加 | 规则挖掘 | CW+权重 | ✅ | 叠加无冲突, 352 条规则 |
+| **T9/E3** | StatisticalLR 统计信息正确性 | 统计模型 | 对照 | ✅ | p∈[0,1], std_err>0, z有限, 方向一致 |
+| **T7-none** | 评分卡向后兼容基线 | 评分卡 | none | ✅ | Pipeline 正常完成 |
+| **T7-CW** | 评分卡 class_weight 对照 | 评分卡 | class_weight | ✅ | Pipeline 正常完成 |
+| **T7-AUTO** | 评分卡 auto 策略 | 评分卡 | auto | ✅ | bad_rate=5.2%→class_weight |
+| **T7-T8** | 评分卡 SamplingWeight+CW 叠加 | 评分卡 | CW+权重 | ✅ | 叠加无冲突 |
+
+**附带发现**: 规则挖掘 Pipeline preprocessing 阶段对该数据集有一个预存 Bug（One-Hot 处理导致 target_col 丢失），测试中通过 `skip_preprocessing=True` 绕过，不属于 P2-6 范围。
+
+| # | 缺失场景 | 重要性 | 状态 |
+|---|---------|:---:|:---:|
+| **T6** | 向后兼容基线（规则挖掘，strategy=none，验证与当前行为一致） | 🔴 | ✅ T6-none |
+| **T7** | 向后兼容基线（评分卡，strategy=none） | 🔴 | ✅ T7-none |
+| **T8** | weight_col + class_weight 叠加（验证权重正确叠加） | 🟡 | ✅ T8-RM + T7-T8 |
+| **T9** | StatisticalLR + class_weight 统计信息正确性 | 🔴 | ✅ T9/E3 |
+
+#### 🔴 关键失败模式
+
+| # | 代码路径 | 失败场景 | 后果 |
+|---|---------|---------|------|
+| **F1** | `StatisticalLR` + `class_weight` | 统计信息计算不准确 | 评分卡 p-value/z-score 错误，误导变量筛选 |
+| **F3** | `executor.py` 未传参 | `imbalance_strategy` 不传到 `run()` | 策略静默不生效 |
+
+#### 📊 Eng Review Summary
+
+```
+Step 0: Scope Challenge       — 发现方案事实错误，scope 维持 MVP
+Architecture Review           — 3 issues (E1-E3, 2 critical)
+Code Quality Review           — 3 issues (E5-E7)
+Test Review                   — 5→9 用例，4 gaps (T6-T9)
+Performance Review            — 0 issues
+Failure modes                 — 2 critical gaps (F1, F3)
+```
+
+---
+
+### 📋 Design Review 评审记录（2026-04-16）
+
+> **审查方法**: plan-design-review（7 维设计评审）
+
+#### 📊 评分总览
+
+| Pass | 维度 | 初始 | 修正后 | 说明 |
+|------|------|:---:|:---:|------|
+| 1 | 信息架构 | 7 | 8 | 不平衡分析卡片位置明确（紧邻 bad_rate 之后） |
+| 2 | 交互状态 | 4 | 8 | 补充条件守卫：bad_rate≥20% 不显示卡片；none+bad_rate<10% 加 ⚠️ 提示 |
+| 3 | 用户旅程 | 6 | 8 | AI 文字建议引用参数名形成闭环 |
+| 4 | AI Slop | 8 | 8 | ASCII mockup 具体，非通用模板 |
+| 5 | 设计系统 | 7 | 9 | 映射到 shadcn/ui：Select 组件 + Card/Badge 模式 + OOT 颜色编码 |
+| 6 | 响应式/A11y | 3 | 7 | 继承现有 shadcn/ui 组件的响应式和 a11y |
+| **总分** | | **5** | **8** | |
+
+#### 🟡 Design 建议
+
+| # | 建议 | 说明 |
+|---|------|------|
+| **D1** | **不平衡分析卡片条件守卫** | `bad_rate ≥ 20%`（无不平衡）时不显示卡片；`bad_rate < 20%` 时显示程度、策略、说明 |
+| **D2** | **strategy=none 且 bad_rate<10% 时加 ⚠️ 提示** | "建议启用不平衡处理"，引导用户注意 |
+| **D3** | **AI 分析闭环** | AI 检测到不平衡时，文字建议中引用参数名（"建议调整'类别不平衡处理'参数"） |
+| **D4** | **组件映射** | 下拉框 → shadcn `Select`；结果卡片 → 复用 `StageOutputPreview` 的 `Card` + `Badge`；严重程度颜色 → 复用 OOT 稳定性四级颜色 |
+
+#### NOT in scope
+
+- DESIGN.md 创建（项目级，不在本方案范围）
+- 移动端定制布局（继承现有组件响应式行为即可）
+- SMOTE 等采样策略的 UI（Phase 2）
+
+---
+
+### 📋 建议实施路径（更新）
+
+```
+Phase 1（MVP，~1天）: none / auto / class_weight
+  ├─ 不引入新依赖（imbalanced-learn）
+  ├─ 覆盖 90%+ 实际场景
+  ├─ 解决"用户不可控"的核心问题
+  ├─ auto 简化: bad_rate<10% → class_weight, 否则 → none
+  ├─ 两个任务默认值均为 auto
+  └─ 文件清单: 2 meta + 2 后端 + executor.py + AI_analysis_prompts.py + 1 前端
+
+Phase 2（按需扩展）: smote / undersample / smote_tomek
+  ├─ 引入 imbalanced-learn
+  ├─ 需有极端不平衡场景的实际反馈驱动
+  └─ 先确认 SMOTE 在 WOE 空间的有效性
+```
+
+---
 
 ### 📌 快速回顾（开发前必读）
 
@@ -69,7 +204,7 @@
 ```
 
 - `weight_col` 用于已有权重的数据，不是自动处理不平衡的选项
-- 决策树代码中使用了 `class_weight='balanced'`，但用户无法控制
+- 决策树通过 `sample_weight` 传入 `weight_col`（默认为 1），当前**未使用** `class_weight` 参数，无任何自动不平衡处理
 
 #### 评分卡开发任务
 
@@ -308,10 +443,12 @@ def _train_logistic_regression(self, X_train, y_train, params):
 |------|---------|
 | `rule_mining_meta.py` | 新增 `imbalance_strategy` 参数定义 |
 | `scorecard_meta.py` | 新增 `imbalance_strategy` 参数定义 |
-| `rule_mining.py` | 添加不平衡处理逻辑，修改决策树训练代码 |
-| `scorecard_development.py` | 添加不平衡处理逻辑，修改逻辑回归训练代码 |
+| `rule_mining.py` | 添加不平衡处理逻辑，修改决策树训练代码（`_get_rules_from_tree` L2235 + `get_split_point` L2480） |
+| `scorecard_development.py` | 添加不平衡处理逻辑，修改逻辑回归训练代码（`StatisticalLogisticRegression` 传 `class_weight`） |
+| `executor.py` | 传递 `imbalance_strategy` 参数到 `run()` 方法（⚠️ P1-5 遗漏此步导致 14 个测试失败） |
+| `AI_analysis_prompts.py` | 各阶段分析 prompt 中加入不平衡处理策略信息 |
 | `StageOutputPreview.tsx` | 增加不平衡分析信息展示 |
-| `requirements.txt` | 确认 `imbalanced-learn` 依赖 |
+| `requirements.txt` | MVP 阶段无需新增依赖（Phase 2 再加 `imbalanced-learn`） |
 
 ### 4.2 依赖检查
 
@@ -341,6 +478,10 @@ imbalanced-learn>=0.10.0  # SMOTE, RandomUnderSampler, Tomek Links
    - 不同不平衡程度的数据测试
 
 ### 4.4 测试用例
+
+> **Phase 1 MVP 实际测试**: 见上方 Eng Review §📋测试覆盖度（10/10 全部通过，真实数据验证）
+
+原方案测试用例（Phase 2 SMOTE 相关，暂未实施）：
 
 | 测试场景 | 坏样本率 | 期望策略 | 验证点 |
 |---------|---------|---------|--------|

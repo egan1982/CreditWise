@@ -90,7 +90,8 @@ import {
 import { sopService, ExecutionStatus, StageProgress } from "@/lib/sopService";
 import { ModeProvider, useModeContext, useIsExpertMode, InteractionMode } from "@/hooks/use-mode";
 import { FileReference, FileReferenceList, formatFileReferencesForMessage } from "./FileReferenceTag";
-import { TaskParamCard, isTaskParamJson, TaskParamResult } from "./TaskParamCard";
+import { isTaskParamJson } from "@/lib/taskParamParser";
+import { TaskConfirmCard, CardStatus } from "./sop/TaskConfirmCard";
 
 // 模型配置类型定义（与后端API响应匹配）
 interface ModelConfig {
@@ -446,9 +447,13 @@ function ThreePanelInterfaceInner() {
     isUserManualSelectionRef.current = isUserManualSelection;
   }, [isUserManualSelection]);
   
-  // 任务参数确认卡片相关状态
-  const [confirmedTaskMessages, setConfirmedTaskMessages] = useState<Set<string>>(new Set());
-  const [executingTaskMessage, setExecutingTaskMessage] = useState<string | null>(null);
+  // 任务确认卡片相关状态（P2-8 Chat任务入口交互优化）
+  // 每个消息的确认卡片状态: pending / confirmed / dismissed
+  const [confirmCardStatuses, setConfirmCardStatuses] = useState<Record<string, CardStatus>>({});
+  // 会话级记忆：用户已跳过的任务类型，同一会话内不再弹出
+  const [dismissedTaskTypes, setDismissedTaskTypes] = useState<Set<string>>(new Set());
+  // 暂存 LLM 提取的参数，确认后注入 ConfigPanel
+  const [pendingInitialParams, setPendingInitialParams] = useState<Record<string, any> | null>(null);
   
   // AI分析评估相关状态
   const [isAIAnalyzing, setIsAIAnalyzing] = useState(false);
@@ -1987,18 +1992,45 @@ function ThreePanelInterfaceInner() {
     // 如果没有找到结构化标签，检查是否为任务参数JSON
     if (allMatches.length === 0) {
       const taskParamResult = isTaskParamJson(content);
-      if (taskParamResult) {
+      if (taskParamResult && taskParamResult.task_type) {
         const messageId = messageIndex !== undefined ? `msg-${messageIndex}` : `msg-${Date.now()}`;
-        const isConfirmed = confirmedTaskMessages.has(messageId);
-        const isExecuting = executingTaskMessage === messageId;
-        
+        const taskType = taskParamResult.task_type;
+        const cardStatus: CardStatus = confirmCardStatuses[messageId] || "pending";
+
+        // 防重复确认机制 §10.6
+        // 1. 该 task_type 已被跳过 → 直接走 chat mode（除非包含执行意图词）
+        // 2. 该 task_type 在当前会话已有执行中任务 → 不弹确认
+        if (cardStatus === "pending") {
+          const hasRunningTask = isSOPExecuting && selectedTaskId === taskType;
+          if (hasRunningTask) {
+            // 执行中跳过：直接渲染 Markdown
+            return (
+              <div className="markdown-content">{renderMarkdownContent(content)}</div>
+            );
+          }
+          if (dismissedTaskTypes.has(taskType)) {
+            // 已跳过的 task_type，直接渲染 Markdown
+            return (
+              <div className="markdown-content">{renderMarkdownContent(content)}</div>
+            );
+          }
+        }
+
         return (
-          <TaskParamCard
-            paramResult={taskParamResult}
-            onConfirm={(params, mode) => handleTaskParamConfirm(messageId, taskParamResult, params, mode)}
-            isExecuting={isExecuting}
-            isConfirmed={isConfirmed}
-            sessionId={sessionId}
+          <TaskConfirmCard
+            taskType={taskType}
+            extractedParams={taskParamResult.params}
+            status={cardStatus}
+            onConfirm={(tt, params) => {
+              // 标记当前消息卡片为 confirmed
+              setConfirmCardStatuses(prev => ({ ...prev, [messageId]: "confirmed" }));
+              handleTaskConfirmCardConfirm(tt, params);
+            }}
+            onDismiss={(tt) => {
+              // 标记当前消息卡片为 dismissed
+              setConfirmCardStatuses(prev => ({ ...prev, [messageId]: "dismissed" }));
+              handleTaskConfirmCardDismiss(tt);
+            }}
           />
         );
       }
@@ -2303,108 +2335,43 @@ function ThreePanelInterfaceInner() {
     [autoCollapseEnabled, manualLocks]
   );
 
-  // 处理任务参数确认执行
-  const handleTaskParamConfirm = useCallback(async (
-    messageId: string,
-    paramResult: TaskParamResult,
-    params: Record<string, any>,
-    mode: "auto" | "expert"
-  ) => {
-    if (!paramResult.task_type) {
+  // P2-8: 处理确认卡片 —— 用户点击"使用此任务"
+  const handleTaskConfirmCardConfirm = useCallback((taskType: string, extractedParams?: Record<string, any>) => {
+    // 如果当前有任务在执行中，提示用户
+    if (isSOPExecuting) {
       toast({
-        description: "无法识别任务类型",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // 标记为执行中
-    setExecutingTaskMessage(messageId);
-
-    try {
-      // 获取数据文件路径
-      const dataFile = params.data_file || params.file_path;
-      if (!dataFile) {
-        toast({
-          description: "缺少数据文件参数",
-          variant: "destructive",
-        });
-        setExecutingTaskMessage(null);
-        return;
-      }
-
-      // 从文件路径中提取 session_id 和相对文件名
-      // 文件路径格式可能是: session_xxx/filename.csv 或 filename.csv
-      let taskSessionId: string;
-      let filePath: string;
-      
-      // 检查路径是否包含 session 目录
-      const sessionMatch = dataFile.match(/^(session_[^/\\]+)[/\\](.+)$/);
-      if (sessionMatch) {
-        // 路径包含 session 目录，提取 session_id 和相对路径
-        taskSessionId = sessionMatch[1];
-        filePath = sessionMatch[2];
-      } else {
-        // 路径不包含 session 目录，使用当前会话的 sessionId
-        // 文件应该在当前会话的 workspace 目录下
-        taskSessionId = sessionId;
-        filePath = dataFile;
-        console.log(`使用当前会话 sessionId: ${taskSessionId}, 文件路径: ${filePath}`);
-      }
-
-      // 准备任务参数（移除data_file，因为它单独传递）
-      const taskParams = { ...params };
-      delete taskParams.data_file;
-      delete taskParams.file_path;
-
-      // 获取模型配置
-      const modelName = selectedConfig 
-        ? `config_${selectedConfig.id}` 
-        : "deepseek-chat";
-
-      // 调用SOP执行API
-      const result = await sopService.executeTask(
-        paramResult.task_type,
-        taskSessionId,
-        filePath,
-        taskParams,
-        mode,
-        modelName
-      );
-
-      // 标记为已确认
-      setConfirmedTaskMessages(prev => new Set([...prev, messageId]));
-      setExecutingTaskMessage(null);
-
-      // 设置执行状态
-      setCurrentExecutionId(result.execution_id);
-      setSelectedTaskId(paramResult.task_type);
-      setInteractionMode(mode);
-      setIsSOPExecuting(true);
-      setShowResults(true);
-
-      // 添加系统消息（动态获取任务名称）
-      const taskDisplayName = paramResult.task_type; // 任务ID作为后备
-      const systemMessage: Message = {
-        id: `task-started-${Date.now()}`,
-        content: `✅ 任务已启动！\n\n**任务类型**: ${taskDisplayName}\n**执行模式**: ${mode === "auto" ? "🚀 自动模式" : "🔍 专家模式"}\n**执行ID**: ${result.execution_id}\n\n请在右侧面板查看执行进度。`,
-        sender: "ai",
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, systemMessage]);
-
-      toast({
-        description: `任务已启动，执行ID: ${result.execution_id}`,
-      });
-    } catch (error) {
-      console.error("任务执行失败:", error);
-      setExecutingTaskMessage(null);
-      toast({
-        description: `任务执行失败: ${error instanceof Error ? error.message : "未知错误"}`,
-        variant: "destructive",
+        description: `检测到您本会话已有一个任务正在执行，新任务配置将在当前任务完成后可用。`,
       });
     }
-  }, [sessionId, selectedConfig, toast]);
+
+    // 暂存 LLM 提取的参数，用于注入 ConfigPanel
+    if (extractedParams && Object.keys(extractedParams).length > 0) {
+      setPendingInitialParams(extractedParams);
+    }
+
+    // 拉起 ConfigPanel
+    setSelectedTaskId(taskType);
+    setShowConfigPanel(true);
+    setShowResults(false);
+    setCurrentExecutionId(null);
+    setCompletedExecutionId(null);
+    setSopExecutionStatus(null);
+    setHistoryTaskInteractionMode(null);
+    setHistoryTaskRecordId(null);
+    setSelectedStageId(null);
+    setSelectedStageData(null);
+    setRightPanelMode("code");
+    setIsUserManualSelection(false);
+    lastCompletedStageIdRef.current = null;
+    setAiAnalysisResult(null);
+    setShowAIAnalysisPanel(false);
+  }, [isSOPExecuting, toast]);
+
+  // P2-8: 处理确认卡片 —— 用户点击"继续对话"
+  const handleTaskConfirmCardDismiss = useCallback((taskType: string) => {
+    // 将该 taskType 记入会话级记忆，同一会话不再弹出
+    setDismissedTaskTypes(prev => new Set([...prev, taskType]));
+  }, []);
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() && attachments.length === 0 && fileReferences.length === 0) return;
@@ -3978,9 +3945,18 @@ function ThreePanelInterfaceInner() {
                       f.name.endsWith('.xlsx') || 
                       f.name.endsWith('.xls')
                     )}
-                    onExecute={handleSOPExecute}
-                    onClose={handleCloseConfigPanel}
+                    onExecute={(params, filePath) => {
+                      // 执行后清除 pendingInitialParams
+                      setPendingInitialParams(null);
+                      handleSOPExecute(params, filePath);
+                    }}
+                    onClose={() => {
+                      // 关闭时也清除 pendingInitialParams
+                      setPendingInitialParams(null);
+                      handleCloseConfigPanel();
+                    }}
                     isExecuting={isSOPExecuting}
+                    initialParams={pendingInitialParams}
                   />
                 </div>
               )}

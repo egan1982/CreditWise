@@ -218,9 +218,15 @@ def _add_filtered_rules_table_word(doc, rules: list, max_rows: int = 30) -> None
         rules: all_rules_with_status 中 is_valid=False 的规则列表
         max_rows: 最大显示行数
     """
-    if not rules:
+    # FIX-3: 安全的空值检查（兼容 DataFrame 和 list）
+    if rules is None or (isinstance(rules, list) and len(rules) == 0):
         doc.add_paragraph("暂无被过滤的规则")
         return
+    if isinstance(rules, pd.DataFrame):
+        if rules.empty:
+            doc.add_paragraph("暂无被过滤的规则")
+            return
+        rules = rules.to_dict(orient='records')
     
     # 创建表格
     headers = ["序号", "规则", "命中率", "坏账率", "Lift", "过滤原因"]
@@ -2731,9 +2737,10 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
     
     # 汇总指标卡片（与HTML报告一致）
     optimal_rules = results.get('optimal_rules', results.get('rules', []))
-    if optimal_rules and isinstance(optimal_rules, list) and len(optimal_rules) > 0:
+    # Phase 25: 兼容 DataFrame 和 list
+    if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
         n_rules = len(optimal_rules)
-        last_rule = optimal_rules[-1]
+        last_rule = optimal_rules.iloc[-1].to_dict()
         final_recall = last_rule.get('cumulative_recall', last_rule.get('cum_recall', last_rule.get('dev_cum_recall', 0)))
         final_hit_rate = last_rule.get('cumulative_hit_rate', last_rule.get('cum_hit_rate', last_rule.get('dev_cum_hit_rate', 0)))
         final_lift = last_rule.get('cumulative_lift', last_rule.get('cum_lift', last_rule.get('dev_cum_lift', last_rule.get('lift', 0))))
@@ -2838,9 +2845,15 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
         if add_heading:
             doc.add_heading(section_title, level=level)
         
-        if not rules:
+        # FIX-3: 安全的空值检查（兼容 DataFrame 和 list）
+        if rules is None or (isinstance(rules, list) and len(rules) == 0):
             doc.add_paragraph("暂无规则数据")
             return
+        if isinstance(rules, pd.DataFrame):
+            if rules.empty:
+                doc.add_paragraph("暂无规则数据")
+                return
+            rules = rules.to_dict(orient='records')
         
         table = doc.add_table(rows=1, cols=7)
         _set_table_border(table)
@@ -2889,7 +2902,7 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
     add_rules_section("三、最优规则", optimal_rules)
     
     # 添加累计指标图表（如果kaleido可用）
-    if optimal_rules and WORD_CHART_AVAILABLE and RULE_MINING_VIZ_AVAILABLE:
+    if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty and WORD_CHART_AVAILABLE and RULE_MINING_VIZ_AVAILABLE:
         try:
             optimal_df = pd.DataFrame(optimal_rules) if isinstance(optimal_rules, list) else optimal_rules
             cumulative_chart = plot_cumulative_metrics(

@@ -81,6 +81,22 @@ RULE_MINING_TASK_META: Dict[str, Any] = {
     
     # Optional Parameters
     "optional_params": [
+        # P2-6: 类别不平衡处理
+        {
+            "name": "imbalance_strategy",
+            "type": "select",
+            "label": "类别不平衡处理",
+            "label_en": "Imbalance Strategy",
+            "options": [
+                {"value": "auto", "label": "自动选择（推荐）"},
+                {"value": "none", "label": "不处理"},
+                {"value": "class_weight", "label": "类别加权"}
+            ],
+            "default": "auto",
+            "description": "当坏样本率<10%时建议启用。auto模式会根据坏账率自动决定是否使用类别加权（bad_rate<10%→class_weight，否则→不处理）",
+            "stage": "preprocessing",
+            "advanced": False
+        },
         # Data Split Parameters (与评分卡任务保持一致)
         {
             "name": "test_ratio",
@@ -493,9 +509,9 @@ RULE_MINING_TASK_META: Dict[str, Any] = {
         {
             "name": "amount_col",
             "type": "column_combobox",
-            "label": "金额列（可选）",
-            "label_en": "Amount Column",
-            "description": "用于金额维度分析的列（如贷款金额、交易金额）。启用后将计算命中金额、坏账金额等指标。支持从数据列中选择或手动输入列名",
+            "label": "损失金额列（可选）",
+            "label_en": "Loss Amount Column",
+            "description": "用于金额维度分析的预期损失金额列（如逾期金额、风险敞口金额）。启用后将计算规则拦截的损失金额、金额召回率、金额Lift等指标。支持从数据列中选择或手动输入列名。注意：请确保该列为非负数值类型且无缺失值（NaN会被跳过导致指标偏差，负值会拉低总金额导致Lift异常）",
             "required": False,
             "allow_empty": True,
             "allow_custom": True,

@@ -1415,7 +1415,9 @@ class SOPExecutor:
                 'min_bad_rate_ruleset': 'min_bad_rate_ruleset',
                 'target_bad_rate_ruleset': 'target_bad_rate_ruleset',
                 'min_lift_ruleset': 'min_lift_ruleset',
-                # 注意：test_ratio, sample_type_col, psi_time_col 不在这里，它们只传给 run() 方法，不传给 __init__
+                # P2-6: 类别不平衡处理
+                'imbalance_strategy': 'imbalance_strategy',
+                # 注意：test_ratio, sample_type_col, time_col 等不在这里，它们只传给 run() 方法，不传给 __init__
             }
             
             for user_key, pipeline_key in param_mapping.items():
@@ -1485,7 +1487,9 @@ class SOPExecutor:
                 'ranking_analysis_bins': 'ranking_analysis_bins',
                 # 过拟合检测阈值参数
                 'overfit_ks_threshold': 'overfit_ks_threshold',
-                'overfit_auc_threshold': 'overfit_auc_threshold'
+                'overfit_auc_threshold': 'overfit_auc_threshold',
+                # P2-6: 类别不平衡处理
+                'imbalance_strategy': 'imbalance_strategy'
             }
             
             for user_key, pipeline_key in param_mapping.items():

@@ -2068,7 +2068,8 @@ class RuleMiner:
         min_samples_leaf: float = 0.01,
         max_depth: int = 5,
         n_vars: int = 3,
-        max_onehot_vars: int = 2
+        max_onehot_vars: int = 2,
+        class_weight: str | dict | None = None
     ):
         """
         Initialize RuleMiner.
@@ -2078,11 +2079,13 @@ class RuleMiner:
             max_depth: Maximum depth of decision tree
             n_vars: Number of variables per combination
             max_onehot_vars: Maximum one-hot encoded variables per combination
+            class_weight: Class weight for DecisionTreeClassifier (None or 'balanced')
         """
         self.min_samples_leaf: float = min_samples_leaf
         self.max_depth: int = max_depth
         self.n_vars: int = n_vars
         self.max_onehot_vars: int = max_onehot_vars
+        self.class_weight: str | dict | None = class_weight
         # 保存最后训练的决策树（用于可视化）
         self.last_tree_: Any = None
         self.last_tree_features_: list[str] = []
@@ -2236,7 +2239,8 @@ class RuleMiner:
             random_state=312,
             min_samples_leaf=min_leaf,
             min_samples_split=min_split,
-            max_depth=self.max_depth
+            max_depth=self.max_depth,
+            class_weight=self.class_weight
         ).fit(
             df_copy.loc[:, x_ls],
             df_copy[target],
@@ -2481,7 +2485,8 @@ class RuleMiner:
             clf = tree.DecisionTreeClassifier(
                 random_state=312,
                 min_samples_leaf=min_samples_leaf,
-                max_depth=max_depth
+                max_depth=max_depth,
+                class_weight=self.class_weight
             ).fit(x, target, sample_weight=weight)
             
             # Access tree internals (not covered by type stubs)
@@ -3782,6 +3787,10 @@ class AmountAnalyzer:
         
         self._df = df.copy()
         self._target_col = target_col
+        
+        # FIX-6: 确保金额列为数值类型（防止字符串列 sum() 产生拼接而非求和）
+        if not pd.api.types.is_numeric_dtype(self._df[self.amount_col]):
+            self._df[self.amount_col] = pd.to_numeric(self._df[self.amount_col], errors='coerce').fillna(0)
         
         # Calculate totals
         self._total_amount = self._df[self.amount_col].sum()
@@ -5497,7 +5506,9 @@ class RuleMiningPipeline:
         # Progress callback (for executor integration)
         progress_callback: StageProgressCallback = None,
         # Stop check callback (for executor integration)
-        stop_check_callback: Callable[[], bool] | None = None
+        stop_check_callback: Callable[[], bool] | None = None,
+        # P2-6: 类别不平衡处理策略
+        imbalance_strategy: str = 'auto'
     ):
         """
         Initialize pipeline with configuration.
@@ -5610,6 +5621,8 @@ class RuleMiningPipeline:
         self.min_lift_ruleset: float | None = min_lift_ruleset
         self._progress_callback: StageProgressCallback = progress_callback
         self._stop_check_callback: Callable[[], bool] | None = stop_check_callback
+        # P2-6: 类别不平衡处理
+        self.imbalance_strategy: str = imbalance_strategy
         
         # 日志：记录实际使用的参数
         import logging
@@ -5618,6 +5631,42 @@ class RuleMiningPipeline:
         _logger.info(f"[RuleMiningPipeline] Risk targets: min_recall={min_recall_ruleset}, min_bad_rate={min_bad_rate_ruleset}, target_bad_rate={target_bad_rate_ruleset}, min_lift={min_lift_ruleset}")
         if mining_mode == 'single':
             _logger.info(f"[RuleMiningPipeline] Single-var binning params: n_bins={n_bins}, bin_method={bin_method}, rule_directions={rule_directions}")
+    
+    def _build_imbalance_analysis(self, target_rate: float) -> dict[str, Any]:
+        """P2-6: 构建不平衡分析信息（用于 output_preview 展示）"""
+        # 判定程度
+        if target_rate >= 0.2:
+            severity = "无"
+        elif target_rate >= 0.1:
+            severity = "轻度"
+        elif target_rate >= 0.05:
+            severity = "中度"
+        elif target_rate >= 0.01:
+            severity = "重度"
+        else:
+            severity = "极端"
+        
+        # 解析 auto 策略
+        applied_strategy = self.imbalance_strategy
+        if applied_strategy == 'auto':
+            applied_strategy = 'class_weight' if target_rate < 0.1 else 'none'
+        
+        strategy_desc = {
+            'none': '不处理',
+            'class_weight': '类别加权（balanced）— 模型训练时自动调整类别权重',
+            'auto': '自动选择',
+        }
+        
+        imbalance_ratio = f"1:{(1 - target_rate) / target_rate:.1f}" if target_rate > 0 else "N/A"
+        
+        return {
+            "target_rate": round(target_rate, 4),
+            "imbalance_ratio": imbalance_ratio,
+            "severity": severity,
+            "user_strategy": self.imbalance_strategy,
+            "applied_strategy": applied_strategy,
+            "strategy_description": strategy_desc.get(applied_strategy, applied_strategy),
+        }
     
     def _should_stop(self) -> bool:
         """Check if execution should stop (for expert mode pause support).
@@ -6473,6 +6522,10 @@ class RuleMiningPipeline:
                 # P1-4: 保存检测到的 datetime/text 列，供特征工程阶段使用
                 "detected_datetime_cols": detected_datetime_cols,
                 "detected_text_cols": detected_text_cols,
+                # P2-6: 不平衡分析信息
+                "imbalance_analysis": self._build_imbalance_analysis(
+                    float(df_processed[target_col].mean()) if target_col in df_processed.columns else 0.0
+                ),
                 # Phase 6: 添加完整阶段数据用于检查点保存
                 "_full_stage_data": {
                     "df_processed": df_processed,
@@ -7032,6 +7085,20 @@ class RuleMiningPipeline:
                 self._update_progress('generating_rules', 100.0, f'规则生成已跳过（使用缓存，共{len(all_rules)}条）', output_preview=skip_preview)
         else:
             self._update_progress('generating_rules', 0.0, '开始生成规则...', code=self._get_stage_code('generating_rules'))
+            
+            # P2-6: 在规则生成前，根据 imbalance_strategy 解析并设置 class_weight
+            resolved_class_weight = None
+            if self.imbalance_strategy == 'class_weight':
+                resolved_class_weight = 'balanced'
+            elif self.imbalance_strategy == 'auto':
+                bad_rate = results.get('original_bad_rate', 0.0)
+                if bad_rate < 0.1:
+                    resolved_class_weight = 'balanced'
+                    logger.info(f"[P2-6] auto策略: bad_rate={bad_rate:.4f} < 10%, 启用 class_weight='balanced'")
+                else:
+                    logger.info(f"[P2-6] auto策略: bad_rate={bad_rate:.4f} >= 10%, 不处理")
+            if hasattr(self.miner, 'class_weight'):
+                self.miner.class_weight = resolved_class_weight
             
             # 设置 One-Hot 映射用于规则可读性转换
             onehot_mapping = getattr(self.feature_engineer, 'onehot_mapping_', {}) or {} if self.feature_engineer else {}
@@ -7923,11 +7990,27 @@ class RuleMiningPipeline:
                     # Analyze optimal rules with amount dimension
                     amount_results_df, amount_summary = amount_analyzer.analyze_with_cumulative(optimal_rules)
                     
+                    # FIX-1: 扁平化 amount_analysis 结构，避免嵌套 DataFrame 导致
+                    # safe_serialize 深层包装（前端 unwrapData 只解包一层）。
+                    # 将 summary 字段提升到顶层 + results DataFrame 转为 rules_amount list
+                    rules_amount_list = []
+                    if isinstance(amount_results_df, pd.DataFrame) and not amount_results_df.empty:
+                        amount_cols = ['rule', 'hit_amount', 'hit_amount_pct', 'bad_amount',
+                                       'bad_amount_pct', 'amount_bad_rate', 'amount_lift',
+                                       'avg_amount_per_hit']
+                        existing_cols = [c for c in amount_cols if c in amount_results_df.columns]
+                        rules_amount_list = amount_results_df[existing_cols].fillna(0).to_dict(orient='records')
+                    
                     results['amount_analysis'] = {
                         'enabled': True,
                         'amount_col': amount_col,
-                        'results': amount_results_df,
-                        'summary': amount_summary
+                        # summary 字段提升到顶层（与前端 AmountAnalysisPanel 期望的结构一致）
+                        'total_amount': amount_summary.get('total_amount', 0),
+                        'total_bad_amount': amount_summary.get('total_bad_amount', 0),
+                        'overall_amount_bad_rate': amount_summary.get('overall_amount_bad_rate', 0),
+                        'cumulative': amount_summary.get('cumulative', {}),
+                        # results DataFrame 转为 list（消除 DataFrame 序列化问题）
+                        'rules_amount': rules_amount_list,
                     }
                     
                     # Build output preview

@@ -429,38 +429,123 @@ class TaskHistoryService:
             return 0
     
     @classmethod
-    def delete_record(cls, record_id: str) -> bool:
-        """删除记录（含关联的 AI 分析）
+    def delete_record(cls, record_id: str, cleanup_execution: bool = True) -> bool:
+        """删除记录（含关联的 AI 分析、执行状态、检查点和状态文件）
+        
+        Phase 25: 级联清理所有关联资源。
         
         Args:
             record_id: 记录ID
+            cleanup_execution: 是否清理 ExecutionState/Checkpoint 和状态文件
             
         Returns:
             是否成功
         """
         try:
             db = get_task_manager_db()
+            execution_id = None
+            
             with db.get_session() as session:
-                # 1. 删除关联的 AI 分析（Phase 7）
+                # 0. 先查出 execution_id（用于后续清理执行状态）
+                record = session.query(TaskRecord).filter_by(
+                    record_id=record_id
+                ).first()
+                if record:
+                    execution_id = record.execution_id
+                
+                # 1. 删除关联的 StageAIAnalysis（Phase 7）
                 ai_analysis_count = session.query(StageAIAnalysis).filter_by(
                     record_id=record_id
                 ).delete()
                 if ai_analysis_count > 0:
-                    logger.debug(f"Deleted {ai_analysis_count} AI analyses for record: {record_id}")
+                    logger.debug(f"Deleted {ai_analysis_count} stage AI analyses for record: {record_id}")
                 
-                # 2. 删除任务记录
+                # 2. 删除关联的 OverallAnalysis（Phase 25 级联清理）
+                try:
+                    from .models import OverallAnalysis
+                    overall_count = session.query(OverallAnalysis).filter_by(
+                        record_id=record_id
+                    ).delete()
+                    if overall_count > 0:
+                        logger.debug(f"Deleted {overall_count} overall analyses for record: {record_id}")
+                except Exception as e:
+                    logger.debug(f"OverallAnalysis cleanup skipped (model may not exist): {e}")
+                
+                # 3. 删除任务记录
                 result = session.query(TaskRecord).filter_by(
                     record_id=record_id
                 ).delete()
             
+            # 4. 清理 ExecutionState/Checkpoint 和状态文件（Phase 25）
+            if cleanup_execution and execution_id:
+                try:
+                    from .persistent_store import PersistentExecutionStore
+                    PersistentExecutionStore.delete(execution_id)
+                    logger.debug(f"Cleaned up execution state for: {execution_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup execution state for {execution_id}: {e}")
+                
+                # 5. 清理 TaskControl 记录（Phase 25）
+                try:
+                    from .controller import TaskController
+                    TaskController._delete_control_from_db(execution_id)
+                    logger.debug(f"Cleaned up task control for: {execution_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup task control for {execution_id}: {e}")
+            
             if result > 0:
-                logger.info(f"Deleted task record: {record_id}")
+                logger.info(f"Deleted task record with cascade cleanup: {record_id}")
                 return True
             return False
             
         except Exception as e:
             logger.error(f"Failed to delete task record: {e}")
             return False
+    
+    @classmethod
+    def batch_delete_records(cls, record_ids: list, cleanup_files: bool = True) -> dict:
+        """批量删除记录（含级联清理）
+        
+        Phase 25: 批量删除支持。
+        
+        Args:
+            record_ids: 记录ID列表
+            cleanup_files: 是否清理关联文件
+            
+        Returns:
+            {"deleted": int, "failed": int, "failed_ids": list, "skipped_running": list}
+        """
+        deleted = 0
+        failed = 0
+        failed_ids = []
+        skipped_running = []
+        
+        for record_id in record_ids:
+            try:
+                # 检查是否正在运行（仅跳过 SOP 任务的 running 状态）
+                record = cls.get_record(record_id)
+                if record and record.get("status") == "running":
+                    skipped_running.append(record_id)
+                    continue
+                
+                success = cls.delete_record(record_id, cleanup_execution=cleanup_files)
+                if success:
+                    deleted += 1
+                else:
+                    failed += 1
+                    failed_ids.append(record_id)
+            except Exception as e:
+                logger.error(f"Failed to delete record {record_id}: {e}")
+                failed += 1
+                failed_ids.append(record_id)
+        
+        logger.info(f"Batch delete: {deleted} deleted, {failed} failed, {len(skipped_running)} skipped (running)")
+        return {
+            "deleted": deleted,
+            "failed": failed,
+            "failed_ids": failed_ids,
+            "skipped_running": skipped_running
+        }
     
     @classmethod
     def get_statistics(

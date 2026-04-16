@@ -34,6 +34,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // =============================================================================
 // 类型定义
@@ -165,11 +166,17 @@ function TaskCard({
   onViewDetail,
   onLoadResult,
   onDelete,
+  selectMode,
+  selected,
+  onSelect,
 }: {
   record: TaskHistoryItem;
   onViewDetail?: (recordId: string) => void;
   onLoadResult?: (recordId: string) => void;
   onDelete?: (recordId: string) => void;
+  selectMode?: boolean;
+  selected?: boolean;
+  onSelect?: (recordId: string, checked: boolean) => void;
 }) {
   const statusConfig = STATUS_CONFIG[record.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
@@ -181,12 +188,22 @@ function TaskCard({
     <div className={cn(
       "px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700",
       "hover:border-gray-300 dark:hover:border-gray-600 transition-colors",
-      "bg-white dark:bg-gray-800/50"
+      "bg-white dark:bg-gray-800/50",
+      selected && "border-blue-400 dark:border-blue-500 bg-blue-50/50 dark:bg-blue-900/10"
     )}>
-      {/* 单行布局：任务信息 + 状态 + 操作 */}
+      {/* 单行布局：Checkbox + 任务信息 + 状态 + 操作 */}
       <div className="flex items-center justify-between gap-2">
-        {/* 左侧：任务类型 + 时间 + 进度 */}
+        {/* 左侧：Checkbox + 任务类型 + 时间 + 进度 */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* 多选 Checkbox */}
+          {selectMode && (
+            <Checkbox
+              checked={selected}
+              onCheckedChange={(checked) => onSelect?.(record.record_id, !!checked)}
+              disabled={record.status === "running"}
+              className="shrink-0 border-gray-400 dark:border-gray-400"
+            />
+          )}
           {/* 任务类型 */}
           <div className="flex items-center gap-1 shrink-0">
             <span className="text-xs">{taskIcon}</span>
@@ -273,6 +290,62 @@ export function TaskHistoryCompact({
   const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // 多选/批量删除（Phase 25）
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+  const [cleanupFiles, setCleanupFiles] = useState(true);
+
+  // 可选中的记录（排除运行中的）
+  const selectableRecords = records.filter(r => r.status !== "running");
+
+  const handleToggleSelect = (recordId: string, checked: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (checked) next.add(recordId);
+      else next.delete(recordId);
+      return next;
+    });
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(new Set(selectableRecords.map(r => r.record_id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleExitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    setDeleting(true);
+    try {
+      const response = await fetch(getApiUrl("/sop/history/batch-delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          record_ids: Array.from(selectedIds),
+          cleanup_files: cleanupFiles,
+        }),
+      });
+      if (!response.ok) throw new Error("批量删除失败");
+      await loadRecords();
+      setBatchDeleteDialogOpen(false);
+      setSelectedIds(new Set());
+      setSelectMode(false);
+    } catch (err) {
+      console.error("Batch delete failed:", err);
+      setError("批量删除失败");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   // 加载数据
   const loadRecords = async () => {
     setLoading(true);
@@ -338,7 +411,7 @@ export function TaskHistoryCompact({
 
   return (
     <div className={cn("flex flex-col", className)}>
-      {/* 头部：标题 + 筛选 + 刷新 */}
+      {/* 头部：标题 + 筛选 + 多选 + 刷新 */}
       <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -359,16 +432,68 @@ export function TaskHistoryCompact({
             </SelectContent>
           </Select>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={loadRecords}
-          disabled={loading}
-          className="h-6 w-6 p-0 shrink-0"
-        >
-          <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
-        </Button>
+        <div className="flex items-center gap-1">
+          {/* 多选切换按钮 */}
+          {!selectMode ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectMode(true)}
+              disabled={loading || records.length === 0}
+              className="h-6 px-1.5 text-[10px]"
+              title="批量选择"
+            >
+              <Checkbox className="h-3 w-3 mr-0.5 pointer-events-none border-gray-400 dark:border-gray-400" />
+              多选
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleExitSelectMode}
+              className="h-6 px-1.5 text-[10px] text-gray-500"
+            >
+              取消
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={loadRecords}
+            disabled={loading}
+            className="h-6 w-6 p-0 shrink-0"
+          >
+            <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
+          </Button>
+        </div>
       </div>
+
+      {/* 批量操作栏（多选模式下显示） */}
+      {selectMode && (
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={selectedIds.size > 0 && selectedIds.size === selectableRecords.length}
+              onCheckedChange={(checked) => handleSelectAll(!!checked)}
+              className="h-3.5 w-3.5 border-gray-400 dark:border-gray-400"
+            />
+            <span className="text-[10px] text-blue-700 dark:text-blue-300">
+              {selectedIds.size > 0 ? `已选 ${selectedIds.size} 条` : "全选"}
+            </span>
+          </div>
+          {selectedIds.size > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setBatchDeleteDialogOpen(true)}
+              className="h-6 px-2 text-[10px]"
+            >
+              <Trash2 className="h-3 w-3 mr-0.5" />
+              删除 ({selectedIds.size})
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* 内容区 */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
@@ -401,6 +526,9 @@ export function TaskHistoryCompact({
                 setRecordToDelete(id);
                 setDeleteDialogOpen(true);
               }}
+              selectMode={selectMode}
+              selected={selectedIds.has(record.record_id)}
+              onSelect={handleToggleSelect}
             />
           ))
         )}
@@ -461,6 +589,46 @@ export function TaskHistoryCompact({
             >
               {deleting && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
               删除
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量删除确认对话框（Phase 25） */}
+      <Dialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="text-base">确认批量删除</DialogTitle>
+            <DialogDescription className="text-sm">
+              确定要删除选中的 {selectedIds.size} 条历史记录吗？此操作不可恢复。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-2">
+            <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+              <Checkbox
+                checked={cleanupFiles}
+                onCheckedChange={(checked) => setCleanupFiles(!!checked)}
+              />
+              同时删除任务产生的阶段数据文件（推荐）
+            </label>
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBatchDeleteDialogOpen(false)}
+              disabled={deleting}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleBatchDelete}
+              disabled={deleting}
+            >
+              {deleting && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+              删除 {selectedIds.size} 条
             </Button>
           </div>
         </DialogContent>

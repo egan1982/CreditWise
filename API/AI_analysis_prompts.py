@@ -226,6 +226,7 @@ RULE_MINING_PREPROCESSING_CONFIG = {
     "focusPoints": [
         "数据完整性（缺失率是否在可接受范围）",
         "坏账率水平是否适合规则挖掘（通常3%-15%较理想，过低则正样本稀缺难以挖掘有效规则，过高则说明风控前置策略可能存在问题）",
+        "类别不平衡处理策略是否合理（如果 imbalance_analysis 显示 severity 为中度/重度，检查 applied_strategy 是否已启用 class_weight；如果用户选择了'不处理'但 bad_rate<10%，建议调整'类别不平衡处理'参数为'自动选择'）",
         "异常值情况说明（注意：规则挖掘中异常值可能是高风险信号，当前系统仅检测不处理，用户可根据业务需求决定是否在源数据中预处理。禁止建议WOE分箱，规则挖掘需保留原始特征值）",
         "数据集划分（训练集/测试集）比例是否合理（注意：规则挖掘任务无OOT验证集概念）",
         "特征数量是否适中"
@@ -1259,11 +1260,22 @@ def _build_data_loading_description(data: dict[str, Any]) -> str:
                 identical_limit = var_filter_result.get("identical_limit", 0.95)
                 var_filter_str += f"\n  - 高同值率(≥{identical_limit:.0%}): {len(removed_by_identical)}个"
     
+    # ========== P2-6: 类别不平衡分析信息 ==========
+    imbalance_str = ""
+    imbalance_analysis = data.get("imbalance_analysis")
+    if imbalance_analysis and isinstance(imbalance_analysis, dict):
+        severity = imbalance_analysis.get("severity", "")
+        applied = imbalance_analysis.get("applied_strategy", "")
+        user_strategy = imbalance_analysis.get("user_strategy", "")
+        desc = imbalance_analysis.get("strategy_description", "")
+        ratio = imbalance_analysis.get("imbalance_ratio", "")
+        imbalance_str = f"\n- 类别不平衡: 程度={severity}, 比例={ratio}, 用户选择={user_strategy}, 实际策略={applied}（{desc}）"
+    
     return f"""
 - 总行数: {rows_str}
 - 可用特征数: {feature_count}（已排除目标列和用户指定的排除变量）{derived_total_str}{var_filter_str}
 - 平均缺失率: {missing_str}{missing_detail_str}{special_value_str}
-- 坏账率: {target_str}{split_str}{target_rates_str}{time_range_str}{outlier_str}{quality_str}{derived_info}{exclude_info}"""
+- 坏账率: {target_str}{split_str}{target_rates_str}{time_range_str}{outlier_str}{quality_str}{imbalance_str}{derived_info}{exclude_info}"""
 
 
 def _build_woe_binning_description(data: dict[str, Any]) -> str:

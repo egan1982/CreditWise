@@ -97,9 +97,10 @@ class MarkdownReportGenerator:
         # 汇总指标卡片（与HTML报告一致）
         optimal_rules = results.get('optimal_rules', results.get('rules', []))
         has_overview_content = False
-        if optimal_rules and isinstance(optimal_rules, list) and len(optimal_rules) > 0:
+        # Phase 25: 兼容 DataFrame 和 list 两种类型
+        if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
             n_rules = len(optimal_rules)
-            last_rule = optimal_rules[-1]
+            last_rule = optimal_rules.iloc[-1].to_dict()
             final_recall = last_rule.get('cumulative_recall', last_rule.get('cum_recall', last_rule.get('dev_cum_recall', 0)))
             final_hit_rate = last_rule.get('cumulative_hit_rate', last_rule.get('cum_hit_rate', last_rule.get('dev_cum_hit_rate', 0)))
             final_lift = last_rule.get('cumulative_lift', last_rule.get('cum_lift', last_rule.get('dev_cum_lift', last_rule.get('lift', 0))))
@@ -143,7 +144,7 @@ class MarkdownReportGenerator:
         # 3. 最优规则（固定章节号，始终显示）
         md += "## 三、最优规则\n\n"
         optimal_rules = results.get('optimal_rules', results.get('rules', []))
-        if optimal_rules:
+        if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
             md += self._format_rules_table(optimal_rules, max_rules=30)
         else:
             md += "*暂无数据*\n\n"
@@ -675,8 +676,13 @@ class MarkdownReportGenerator:
     
     def _format_rules_table(self, rules: list, max_rules: int = 30) -> str:
         """格式化规则表格"""
-        if not rules:
+        # FIX-3: 安全的空值检查（兼容 DataFrame 和 list）
+        if rules is None or (isinstance(rules, list) and len(rules) == 0):
             return "暂无规则数据\n\n"
+        if isinstance(rules, pd.DataFrame):
+            if rules.empty:
+                return "暂无规则数据\n\n"
+            rules = rules.to_dict(orient='records')
         
         md = "| 序号 | 规则条件 | 召回率 | 命中率 | 坏账率 | Lift | 累计召回 |\n"
         md += "|------|----------|--------|--------|--------|------|----------|\n"
@@ -712,8 +718,13 @@ class MarkdownReportGenerator:
     
     def _format_filtered_rules_table(self, rules: list, max_rules: int = 30) -> str:
         """格式化被过滤规则表格（包含过滤原因）"""
-        if not rules:
+        # FIX-3: 安全的空值检查（兼容 DataFrame 和 list）
+        if rules is None or (isinstance(rules, list) and len(rules) == 0):
             return "暂无被过滤的规则\n\n"
+        if isinstance(rules, pd.DataFrame):
+            if rules.empty:
+                return "暂无被过滤的规则\n\n"
+            rules = rules.to_dict(orient='records')
         
         md = "| 序号 | 规则 | 命中率 | 坏账率 | Lift | 召回率 | 过滤原因 |\n"
         md += "|------|------|--------|--------|------|--------|----------|\n"
@@ -1078,30 +1089,46 @@ class MarkdownReportGenerator:
         return md
     
     def _format_amount_analysis(self, amount_analysis: dict) -> str:
-        """格式化金额分析"""
-        md = "| 指标 | 值 |\n"
+        """格式化金额分析（FIX-5: 匹配 FIX-1 扁平化后的结构）"""
+        md = ""
+        
+        # 汇总指标表
+        md += "| 指标 | 值 |\n"
         md += "|------|----|\n"
         
-        amount_names = {
-            'total_amount': '总金额',
-            'hit_amount': '命中金额',
-            'hit_amount_rate': '命中金额占比',
-            'avg_amount': '平均金额',
-            'bad_amount': '坏账金额',
-            'bad_amount_rate': '坏账金额占比',
-        }
+        total_amount = amount_analysis.get('total_amount')
+        total_bad_amount = amount_analysis.get('total_bad_amount')
+        overall_bad_rate = amount_analysis.get('overall_amount_bad_rate')
+        cumulative = amount_analysis.get('cumulative', {})
         
-        for key, label in amount_names.items():
-            if key in amount_analysis and amount_analysis[key] is not None:
-                value = amount_analysis[key]
-                if 'rate' in key and isinstance(value, (int, float)):
-                    md += f"| {label} | {value * 100:.2f}% |\n"
-                elif isinstance(value, float):
-                    md += f"| {label} | {value:,.2f} |\n"
-                else:
-                    md += f"| {label} | {value:,} |\n"
-        
+        if total_amount is not None:
+            md += f"| 总金额 | {total_amount:,.2f} |\n"
+        if total_bad_amount is not None:
+            md += f"| 总坏账金额 | {total_bad_amount:,.2f} |\n"
+        if overall_bad_rate is not None:
+            md += f"| 整体金额坏账率 | {overall_bad_rate * 100:.2f}% |\n"
+        if cumulative.get('cum_hit_amount') is not None:
+            md += f"| 累计命中金额 | {cumulative['cum_hit_amount']:,.2f} |\n"
+        if cumulative.get('amount_recall') is not None:
+            md += f"| 金额召回率 | {cumulative['amount_recall'] * 100:.2f}% |\n"
         md += "\n"
+        
+        # 规则金额明细
+        rules_amount = amount_analysis.get('rules_amount', [])
+        if rules_amount:
+            md += "**规则金额明细**\n\n"
+            md += "| 规则 | 命中金额 | 金额占比 | 坏账金额 | 金额坏账率 | 金额Lift |\n"
+            md += "|------|----------|----------|----------|------------|----------|\n"
+            for r in rules_amount[:20]:
+                rule_text = str(r.get('rule', ''))[:40]
+                hit_amt = r.get('hit_amount', 0)
+                hit_pct = r.get('hit_amount_pct', 0)
+                bad_amt = r.get('bad_amount', 0)
+                bad_rate = r.get('amount_bad_rate', 0)
+                lift = r.get('amount_lift', 0)
+                md += f"| {rule_text} | {hit_amt:,.2f} | {hit_pct*100:.2f}% | {bad_amt:,.2f} | {bad_rate*100:.2f}% | {lift:.2f} |\n"
+            md += "\n"
+        
         return md
     
     def _format_advanced_analysis(self, amount_analysis: Optional[dict], prior_analysis: Optional[dict]) -> str:
