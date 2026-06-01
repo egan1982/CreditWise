@@ -1,9 +1,9 @@
 # CreditWise 内网多用户部署指南
 
 > 分支：`feature/intranet-multiuser`  
-> 版本：v1.2.0  
+> 版本：v1.3.0  
 > 适用场景：内网 <5 人测试使用  
-> 更新：v1.2 修复双重登录问题，新增 workspace 基于用户名隔离 TODO
+> 更新：v1.3 新增账户有效期（valid_until）配置指引，补充用户配置字段说明和运维命令
 
 ---
 
@@ -146,10 +146,47 @@ DeepAnalyze/
 新用户想使用 → 线下联系管理员 → 管理员执行：
   1. python scripts/hash_password.py <密码>
   2. 编辑 config/users.yaml 添加用户
-  3. 重启服务生效
+  3. 重启服务生效（sudo docker restart creditwise-api）
 ```
 
 不支持用户自助注册和自行修改密码（<5 人场景无需此功能）。
+
+#### users.yaml 字段说明
+
+```yaml
+users:
+  - username: admin               # 登录用户名（唯一）
+    password_hash: "$2b$12$..."   # bcrypt 哈希，用 scripts/hash_password.py 生成
+    role: admin                   # 角色：admin（管理员）或 user（普通用户）
+    org: "部门名称"                # 所属部门，仅描述用，不影响权限
+    description: "说明文字"       # 备注，方便管理员识别
+    valid_until: ""               # 账户到期日 YYYY-MM-DD，留空=永久有效
+
+  - username: user1
+    password_hash: "$2b$12$..."
+    role: user
+    org: "CSIG-SPD"
+    description: "外部合作用户，有效期至年底"
+    valid_until: "2026-12-31"     # 到期后登录返回 401，无需手动删除账户
+
+settings:
+  max_login_failures: 5           # 连续失败次数限制（超出后锁定）
+  lockout_duration_minutes: 15    # 锁定时长（分钟）
+```
+
+#### valid_until 有效期规则
+
+| valid_until 值 | 行为 |
+|----------------|------|
+| 空字符串 `""` | 永久有效（admin 账户推荐） |
+| 未来日期，如 `2026-12-31` | 到期日当天仍可登录，次日起 401 |
+| 过去日期 | 立即拒绝，返回 401 |
+| 格式错误（非 YYYY-MM-DD） | 保守拒绝，返回 401，并在日志输出 ERROR |
+
+> **注意**：修改 `users.yaml` 后无需重建镜像，**只需重启容器**即可生效：
+> ```bash
+> sudo docker restart creditwise-api
+> ```
 
 ---
 
@@ -198,31 +235,41 @@ chmod +x scripts/deploy_linux.sh
 
 | 任务 | 命令 | 是否必须 |
 |------|------|:--------:|
-| 配置用户账号密码 | 编辑 `config/users.yaml`，用 `scripts/hash_password.py` 生成密码哈希 | ✅ 必须 |
+| 配置用户账号密码 | 编辑 `config/users.yaml`，用 `scripts/hash_password.py` 生成密码哈希（详见 §3.3） | ✅ 必须 |
 | 创建 LLM 渠道 | 通过 LLM Manager 页面或 API 创建 | ✅ 必须 |
 | 同步模型参数配置 | `./scripts/sync_model_configs.sh <用户名:密码>` | 可选 |
 
 #### 日常运维
 
+> **命令前置说明**：以下命令需要在项目 `docker/` 目录下执行，且通常需要 `sudo`。
+
 ```bash
 cd /data/CreditWise/docker
 
 # 查看状态
-docker compose ps
+sudo docker compose ps
 
-# 查看日志
-docker compose logs -f --tail 50
+# 查看实时日志
+sudo docker compose logs -f --tail 50
 
-# 代码更新后重建
+# 代码更新后重建（更新了 Python/前端代码时执行）
 cd /data/CreditWise && git pull
-cd docker && docker compose build && ENABLE_AUTH=true docker compose up -d
+cd docker && sudo docker compose build && sudo ENABLE_AUTH=true docker compose up -d
+
+# 仅更新用户配置（users.yaml 改动，无需 rebuild）
+# 直接编辑 /data/CreditWise/config/users.yaml，然后：
+sudo docker restart creditwise-api
 
 # 停止服务
-docker compose down
+sudo docker compose down
 
-# 清理无用镜像
-docker image prune -f
+# 清理旧镜像（重建后释放磁盘）
+sudo docker image prune -f
 ```
+
+> **兼容说明**：`docker compose`（插件式，Docker 23+）与 `docker-compose`（独立二进制，旧版）等效。
+> 当前 CVM 使用 Docker 28.x，只有 `docker compose` 插件，无独立 `docker-compose` 命令。
+> Docker 28.x 下 `docker-compose.yml` 中的 `version: '3.8'` 字段会触发废弃警告（不影响运行，可忽略）。
 
 #### 部署脚本自动处理的已知坑
 
@@ -327,6 +374,7 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 | 传输加密 (HTTPS) | ❌ 未配置 | 中 | 内网可接受，密码以 Base64 明文传输 |
 | 密码存储 | ✅ bcrypt 哈希 | 低 | 即使泄露也不可逆 |
 | 暴力破解防护 | ✅ 账户锁定 | 低 | 5 次失败锁定 15 分钟 |
+| 账户有效期 | ✅ valid_until 字段 | 低 | 过期账户自动拒绝，无需手动删除；格式错误保守拒绝 |
 | 数据隔离 | ⚠️ 按 session_id | 中 | 非强制绑定用户，不同终端/清缓存后会生成新 sessionId 导致文件"丢失"。**TODO：改为基于登录用户名隔离** |
 | LLM API Key | ✅ admin-only | 低 | 普通用户无法访问管理接口 |
 
@@ -335,4 +383,5 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 *文档创建日期：2026-03-27*  
 *v1.1 更新日期：2026-03-31*  
 *v1.2 更新日期：2026-04-09（修复双重登录、新增 workspace 用户名隔离 TODO）*  
+*v1.3 更新日期：2026-06-01（新增 valid_until 账户有效期指引；补充 §3.3 字段说明和重启生效说明；日常运维命令补充 sudo；补充 docker compose 兼容说明）*  
 *对应分支：feature/intranet-multiuser*
