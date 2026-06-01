@@ -651,6 +651,69 @@ async def preview_data(request: DataPreviewRequest) -> DataPreviewResponse:
         raise HTTPException(status_code=500, detail="Failed to preview data")
 
 
+# =============================================================================
+# 敏感信息预检（个保法合规）
+# =============================================================================
+
+class SensitiveCheckRequest(BaseModel):
+    file_path: str = Field(..., description="数据文件路径（相对于工作区）")
+    session_id: str = Field(..., description="Session ID")
+    sample_rows: int = Field(default=100, ge=10, le=1000)
+
+
+@router.post("/data/sensitive-check")
+async def sensitive_check(request: SensitiveCheckRequest):
+    """
+    上传数据集的敏感信息预检接口（个保法合规）
+
+    双层检测：
+    - L1: 列名关键词匹配
+    - L2: 样本值正则扫描（覆盖匿名列名）
+
+    Returns:
+        检测报告，含 has_sensitive / max_level / findings / summary
+    """
+    from pathlib import Path
+    from deepanalyze.analysis.data_validator import SensitiveFieldDetector
+
+    try:
+        request.session_id = _validate_session_id(request.session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    workspace_dir = Path("workspace") / request.session_id
+    file_path = workspace_dir / request.file_path
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    try:
+        df = pd.read_csv(file_path, nrows=request.sample_rows)
+    except Exception as e:
+        logger.error(f"Failed to read file for sensitive check: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+
+    detector = SensitiveFieldDetector(sample_rows=request.sample_rows)
+    report = detector.detect(df)
+
+    return {
+        "has_sensitive": report.has_sensitive,
+        "max_level": report.max_level.value if report.max_level else None,
+        "findings": [
+            {
+                "column": f.column,
+                "level": f.level.value,
+                "rule_name": f.rule_name,
+                "detection_method": f.detection_method,
+                "hit_rate": round(f.hit_rate, 4) if f.hit_rate is not None else None,
+                "sample_values": f.sample_values,
+            }
+            for f in report.findings
+        ],
+        "summary": report.summary,
+    }
+
+
 @router.post("/data/analyze")
 async def analyze_data(
     file_path: str = Query(..., description="数据文件路径（相对于工作区）"),

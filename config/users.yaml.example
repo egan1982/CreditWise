@@ -11,12 +11,14 @@ users:
     role: admin
     org: ""
     description: "管理员"
+    valid_until: ""              # 留空 = 永久有效（admin 建议留空）
 
   - username: user1
     password_hash: "$2b$12$PLACEHOLDER_USE_hash_password_py"
     role: user
     org: "部门名称"
-    description: "测试用户1"
+    description: "测试用户1，有效期至年底"
+    valid_until: "2026-12-31"   # 到期日期 YYYY-MM-DD，留空=永久有效
 
 # 安全配置
 settings:

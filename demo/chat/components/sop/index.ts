@@ -56,3 +56,5 @@ export { PriorRulesInput } from "./PriorRulesInput";
 export { TaskHistoryList } from "./TaskHistoryList";
 export { TaskHistoryCompact } from "./TaskHistoryCompact";
 export type { TaskHistoryCompactRef } from "./TaskHistoryCompact";
+export { SensitiveCheckDialog } from "./SensitiveCheckDialog";
+export type { SensitiveCheckResult, SensitiveFinding, SensitiveLevel } from "./SensitiveCheckDialog";

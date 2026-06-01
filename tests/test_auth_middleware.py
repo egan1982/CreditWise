@@ -331,3 +331,83 @@ class TestHelperFunctions:
         assert _is_admin_route("/llm-manager/api/proxy/chat/completions") is False
         assert _is_admin_route("/v1/chat/completions") is False
         assert _is_admin_route("/sop/execute") is False
+
+
+class TestAccountExpiry:
+    """测试账户有效期控制（valid_until 字段）"""
+
+    def _make_config_with_expiry(self, tmp_path, valid_until: str):
+        """创建含有效期用户的临时配置"""
+        import yaml
+        config = {
+            "users": [
+                {
+                    "username": "expuser",
+                    "password_hash": _hash_password("testpass"),
+                    "role": "user",
+                    "valid_until": valid_until,
+                },
+            ],
+            "settings": {"max_login_failures": 5, "lockout_duration_minutes": 15},
+        }
+        config_file = tmp_path / "users_expiry.yaml"
+        with open(config_file, "w", encoding="utf-8") as f:
+            yaml.dump(config, f)
+        return config_file
+
+    def test_valid_account_not_expired(self, tmp_path, monkeypatch):
+        """未过期账户可以正常登录"""
+        from datetime import date, timedelta
+        future_date = (date.today() + timedelta(days=30)).isoformat()
+        config_file = self._make_config_with_expiry(tmp_path, future_date)
+
+        import API.auth_middleware as auth_mod
+        monkeypatch.setattr(auth_mod, "_find_config_path", lambda: config_file)
+        auth = SimpleAuth()
+        result = auth.verify("expuser", "testpass")
+        assert result is not None
+        assert result["username"] == "expuser"
+
+    def test_expired_account_rejected(self, tmp_path, monkeypatch):
+        """已过期账户被拒绝（昨天过期）"""
+        from datetime import date, timedelta
+        past_date = (date.today() - timedelta(days=1)).isoformat()
+        config_file = self._make_config_with_expiry(tmp_path, past_date)
+
+        import API.auth_middleware as auth_mod
+        monkeypatch.setattr(auth_mod, "_find_config_path", lambda: config_file)
+        auth = SimpleAuth()
+        result = auth.verify("expuser", "testpass")
+        assert result is None
+
+    def test_expiry_today_still_valid(self, tmp_path, monkeypatch):
+        """今天到期当天仍然有效"""
+        from datetime import date
+        today = date.today().isoformat()
+        config_file = self._make_config_with_expiry(tmp_path, today)
+
+        import API.auth_middleware as auth_mod
+        monkeypatch.setattr(auth_mod, "_find_config_path", lambda: config_file)
+        auth = SimpleAuth()
+        result = auth.verify("expuser", "testpass")
+        assert result is not None
+
+    def test_empty_valid_until_permanent(self, tmp_path, monkeypatch):
+        """valid_until 为空字符串 = 永久有效"""
+        config_file = self._make_config_with_expiry(tmp_path, "")
+
+        import API.auth_middleware as auth_mod
+        monkeypatch.setattr(auth_mod, "_find_config_path", lambda: config_file)
+        auth = SimpleAuth()
+        result = auth.verify("expuser", "testpass")
+        assert result is not None
+
+    def test_invalid_date_format_rejected(self, tmp_path, monkeypatch):
+        """valid_until 格式错误时保守拒绝"""
+        config_file = self._make_config_with_expiry(tmp_path, "not-a-date")
+
+        import API.auth_middleware as auth_mod
+        monkeypatch.setattr(auth_mod, "_find_config_path", lambda: config_file)
+        auth = SimpleAuth()
+        result = auth.verify("expuser", "testpass")
+        assert result is None

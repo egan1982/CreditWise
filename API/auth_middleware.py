@@ -218,10 +218,29 @@ class SimpleAuth:
 
         stored_hash = user.get("password_hash", "").encode("utf-8")
         try:
-            if bcrypt.checkpw(password.encode("utf-8"), stored_hash):
-                return user
+            if not bcrypt.checkpw(password.encode("utf-8"), stored_hash):
+                return None
         except Exception:
-            pass
+            return None
+
+        # ★ 账户有效期检查（valid_until 字段，格式 YYYY-MM-DD，留空=永久有效）
+        valid_until = user.get("valid_until", "")
+        if valid_until and str(valid_until).strip():
+            try:
+                from datetime import date
+                expiry = date.fromisoformat(str(valid_until).strip())
+                if date.today() > expiry:
+                    logger.warning(
+                        f"账户已过期，拒绝登录: username={username}, valid_until={valid_until}"
+                    )
+                    return None  # 过期返回 None，触发 401
+            except ValueError:
+                logger.error(
+                    f"users.yaml 中 valid_until 格式错误，保守拒绝: username={username}, value={valid_until}"
+                )
+                return None  # 格式错误时保守拒绝
+
+        return user
         return None
 
     def authenticate(self, request: Request) -> dict:
