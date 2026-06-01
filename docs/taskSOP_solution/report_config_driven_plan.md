@@ -952,7 +952,56 @@ tabs=[
 
 ---
 
-## 八、相关文档
+#### 批次 5（2026-04-17 登记 — P2-7 先验规则测试发现）— ✅ 已修复
+
+**来源**: P2-7 先验规则输入增强测试（`tests/test_prior_rules.py` 测试 #6, #7）  
+**状态**: ✅ 全部修复（2026-04-17），测试 12/12 通过
+
+| # | 缺陷 | 来源 | 严重性 | 修复 |
+|---|------|------|:------:|------|
+| 10 | **先验规则分析 全栈数据流断裂** | P2-7 测试 #6 | 🔴 | ✅ FIX-A: Pipeline 输出扁平化（DataFrame→list[dict]）+ summary 补充 matched_count/avg_recall/avg_lift + rules 补充 recall/hit_rate/matched 别名 |
+| 11 | **Excel 报告 prior_analysis 处理粗糙** | P2-7 测试 #6 | 🟡 | ✅ FIX-B: Excel 报告结构化输出（汇总指标表+规则详情表替代 dict items 遍历） |
+| 12 | **前端 PriorAnalysisPanel summary 卡片字段不匹配** | P2-7 测试 #7 | 🟡 | ✅ FIX-A 自动修复（summary 补充 new_rules_count/incremental_recall/avg_overlap_rate） |
+
+**修复方案**: P2-10 FIX-1 同款（Pipeline 输出扁平化），修改 2 个文件：
+1. `rule_mining.py` L7938: DataFrame→list[dict] + summary 字段补齐
+2. `excel_report.py` L2642: 结构化输出替代粗糙遍历
+
+---
+
+#### 批次 6（2026-04-21 登记 — P1-5 Phase 4 OOT 稳定性前端实现）
+
+**来源**: P1-5 OOT 稳定性验证（`rule_mining_oot_validation_design.md`）Phase 4 前端实现时发现
+
+| # | 缺失项 | 来源 | 数据 key | 所属阶段 | 前端 | AI Prompt | 导出报告 |
+|---|--------|------|----------|---------|:---:|:---------:|:-------:|
+| 13 | **OOT 时间稳定性验证报告** | P1-5 oot_stability_report | `results.oot_stability_report` | selecting_rules | ✅ 稳定性 Tab 融合展示（Phase 4 已实现） | ❌ 未包含 | ❌ 4格式报告均未包含 |
+| 14 | **规则级 OOT 命中率对比（train/test/oot）** | P1-5 rule_stability | `oot_stability_report.rule_stability[]` | selecting_rules | ✅ 稳定性 Tab 详情表 + 规则表格 Badge | ❌ 未包含 | ❌ 4格式报告均未包含 |
+
+**说明**：`oot_stability_report` 包含 `overall_hit_rate.cv`（整体变异系数）、`stability_counts`（分级计数）、`rule_stability`（每条规则的 train/test/oot 命中率 + CV + 等级）、`stability_score_bonus`（质量评分附加分）。前端已在"稳定性" Tab 中融合展示，但四格式导出报告和 AI Prompt 均未包含 OOT 相关内容。
+
+**建议**：
+1. 报告"稳定性分析"章节新增"OOT 时间稳定性"子节，展示整体 CV + 规则级命中率对比表
+2. AI Prompt 的 `focusPoints` 中增加 OOT 稳定性评估要点
+
+**优先级**: 中（OOT 是风控建模核心评估维度，但仅在配置了 OOT 验证时才有数据）  
+**预计工作量**: ~1天（4格式报告 + AI Prompt）
+
+---
+
+#### 批次 7（2026-04-27 — 金额维度汇总卡片优化）— ✅ 已完成
+
+**来源**: AT-01 测试反馈，前端+报告金额汇总指标扩充  
+**完成日期**: 2026-04-27
+
+| # | 改动项 | 涉及文件 | 类型 |
+|---|--------|---------|------|
+| 15 | 后端新增 `cum_amount_bad_rate` + `cum_amount_lift` 字段 | `rule_mining.py` `analyze_with_cumulative()` | 数据新增 |
+| 16 | 前端 4 卡片 → 6 卡片（3×2 布局），新增「样本金额坏账率」「金额累计提升度」 | `AmountAnalysisPanel.tsx` | UI 优化 |
+| 17 | 「金额召回率」改名为「金额累计召回率」 | 前端 + 4 个报告生成器 | 标签修正 |
+| 18 | 四格式报告同步新增 2 个汇总指标 | `word_report.py` `markdown_report.py` `excel_report.py` `html_report.py` | 报告同步 |
+
+**说明**：`overall_amount_bad_rate` 后端已有（summary 中返回），但 Word/HTML 报告和前端卡片此前未展示。`cum_amount_lift` 为新增计算字段（= cum_amount_bad_rate / overall_amount_bad_rate）。JSON 导出不受影响（直接序列化原始数据）。
 
 - [任务结果配置框架](../../deepanalyze/core/task_manager/task_result_config.py)
 - [评分卡结果调整方案](./scorecard_result_adjustment_design.md)

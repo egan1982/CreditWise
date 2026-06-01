@@ -216,7 +216,7 @@ sc.perf_psi()           # PSI稳定性评估
 - `significance_level`: P值显著性阈值（默认0.05）
 - `significance_mode`: 显著性检验模式（'skip'/'warn'/'remove'，默认'remove'）
 - `coefficient_direction_mode`: 系数方向验证模式（'skip'/'warn'/'remove'，默认'warn'）
-- `max_validation_iterations`: 最大迭代次数（默认10，防止无限循环）
+- `max_validation_iterations`: 最大迭代次数（默认20，防止无限循环）
 
 **关键约束**：
 - **必须使用逻辑回归**（监管合规要求，禁止XGBoost/RandomForest等黑盒模型）
@@ -443,7 +443,7 @@ class ScorecardConfig:
     significance_level: float = 0.05
     significance_mode: str = 'remove'  # 🆕 v4.3: 'skip', 'warn', 'remove'
     coefficient_direction_mode: str = 'warn'  # 🆕 v4.3: 'skip', 'warn', 'remove'
-    max_validation_iterations: int = 10  # 🆕 v4.3: 最大迭代次数
+    max_validation_iterations: int = 20  # 🆕 v4.3: 最大迭代次数
     
     # 评分转换
     base_score: int = 600

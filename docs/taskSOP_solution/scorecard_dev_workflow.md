@@ -1984,7 +1984,7 @@ POST /sop/report/export
 |------|------|--------|------|
 | `significance_mode` | string | `'remove'` | 显著性检验模式：skip/warn/remove |
 | `coefficient_direction_mode` | string | `'warn'` | 系数方向验证模式：skip/warn/remove |
-| `max_validation_iterations` | int | `10` | 最大迭代次数，防止无限循环 |
+| `max_validation_iterations` | int | `20` | 最大迭代次数，防止无限循环 |
 
 **迭代验证流程**：
 ```
@@ -2029,7 +2029,7 @@ POST /sop/report/export
 config = ScorecardConfig(
     significance_mode='remove',
     coefficient_direction_mode='remove',
-    max_validation_iterations=10
+    max_validation_iterations=20
 )
 
 # 宽松模式：仅警告，不自动剔除

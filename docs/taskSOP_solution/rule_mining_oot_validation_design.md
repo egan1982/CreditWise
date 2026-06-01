@@ -1,7 +1,7 @@
 # 规则挖掘任务OOT验证功能实施方案
 
 > 创建时间: 2026-02-12  
-> 状态: 已确认，待实施  
+> 状态: Phase 1-5 已完成，Phase 6（测试验证）待实施  
 > 预计工作量: ~16小时  
 > **开发评审**: 🟡 建议轻量评审 — 参数删除（`psi_time_col`）的向后兼容、数据划分三模式的优先级逻辑、CV 阈值标准需实施前确认（2026-04-15 评估）
 
@@ -348,9 +348,9 @@ def _filter_by_stability(
 |------|------|------|-----------|:----:|
 | Phase 1 | 元数据配置修改 | `rule_mining_meta.py` | 2h | ✅ |
 | Phase 2 | 预处理阶段数据划分扩展 | `rule_mining.py` | ~~3h~~ 1h（复用评分卡） | ✅ |
-| Phase 3 | 最优选择阶段OOT验证逻辑 | `rule_mining.py` | 4h | 🔄 |
-| Phase 4 | 前端展示更新 | `RuleMiningResults.tsx`, `StageOutputPreview.tsx` | 3h | 待实施 |
-| Phase 5 | AI分析提示词更新 | `AI_analysis_prompts.py` | 1h | 待实施 |
+| Phase 3 | 最优选择阶段OOT验证逻辑 | `rule_mining.py` | 4h | ✅ |
+| Phase 4 | 前端展示更新 | `RuleMiningResults.tsx` | 3h | ✅ 融合到稳定性Tab+规则表格OOT列+/110适配 |
+| Phase 5 | AI分析提示词更新 | `AI_analysis_prompts.py` | 1h | ✅ focusPoints+数据注入已实现 |
 | Phase 6 | 测试验证 | - | 3h | 待实施 |
 | **总计** | | | **~~16h~~ ~14h** |
 

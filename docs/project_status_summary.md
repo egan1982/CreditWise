@@ -138,17 +138,19 @@
 
 | 项目 | 内容 |
 |------|------|
-| **当前状态** | 待开发（v1.1 范围精简，深度对比分析拆分至策略诊断任务） |
-| **待实施内容** | 先验规则输入增强：CSV 文件上传 + 即时校验 + 简单阈值对比 |
+| **当前状态** | ✅ Phase 1 已完成 + 测试通过（2026-04-17，12/12 PASS） |
+| **已实施内容** | PriorRuleParser 精简类（CSV 解析+校验+表达式生成）+ E2 类型断层修复（字符串→列表）+ E5 安全修复（ast.literal_eval）+ F3 路径注入修复（tempfile）+ /prior-rules/parse API + PriorRulesInput.tsx 前端组件（Tab 手动/文件 + 拖拽上传 + 模板下载 + 解析预览 + 校验状态）+ DynamicParamRenderer prior_rules_input 渲染器 + meta 参数定义更新 |
+| **测试结果** | `tests/test_prior_rules.py` 12/12 通过：单元测试×5 + E2回归 + E5安全 + Pipeline集成（真实数据）+ 阈值对比 + 报告数据流检查 + 前端字段匹配 + API格式。**附带修复**: 先验规则全栈数据流断裂 FIX-A（Pipeline扁平化+字段补齐）+ FIX-B（Excel报告结构化），config_driven_report 批次5 已关闭 |
 | **优先级** | P2 |
 
 ### 14. rule_mining_oot_validation_design.md
 
 | 项目 | 内容 |
 |------|------|
-| **当前状态** | 已确认，待实施 |
-| **待实施内容** | 规则挖掘任务OOT（Out-of-Time）验证功能 |
-| **预计工作量** | ~16小时 |
+| **当前状态** | Phase 1-5 已完成，Phase 6（测试验证）待实施 |
+| **已完成** | Phase 1 元数据 + Phase 2 数据划分 + Phase 3 OOT验证逻辑 + Phase 4 前端展示（稳定性Tab融合+规则表格OOT列+质量评分/110适配）+ Phase 5 AI Prompt（focusPoints+数据注入） |
+| **待实施** | Phase 6 测试验证。报告导出缺失已登记至 report_config_driven_plan 批次6 |
+| **预计剩余** | ~3小时 |
 
 ### 15. SOP_WebUI_detail_design.md — 第十章 Chat任务入口交互优化
 
@@ -171,9 +173,9 @@
 
 | 项目 | 内容 |
 |------|------|
-| **当前状态** | ✅ 测试已执行 + Bug 已修复（2026-04-16） |
-| **测试结果** | 单元测试 23/23 全通过；集成测试 Pipeline 核心通过 |
-| **已修复** | FIX-1: Pipeline 输出扁平化（消除嵌套 DataFrame）；FIX-2: prop 名 amountAnalysis→analysis；FIX-3: 6处 DataFrame truthiness；FIX-4: Excel 金额章节重写；FIX-5: Markdown 金额章节重写；FIX-6: AmountAnalyzer.fit() pd.to_numeric 类型校验 |
+| **当前状态** | ✅ 单元/集成测试通过（2026-04-16）+ ✅ 人工 Pipeline 测试全部通过（2026-06-01） |
+| **测试结果** | 单元测试 23/23 全通过；集成测试 Pipeline 核心通过；人工测试 AT-01~03 + COMBO-01 全通过 |
+| **已修复** | FIX-1: Pipeline 输出扁平化；FIX-2: prop 名修复；FIX-3: DataFrame truthiness×6；FIX-4: Excel 金额章节重写；FIX-5: Markdown 金额章节重写；FIX-6: 类型校验。人工测试期间追加修复：金额汇总卡片 4→6 张（增量召回率/样本金额坏账率/金额累计提升度）、报告格式统一、AT-03/PR-03 未启用时面板不隐藏 Bug（enabled 字段检查）、各报告先验规则指标名称与前端对齐 |
 | **优先级** | P2 |
 | **预计工作量** | 测试 ~0.5天（✅） / 修复 ~2天（✅ 实际 ~0.5天） |
 
@@ -207,14 +209,14 @@
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
 | **4** | `feature_derivation_refactor_design.md` | ✅ 已完成（后端+前端+AI提示词+QA 通过） | 1-2天 |
-| **5** | `rule_mining_oot_validation_design.md` | ✅ 已完成（Phase 1-5 全部完成 + QA 通过，使用 zhongbang_sample.csv 端到端验证） | ~14h |
+| **5** | `rule_mining_oot_validation_design.md` | ✅ Phase 1-6 全部完成（后端+前端融合展示+AI Prompt+测试 8/8 通过）。Phase 6 修复：preprocess one-hot 编码未排除 exclude_cols 导致 sample_type 列被删除 | ~14h |
 
 ### 🟢 P2 - 中期实施（1个月内）
 
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
 | **6** | ✅ `class_imbalance_handling_plan.md` | Phase 1 MVP 完成 + 测试通过（10/10）：none/auto/class_weight + 前端卡片 + AI Prompt 引导 | ~1天 |
-| **7** | `prior_rules_enhancement_plan.md` | 先验规则输入增强（v1.1 精简，深度对比拆分至策略诊断） | ~1天 |
+| **7** | ✅ `prior_rules_enhancement_plan.md` | Phase 1 完成 + 单元测试通过（12/12）+ ✅ 人工 Pipeline 测试全部通过（2026-06-01，PR-01~03 + COMBO-01）：PriorRuleParser + CSV上传 + 三级校验 + E2/E5/F3 安全修复。人工测试期间追加修复：未启用时面板不隐藏 Bug、各报告先验规则汇总卡片/详情表列名与前端对齐 | ~1天 |
 | **8** | ✅ **Chat任务入口交互优化** | 已完成：TaskConfirmCard 轻量卡片三态 + dismissedTaskTypes 防重复 + ConfigPanel initialParams 参数注入 | ~1-2天 |
 | **9** | ✅ **删除历史记录级联清理 + 批量删除** | 已完成 + QA 通过（含 SOP + inference 两种类型验证）：级联清理 7 类资源 + 批量删除 API（POST）+ 前端多选/全选。QA 修复 3 项：路由顺序 Bug、Checkbox 对比度、pending 状态误跳过导致 inference 记录无法批量删除 | ~1天 |
 | **10** | ✅ `amount_analysis_test_plan.md` | 测试 + Bug 修复完成：FIX-1 扁平化 + FIX-2 prop 修复 + FIX-3 DataFrame truthiness×6 + FIX-4 Excel 重写 + FIX-5 Markdown 重写 + FIX-6 类型校验 | ~0.5天+0.5天修复 |
@@ -258,13 +260,13 @@ Week 2: ✅ 已完成（2026-04-15）
 
 Week 3-4:
   ├─ [P2] class_imbalance_handling_plan
-  └─ [P2] prior_rules_enhancement_plan（v1.1 精简版，~1天）
+  └─ [P2] ✅ prior_rules_enhancement_plan（v1.2 已实施）
 
 Week 5:
   ├─ [P2] ✅ Chat任务入口交互优化（轻量确认卡片 + 防重复机制，已完成）
   ├─ [P2] ✅ 删除历史记录级联清理 + 批量删除（已完成）
-  ├─ [P2] ✅ 金额维度分析功能测试（已执行，发现 B4 关键 Bug）
-  └─ [P2] 金额维度分析 Bug 修复 FIX-1~FIX-6（~2天）
+  ├─ [P2] ✅ 金额维度分析功能测试（FIX-1~6 修复 + 人工测试 AT-01~03 全通过，2026-06-01）
+  └─ [P2] ✅ 先验规则功能人工测试（PR-01~03 + COMBO-01 全通过，2026-06-01）
 
 后续迭代:
   ├─ [P3] report_config_driven_plan Phase 2（业务功能完善后）
@@ -288,4 +290,73 @@ Week 5:
 4. **Chat任务入口交互优化** 放在 P2 末尾 — 需要前面的业务功能稳定后再优化交互入口
 5. **report_config_driven** 降至 P3 — 优先完善业务功能，报告生成后续再处理
 6. **analysis_prompt_refactor Phase 3** 建议暂缓 — 待评估实际收益后再决定
+
+---
+
+## 🐛 Bug 修复记录（2026-04-22 ~ 04-23）
+
+### B-OOT-1: preprocess one-hot 编码未排除 exclude_cols（2026-04-22）
+- **影响**: P1-5 OOT 验证测试 TC001/TC005/TC008 失败（sample_type 列被删除）
+- **根因**: `DataPreprocessor.preprocess` Step 7 调用 `onehot_encode` 时未传入 `exclude_cols`，导致 `sample_type` 字符串列被 one-hot 编码后删除原始列
+- **修复**: `rule_mining.py` preprocess 中将 `all_exclude_cols` 加入 `force_numeric`，防止排除列被 one-hot 编码
+- **验证**: P1-5 OOT Phase 6 测试 8/8 全部通过
+
+### B-CHAT-1: 任务执行中 TaskConfirmCard 渲染为 raw JSON（2026-04-23）
+- **影响**: 有 SOP 任务执行中时，对话框输入触发任务识别后显示 "Code json" 而非确认卡片
+- **根因**: 双重问题：①后端 extraction 模式走了 code execution 路径注入 `<Code>` 标签 prompt 与 JSON 输出指令冲突；②前端防重复确认机制 `isSOPExecuting && selectedTaskId === taskType` 时把纯 JSON 用 `renderMarkdownContent` 渲染
+- **修复**: ①`chat_api.py` extraction 模式走 `_simple_chat_completion`；②前端将 raw JSON fallback 改为友好提示文本；③`<Code>` section 内增加 `isTaskParamJson` 防御性检测
+- **文件**: `API/chat_api.py`, `demo/chat/components/three-panel-interface.tsx`
+
+### B-RESUME-1: 重启后恢复任务点击「继续」无效（2026-04-23）
+- **影响**: 后端重启后，恢复暂停状态的历史任务，点击「继续」按钮任务不推进
+- **根因**: `get_execution_status` 轮询时自动将 context 从持久化存储恢复到 `ExecutionStore`（用于前端展示），导致 resume API 误判为"有活跃线程在等待信号"（`context.status == PAUSED`），走了发信号分支而非重新启动执行器分支。实际上重启后没有活跃 Pipeline 线程，信号无人接收
+- **修复**: `sop_api.py` resume 逻辑增加 `_is_task_running(execution_id)` 活跃线程检查，无活跃线程时走"从持久化加载→重新启动执行器"分支
+- **文件**: `API/sop_api.py`
+
+### B-STATUS-1: 任务完成（100%）但历史列表显示"执行中"（2026-04-23）
+- **影响**: 任务 Pipeline 正常跑完所有阶段，progress=100%，但历史记录列表显示「执行中」（转圈）
+- **根因**: `execute_async` 中 `_run_task` 成功后 `_save_results` 可能抛异常（如结果序列化失败），导致数据库 status 字段未从 `running` 更新为 `completed`。内存 context 已是 COMPLETED（由 `_run_task` 第1064行设置），但数据库不一致
+- **修复**: `executor.py` `execute_async` 的 `finally` 块中增加安全网——检测 context.status=COMPLETED 但数据库 status≠completed 时，补一次 `update_status` 调用
+- **数据修复**: 已通过 SQL 将 `rec-9f1ac0959c35` 从 running 修正为 completed
+- **文件**: `deepanalyze/analysis/task_SOP/executor.py`
+
+### B-RETRY-1: 阶段重试后旧线程继续执行导致状态混乱（2026-04-24）
+- **影响**: 专家模式下完成模型评估后暂停，回到数据加载调参重试，旧线程继续执行 report_generation 导致任务直接完成/WOE分箱卡住
+- **根因**: 旧线程在 `_check_control` 的 `time.sleep(0.1)` 暂停轮询中等待，retry API 无法可靠终止同步线程。`asyncio.task.cancel()` 无法中断同步线程；STOP 信号产生的 `TaskStoppedException` 被 `_check_control` 外层的 `except Exception` 吞掉；新旧线程共享同一 execution_id 的控制信号，resume 信号同时唤醒两个线程
+- **修复**（execution_version 机制）:
+  - `ExecutionContext` 新增 `_execution_version` 字段，retry API 每次递增
+  - `pipeline_progress_callback` 和 `check_stop_callback` 每次调用时检查版本号，不匹配则抛 `TaskStoppedException`
+  - Pipeline 每个阶段的 progress 上报（0%/20%/.../100%）都会触发检查，旧线程在尝试开始下一阶段时自动退出
+  - `_check_control` 中 `TaskStoppedException` 不再被 `except Exception` 吞掉（加了 `except TaskStoppedException: raise`）
+  - retry 场景下 `_run_task` 跳过暂停恢复路径（检测 `retry_from_stage` 有值时直接进入 retry 逻辑）
+  - 从首阶段重试时清空 `cached_state` 和 `start_from_stage`（完全从头执行）
+- **文件**: `deepanalyze/analysis/task_SOP/executor.py`, `API/sop_api.py`
+
+### B-RETRY-2: 最优选择阶段重试后报告生成崩溃（2026-04-24）
+- **影响**: 规则挖掘任务在最优选择阶段重试后继续执行报告生成时，`UnboundLocalError: all_rules_with_status`
+- **根因**: `all_rules_with_status` 在 `evaluating_rules` 阶段赋值，但重试 `selecting_rules` 时 `evaluating_rules` 被跳过（用缓存），变量未定义
+- **修复**: `run` 方法开头初始化 `all_rules_with_status = None`；`selecting_rules` 使用前检查是否为 None，从 `results` 缓存恢复
+- **文件**: `deepanalyze/analysis/task_SOP/rule_mining.py`
+
+### B-MODEL-1: 迭代验证循环 const 死循环（2026-04-24）
+- **影响**: `significance_mode='remove'` 时，迭代验证循环每轮尝试移除截距项 `const` 但无法匹配 `woe_feature_cols`，导致死循环跑满最大迭代次数
+- **根因**: `model.summary()` 返回的 p 值列表包含截距项 `const`，未过滤即参与显著性检查
+- **修复**: ①过滤 `const` 不参与显著性检查；②`summary()` 失败时加明确 warning；③默认迭代上限 10→20
+- **验证**: 单元测试 4/4 通过 + 手动端到端测试通过
+- **文件**: `deepanalyze/analysis/task_SOP/scorecard_development.py`
+
+### B-STATS-1: class_weight='balanced' 导致似然比检验和伪R²计算异常（2026-04-24）
+- **影响**: 使用 `imbalance_strategy=auto/class_weight` 时，模型训练阶段显示 pseudo_r²=-204%、似然比检验 p=1.0000，AI 分析给出"模型整体有效性存在严重问题"的错误结论
+- **根因**: `statistical_model.py` 的 `_calculate_statistics` 和 `_calculate_model_fit_stats` 使用无加权的标准对数似然公式，但 `predict_proba` 来自 `class_weight='balanced'` 训练的模型。加权模型的预测概率偏向少数类，在未加权评估下比 null model 还差
+- **修复**（方案A：加权似然公式）:
+  - 新增 `_compute_effective_weights()` 方法，用 `sklearn.utils.class_weight.compute_sample_weight` 合并 `class_weight` + `sample_weight`
+  - `_calculate_statistics()` 使用加权 Hessian：`H = X^T * diag(w·p·(1-p)) * X`
+  - `_calculate_model_fit_stats()` 使用加权似然：`sum(w_i·[y_i·log(p_i) + (1-y_i)·log(1-p_i)])`，加权 `null_proba = sum(w·y)/sum(w)`
+  - `summary()` 新增 `class_weight_applied` 布尔标记
+  - `scorecard_development.py` output_preview 的 `model_fit` 字典新增 `class_weight_applied` 字段
+- **验证**: 修复后 pseudo_r²=0.9038、lr_pvalue=0.0；单元测试 8/8 通过（含极端 1% 不平衡场景）
+- **文件**: `deepanalyze/analysis/statistical_model.py`, `deepanalyze/analysis/task_SOP/scorecard_development.py`
+
+
+
 

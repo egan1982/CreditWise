@@ -479,7 +479,8 @@ imbalanced-learn>=0.10.0  # SMOTE, RandomUnderSampler, Tomek Links
 
 ### 4.4 测试用例
 
-> **Phase 1 MVP 实际测试**: 见上方 Eng Review §📋测试覆盖度（10/10 全部通过，真实数据验证）
+> **Phase 1 MVP 实际测试**: 见上方 Eng Review §📋测试覆盖度（10/10 全部通过，真实数据验证）  
+> **人工 Pipeline 测试**: 见 [`class_imbalance_manual_test_guide.md`](./class_imbalance_manual_test_guide.md)（7 个 WebUI 端到端用例，含业务逻辑说明）
 
 原方案测试用例（Phase 2 SMOTE 相关，暂未实施）：
 

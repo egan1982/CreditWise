@@ -297,6 +297,9 @@ output_preview:
 |------|------|---------|
 | `AmountAnalyzer` | `rule_mining.py` L3710-3980 | 单条规则金额指标计算逻辑可复用 |
 | `PriorRuleAnalyzer` | `rule_mining.py` L3476-3707 | 先验规则解析、增量贡献计算可复用 |
+| `PriorRuleParser` | `prior_rule_parser.py`（P2-7 新增） | **CSV 规则解析**：结构化/表达式格式自动识别、列名校验、`compare_thresholds()` 阈值对比。策略诊断的 `old_strategy` / `new_strategy` CSV 输入可直接复用 |
+| `PriorRulesInput.tsx` | `sop/PriorRulesInput.tsx`（P2-7 新增） | **前端策略输入组件**：手动输入 / 上传文件 / 从工作区选择三模式 + L1硬拒/L2警告/L3通过三级校验。策略诊断的新旧策略输入 UI 可直接复用或扩展 |
+| 三级校验逻辑 | `PriorRuleParser.validate_columns()` + `PriorRulesInput` 前端 | 策略诊断 Stage 1 的 `validation_result`（列名校验+格式校验）可直接复用 |
 | `DataPreprocessor.split_data()` | `scorecard_development.py` L374-512 | 数据集划分逻辑可复用 |
 | `_safe_eval_rule()` | `rule_mining.py` | 安全规则评估函数可复用 |
 | SOP Pipeline 框架 | `executor.py` + `*_meta.py` 模式 | 任务框架、阶段管理、进度回调完全复用 |
