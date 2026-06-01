@@ -46,8 +46,6 @@ import { sopService, TaskMeta, DataColumn, TaskParam } from "@/lib/sopService";
 import { cn } from "@/lib/utils";
 import { TaskGuideDialog } from "./TaskGuideDialog";
 import { DynamicParamRenderer, shouldShowParam } from "./DynamicParamRenderer";
-import { SensitiveCheckDialog, SensitiveCheckResult } from "./SensitiveCheckDialog";
-import { getApiUrl } from "@/lib/config";
 
 // =============================================================================
 // 类型定义
@@ -258,11 +256,6 @@ export function TaskConfigPanel({
 }: TaskConfigPanelProps) {
   // 状态
   const [taskMeta, setTaskMeta] = useState<TaskMeta | null>(null);
-
-  // 敏感信息检测状态
-  const [sensitiveResult, setSensitiveResult] = useState<SensitiveCheckResult | null>(null);
-  const [sensitiveDialogOpen, setSensitiveDialogOpen] = useState(false);
-  const [sensitiveCheckedFile, setSensitiveCheckedFile] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [formValues, setFormValues] = useState<Record<string, any>>({});
   const [columns, setColumns] = useState<DataColumn[]>([]);
@@ -584,30 +577,7 @@ export function TaskConfigPanel({
           </Label>
           <Select
             value={formValues.data_file || ""}
-            onValueChange={async (v) => {
-              updateValue("data_file", v);
-              // 选择新文件时触发敏感信息预检
-              if (v && v !== sensitiveCheckedFile) {
-                setSensitiveCheckedFile(v);
-                try {
-                  const resp = await fetch(getApiUrl("/sop/data/sensitive-check"), {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ file_path: v, session_id: sessionId, sample_rows: 100 }),
-                  });
-                  if (resp.ok) {
-                    const result: SensitiveCheckResult = await resp.json();
-                    if (result.has_sensitive && (result.max_level === "high" || result.max_level === "medium")) {
-                      setSensitiveResult(result);
-                      setSensitiveDialogOpen(true);
-                    }
-                  }
-                } catch (e) {
-                  // 检测失败不阻断用户操作，静默处理
-                  console.warn("Sensitive check failed:", e);
-                }
-              }
-            }}
+            onValueChange={(v) => updateValue("data_file", v)}
           >
             <SelectTrigger>
               <SelectValue placeholder="选择数据文件" />
@@ -716,24 +686,6 @@ export function TaskConfigPanel({
           </Button>
         </div>
       </CardContent>
-
-      {/* 敏感信息预检弹窗 */}
-      <SensitiveCheckDialog
-        open={sensitiveDialogOpen}
-        result={sensitiveResult}
-        fileName={sensitiveCheckedFile.split("/").pop() ?? sensitiveCheckedFile}
-        onConfirm={() => {
-          // 中危：用户确认继续使用
-          setSensitiveDialogOpen(false);
-        }}
-        onReselect={() => {
-          // 高危/用户重选：清空文件选择
-          updateValue("data_file", "");
-          setSensitiveCheckedFile("");
-          setSensitiveResult(null);
-          setSensitiveDialogOpen(false);
-        }}
-      />
     </Card>
   );
 }

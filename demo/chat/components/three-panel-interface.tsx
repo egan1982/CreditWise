@@ -93,6 +93,8 @@ import { ModeProvider, useModeContext, useIsExpertMode, InteractionMode } from "
 import { FileReference, FileReferenceList, formatFileReferencesForMessage } from "./FileReferenceTag";
 import { isTaskParamJson } from "@/lib/taskParamParser";
 import { TaskConfirmCard, CardStatus } from "./sop/TaskConfirmCard";
+import { SensitiveCheckDialog } from "./sop/SensitiveCheckDialog";
+import type { SensitiveCheckResult } from "./sop/SensitiveCheckDialog";
 
 // 模型配置类型定义（与后端API响应匹配）
 interface ModelConfig {
@@ -496,6 +498,11 @@ function ThreePanelInterfaceInner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const singleClickTimerRef = useRef<number | null>(null);
   const historyCompactRef = useRef<TaskHistoryCompactRef>(null);
+
+  // 敏感信息预检状态
+  const [sensitiveResult, setSensitiveResult] = useState<SensitiveCheckResult | null>(null);
+  const [sensitiveDialogOpen, setSensitiveDialogOpen] = useState(false);
+  const [sensitiveFileName, setSensitiveFileName] = useState<string>("");
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(
     null
   );
@@ -805,6 +812,31 @@ function ThreePanelInterfaceInner() {
       await loadWorkspaceFiles();
       setUploadMsg(`上传成功 ${arr.length} 个文件`);
       setTimeout(() => setUploadMsg(""), 2000);
+
+      // 上传成功后对 CSV 文件触发敏感信息预检（个保法合规）
+      const csvFiles = arr.filter(f => f.name.toLowerCase().endsWith(".csv"));
+      for (const csvFile of csvFiles) {
+        try {
+          const filePath = dirPath ? `${dirPath}/${csvFile.name}` : csvFile.name;
+          const resp = await authFetch(getApiUrl("/sop/data/sensitive-check"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ file_path: filePath, session_id: sessionId, sample_rows: 100 }),
+          });
+          if (resp.ok) {
+            const result: SensitiveCheckResult = await resp.json();
+            if (result.has_sensitive && (result.max_level === "high" || result.max_level === "medium")) {
+              setSensitiveResult(result);
+              setSensitiveFileName(csvFile.name);
+              setSensitiveDialogOpen(true);
+              break; // 一次只展示一个文件的结果，逐一处理
+            }
+          }
+        } catch (e) {
+          // 检测失败静默处理，不阻断正常上传流程
+          console.warn("Sensitive check failed for", csvFile.name, e);
+        }
+      }
     } catch (e) {
       console.error("upload to dir error", e);
       setUploadMsg("上传失败");
@@ -4939,6 +4971,23 @@ function ThreePanelInterfaceInner() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 敏感信息预检弹窗 - 文件上传后自动触发（个保法合规） */}
+      <SensitiveCheckDialog
+        open={sensitiveDialogOpen}
+        result={sensitiveResult}
+        fileName={sensitiveFileName}
+        onConfirm={() => {
+          // 中危：用户确认继续
+          setSensitiveDialogOpen(false);
+          setSensitiveResult(null);
+        }}
+        onReselect={() => {
+          // 高危/重选：关闭弹窗（文件已上传到 workspace，用户需手动删除并重传脱敏版本）
+          setSensitiveDialogOpen(false);
+          setSensitiveResult(null);
+        }}
+      />
     </>
   );
 }
