@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { getApiUrl } from "@/lib/config";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -216,7 +217,7 @@ export function TaskHistoryList({
         params.set("status", statusFilter);
       }
 
-      const response = await fetch(`/api/sop/history?${params.toString()}`);
+      const response = await fetch(getApiUrl(`/sop/history?${params.toString()}`));
       if (!response.ok) {
         throw new Error("Failed to load history");
       }
@@ -242,7 +243,7 @@ export function TaskHistoryList({
 
     setDeleting(true);
     try {
-      const response = await fetch(`/api/sop/history/${recordToDelete}`, {
+      const response = await fetch(getApiUrl(`/sop/history/${recordToDelete}`), {
         method: "DELETE",
       });
 

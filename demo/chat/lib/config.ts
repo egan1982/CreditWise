@@ -98,32 +98,58 @@ const AUTH_STORAGE_KEY = 'creditwise_auth';
 /**
  * 获取保存的 Basic Auth 凭证
  */
-function getStoredAuth(): string | null {
+export function getStoredAuth(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem(AUTH_STORAGE_KEY);
 }
 
 /**
- * 弹出登录提示，保存凭证到 localStorage
- * 返回 Base64 编码的凭证
+ * 保存凭证到 localStorage
  */
-function promptLogin(): string | null {
-  const username = window.prompt('CreditWise 登录 — 用户名:');
-  if (!username) return null;
-  const password = window.prompt('密码:');
-  if (password === null) return null;
+export function saveAuth(username: string, password: string): string {
   const encoded = btoa(`${username}:${password}`);
   localStorage.setItem(AUTH_STORAGE_KEY, encoded);
   return encoded;
 }
 
 /**
+ * 清除已保存的凭证
+ */
+export function clearAuth(): void {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+// -----------------------------------------------------------------------------
+// 登录对话框回调注册
+// 允许 LoginDialog 组件注册一个异步弹窗函数，供 authFetch 调用
+// -----------------------------------------------------------------------------
+
+type LoginCallback = () => Promise<string | null>;
+let _loginCallback: LoginCallback | null = null;
+
+export function registerLoginCallback(cb: LoginCallback): void {
+  _loginCallback = cb;
+}
+
+async function promptLogin(): Promise<string | null> {
+  if (_loginCallback) {
+    return _loginCallback();
+  }
+  // 降级：登录组件尚未挂载时用 window.prompt（启动瞬间的极短窗口期）
+  const username = window.prompt('CreditWise 登录 — 用户名:');
+  if (!username) return null;
+  const password = window.prompt('密码:');
+  if (password === null) return null;
+  return saveAuth(username, password);
+}
+
+/**
  * 带认证的 fetch 封装
- * 
+ *
  * - 自动从 localStorage 读取 Basic Auth 凭证并注入 Authorization header
- * - 首次请求或凭证过期（401）时，弹出浏览器 prompt 让用户输入账号密码
+ * - 首次请求或凭证过期（401）时，通过 LoginDialog 弹窗让用户输入账号密码
  * - 用法与原生 fetch 完全一致
- * 
+ *
  * @example
  *   const res = await authFetch(getApiUrl('/sop/tasks'));
  *   const res = await authFetch(getApiUrl('/v1/chat/completions'), { method: 'POST', body: ... });
@@ -131,9 +157,9 @@ function promptLogin(): string | null {
 export const authFetch = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
   let auth = getStoredAuth();
 
-  // 如果没有保存的凭证，先弹出登录提示
+  // 如果没有保存的凭证，弹出登录对话框
   if (!auth) {
-    auth = promptLogin();
+    auth = await promptLogin();
     if (!auth) {
       return new Response(JSON.stringify({ detail: 'Login cancelled' }), {
         status: 401,
@@ -146,24 +172,58 @@ export const authFetch = async (url: string | URL | Request, init?: RequestInit)
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Basic ${auth}`);
 
-  const response = await fetch(url, {
-    ...init,
-    headers,
-  });
+  const response = await fetch(url, { ...init, headers });
 
-  // 如果返回 401，说明凭证无效，清除并重试一次
+  // 如果返回 401，说明凭证无效或已过期，清除后重新登录
   if (response.status === 401) {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    const newAuth = promptLogin();
+    clearAuth();
+    const newAuth = await promptLogin();
     if (!newAuth) return response;
 
     const retryHeaders = new Headers(init?.headers);
     retryHeaders.set('Authorization', `Basic ${newAuth}`);
-    return fetch(url, {
-      ...init,
-      headers: retryHeaders,
-    });
+    return fetch(url, { ...init, headers: retryHeaders });
   }
 
   return response;
 };
+
+// -----------------------------------------------------------------------------
+// 全局 fetch 拦截器
+//
+// 目的：所有组件中的裸 fetch() 调用（未使用 authFetch）也能自动携带凭证，
+// 避免后端返回 401 + WWW-Authenticate 触发浏览器原生弹窗。
+//
+// 策略：
+//   - 只对本站请求（相对路径 或 同 origin）注入 Authorization
+//   - 凭证已存在时注入；不存在时不注入（不触发登录弹窗，让 authFetch 负责登录流程）
+//   - 不拦截已带 Authorization 头的请求（authFetch 自身的调用）
+// -----------------------------------------------------------------------------
+
+if (typeof window !== 'undefined') {
+  const _originalFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const urlStr = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.href
+        : (input as Request).url;
+
+    const isSameOrigin =
+      urlStr.startsWith('/') ||
+      urlStr.startsWith(window.location.origin);
+
+    if (isSameOrigin) {
+      const existingHeaders = new Headers(init?.headers);
+      // 仅在尚未带 Authorization 且有已保存凭证时注入
+      if (!existingHeaders.has('Authorization')) {
+        const auth = getStoredAuth();
+        if (auth) {
+          existingHeaders.set('Authorization', `Basic ${auth}`);
+          return _originalFetch(input, { ...init, headers: existingHeaders });
+        }
+      }
+    }
+    return _originalFetch(input, init);
+  };
+}

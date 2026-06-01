@@ -6,6 +6,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
+import LoginDialog from "@/components/LoginDialog";
 
 export const metadata: Metadata = {
   title: "CreditWise",
@@ -47,6 +48,7 @@ export default function RootLayout({
           <ThemeProvider defaultTheme="light" storageKey="theme">
             {children}
             <Toaster />
+            <LoginDialog />
           </ThemeProvider>
         </Suspense>
       </body>
