@@ -55,3 +55,4 @@ export { PriorRulesInput } from "./PriorRulesInput";
 // 任务历史组件
 export { TaskHistoryList } from "./TaskHistoryList";
 export { TaskHistoryCompact } from "./TaskHistoryCompact";
+export type { TaskHistoryCompactRef } from "./TaskHistoryCompact";

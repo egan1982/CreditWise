@@ -1,7 +1,7 @@
 "use client";
 
 import { getApiUrl } from "@/lib/config";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useImperativeHandle, forwardRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -61,6 +61,10 @@ interface TaskHistoryCompactProps {
   onViewDetail?: (recordId: string) => void;
   onLoadResult?: (recordId: string) => void;
   className?: string;
+}
+
+export interface TaskHistoryCompactRef {
+  refresh: () => void;
 }
 
 // =============================================================================
@@ -272,11 +276,11 @@ function TaskCard({
 // 主组件
 // =============================================================================
 
-export function TaskHistoryCompact({
+export const TaskHistoryCompact = forwardRef<TaskHistoryCompactRef, TaskHistoryCompactProps>(function TaskHistoryCompact({
   onViewDetail,
   onLoadResult,
   className,
-}: TaskHistoryCompactProps) {
+}, ref) {
   const [records, setRecords] = useState<TaskHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -380,6 +384,11 @@ export function TaskHistoryCompact({
   useEffect(() => {
     loadRecords();
   }, [page, categoryFilter]);
+
+  // 暴露 refresh 方法给父组件（任务完成后自动刷新）
+  useImperativeHandle(ref, () => ({
+    refresh: loadRecords,
+  }));
 
   // 删除记录
   const handleDelete = async () => {
@@ -638,6 +647,6 @@ export function TaskHistoryCompact({
       </Dialog>
     </div>
   );
-}
+});
 
 export default TaskHistoryCompact;

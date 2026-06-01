@@ -87,6 +87,7 @@ import {
   ModeSelector,
   TaskHistoryCompact,
 } from "./sop";
+import type { TaskHistoryCompactRef } from "./sop";
 import { sopService, ExecutionStatus, StageProgress } from "@/lib/sopService";
 import { ModeProvider, useModeContext, useIsExpertMode, InteractionMode } from "@/hooks/use-mode";
 import { FileReference, FileReferenceList, formatFileReferencesForMessage } from "./FileReferenceTag";
@@ -408,6 +409,9 @@ function ThreePanelInterfaceInner() {
   const [completedExecutionId, setCompletedExecutionId] = useState<string | null>(null);
   const [sopExecutionStatus, setSopExecutionStatus] = useState<ExecutionStatus | null>(null);
   // 轮询重启触发器：paused 状态停止轮询后，用户操作（继续/重试/跳过）时递增此值重启轮询
+
+  // SOP 模式：任意 SOP 面板激活时为 true，此时 Chat 消息区自动隐藏，释放空间给 SOP 工作区
+  const isSopMode = showConfigPanel || isSOPExecuting || showResults;
   const [pollTrigger, setPollTrigger] = useState(0);
   const restartPolling = () => setPollTrigger(prev => prev + 1);
   // 结果视图模式：results=显示最终结果，stages=显示阶段详情
@@ -491,6 +495,7 @@ function ThreePanelInterfaceInner() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const singleClickTimerRef = useRef<number | null>(null);
+  const historyCompactRef = useRef<TaskHistoryCompactRef>(null);
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(
     null
   );
@@ -2742,6 +2747,9 @@ function ThreePanelInterfaceInner() {
     // 任务结束后清除executionId，停止轮询
     setCurrentExecutionId(null);
     // 保留sopExecutionStatus以便查看阶段卡片
+    
+    // 任务结束（完成/失败/停止）时自动刷新历史记录列表
+    historyCompactRef.current?.refresh();
     setSopExecutionStatus(status);
     // Phase 10 修复：任务完成后不再清除historyTaskInteractionMode和historyTaskRecordId
     // 这样可以保持专家模式任务完成后仍然显示专家模式的结果页面，而不是切换到自动模式
@@ -3686,6 +3694,7 @@ function ThreePanelInterfaceInner() {
                 {showTaskHistory && (
                   <div className="flex-1 min-h-0 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/30 overflow-hidden">
                     <TaskHistoryCompact
+                      ref={historyCompactRef}
                       onViewDetail={handleViewTaskDetail}
                       className="h-full"
                     />
@@ -3986,7 +3995,7 @@ function ThreePanelInterfaceInner() {
 
               {/* SOP配置面板 - 统一使用TaskConfigPanel动态渲染 */}
               {showConfigPanel && selectedTaskId && (
-                <div className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 max-h-[70vh] overflow-y-auto overscroll-contain">
+                <div className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 flex-1 overflow-y-auto overscroll-contain">
                   <TaskConfigPanel
                     taskId={selectedTaskId}
                     sessionId={sessionId}
@@ -4013,7 +4022,7 @@ function ThreePanelInterfaceInner() {
 
               {/* SOP任务进度 - 仅在执行中显示，头部固定+内容可滚动 */}
               {currentExecutionId && isSOPExecuting && (
-                <div className="border-b border-gray-200 dark:border-gray-800 bg-blue-50 dark:bg-blue-900/20 flex flex-col max-h-[50vh]">
+                <div className="border-b border-gray-200 dark:border-gray-800 bg-blue-50 dark:bg-blue-900/20 flex flex-col flex-1 min-h-0">
                   {/* 固定头部：模式标签 + 进度条 + 控制按钮 */}
                   <div className="flex-shrink-0 p-4 pb-2">
                     {/* 显示当前模式标签 + 返回按钮 */}
@@ -4086,7 +4095,7 @@ function ThreePanelInterfaceInner() {
               {/* 显示条件：showResults为true 且 不在执行中（避免与上方执行中视图重复） */}
               {!isSOPExecuting && ((showResults && completedExecutionId) || 
                 (sopExecutionStatus && (sopExecutionStatus.status === "completed" || sopExecutionStatus.status === "failed" || sopExecutionStatus.status === "cancelled" || sopExecutionStatus.status === "stopped" || sopExecutionStatus.status === "paused"))) && (
-                <div className="border-b border-gray-200 dark:border-gray-800 max-h-[70vh] overflow-y-auto">
+                <div className="border-b border-gray-200 dark:border-gray-800 flex-1 overflow-y-auto min-h-0">
                   {/* 视图切换头部 */}
                   <div className="sticky top-0 z-10 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
                     <div className="flex items-center justify-between">
@@ -4234,14 +4243,14 @@ function ThreePanelInterfaceInner() {
                 </div>
               )}
 
-              {/* Chat Messages */}
+              {/* Chat Messages - SOP 面板激活时收缩为 h-0，让 SOP 面板撑满剩余空间 */}
               <div
                 ref={messagesContainerRef}
-                className={`flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-4 py-4 pr-5 space-y-6 ${
+                className={`min-w-0 overflow-y-auto overflow-x-hidden px-4 py-4 pr-5 space-y-6 ${
                   isTyping ? "scrollbar-hide" : "scrollbar-auto"
-                }`}
+                } ${isSopMode ? "h-0 flex-none" : "flex-1 min-h-0"}`}
               >
-                {messages.map((message, msgIdx) => (
+                {!isSopMode && messages.map((message, msgIdx) => (
                   <div key={message.id} className="space-y-2">
                     {message.sender === "user" ? (
                       <div className="flex items-start justify-end gap-2">
