@@ -30,7 +30,7 @@ print("[SOP API] Basic imports done")
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -2505,20 +2505,58 @@ async def resume_execution(execution_id: str) -> TaskControlResponse:
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
     
-    # Check if task is paused (via persistent record)
+    # Check if task is paused (via persistent record OR in-memory context)
     record = TaskHistoryService.get_record_by_execution_id(execution_id)
-    if not record or record.get("status") != "paused":
-        logger.error(f"[Resume] Task is not paused, status={record.get('status') if record else 'None'}")
+    record_status = record.get("status") if record else None
+    
+    # 也检查内存中的 context 状态（可能比数据库更新）
+    mem_context = ExecutionStore.get(execution_id)
+    mem_status = mem_context.status.value if mem_context else None
+    
+    is_paused = (record_status == "paused" or mem_status == "paused")
+    
+    if not record or not is_paused:
+        logger.error(f"[Resume] Task is not paused, record_status={record_status}, mem_status={mem_status}")
         raise HTTPException(
             status_code=400,
-            detail="只能恢复已暂停的任务"
+            detail=f"只能恢复已暂停的任务（当前状态: {record_status or mem_status or '未知'}）"
         )
     
     logger.info(f"[Resume] Task is paused, record: {record.get('record_id')}")
     
-    # 对于恢复任务，必须从持久化存储重新加载context
-    # 因为ExecutionStore中的内存context可能不准确（任务暂停后执行器已退出）
-    logger.info(f"[Resume] Loading context from persistent storage for resume: {execution_id}")
+    # 优先检查内存中的 context（Pipeline 线程可能仍在 _check_control 中阻塞等待 RESUME）
+    context = ExecutionStore.get(execution_id)
+    
+    # 关键：不仅要检查 context 存在且 PAUSED，还要确认有活跃的 Pipeline 线程在等待信号
+    # get_execution_status 会自动从持久化存储恢复 context 到 ExecutionStore（用于前端展示），
+    # 但此时没有活跃线程在 _check_control 中阻塞等待 RESUME 信号。
+    # 如果只靠 context.status == PAUSED 判断，会误走"发信号"分支导致 resume 无效。
+    has_active_thread = _is_task_running(execution_id)
+    
+    if context and context.status == ExecutionStatus.PAUSED and has_active_thread:
+        # Pipeline 线程仍在阻塞等待，直接发 RESUME 信号即可
+        logger.info(f"[Resume] Found active in-memory context (PAUSED) with active thread, sending resume signal: {execution_id}")
+        TaskController.request_resume(execution_id)
+        
+        # 等待 Pipeline 线程实际处理 RESUME 信号（最多 500ms）
+        # 避免前端轮询时拉到旧的 paused 状态
+        import time
+        for _ in range(10):
+            await asyncio.sleep(0.05)  # 50ms 间隔检查
+            refreshed = ExecutionStore.get(execution_id)
+            if refreshed and refreshed.status != ExecutionStatus.PAUSED:
+                logger.info(f"[Resume] Status confirmed changed to: {refreshed.status.value}")
+                break
+        
+        return TaskControlResponse(
+            success=True,
+            message="恢复请求已发送",
+            execution_id=execution_id,
+            current_status="running"
+        )
+    
+    # 内存中没有 context 或 status 不是 PAUSED（如服务重启后），从持久化存储加载
+    logger.info(f"[Resume] No active in-memory context, loading from persistent storage: {execution_id}")
     context = PersistentExecutionStore.load_full_state(execution_id)
     
     if not context:
@@ -2526,27 +2564,11 @@ async def resume_execution(execution_id: str) -> TaskControlResponse:
         raise HTTPException(
             status_code=404, 
             detail=f"Execution not found in persistent storage: {execution_id}"
-            )
+        )
     
-    # 恢复context到ExecutionStore
+    # 恢复 context 到 ExecutionStore
     ExecutionStore.update(context)
     logger.info(f"[Resume] Loaded and restored context: {execution_id}, status={context.status}, current_stage={context.current_stage}")
-    
-    # If not found in memory, try to load from persistent storage
-    if not context:
-        logger.info(f"[Resume] Context not found in ExecutionStore, loading from persistent storage: {execution_id}")
-        context = PersistentExecutionStore.load_full_state(execution_id)
-        
-        if not context:
-            logger.error(f"[Resume] Execution not found in persistent storage: {execution_id}")
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Execution not found in persistent storage: {execution_id}"
-            )
-        
-        # Restore context to ExecutionStore for subsequent operations
-        ExecutionStore.update(context)
-        logger.info(f"[Resume] Restored context to ExecutionStore: {execution_id}")
     
     # 设置恢复标志，让正在运行的执行器检测到并继续执行
     # 如果没有正在运行的执行器（比如重启后），则重新启动执行器
@@ -2895,11 +2917,16 @@ async def retry_stage(
         ExecutionStore.update(context)
         logger.info(f"[Retry Stage] Restored context to ExecutionStore: {execution_id}")
     
-    # 检查任务是否处于暂停状态
-    if context.status != ExecutionStatus.PAUSED:
+    # 检查任务是否处于暂停状态（内存 context 或数据库记录，任一为 paused 即可）
+    record = TaskHistoryService.get_record_by_execution_id(execution_id)
+    record_status = record.get("status") if record else None
+    mem_status = context.status.value if context else None
+    is_paused = (mem_status == "paused" or record_status == "paused")
+    
+    if not is_paused:
         raise HTTPException(
             status_code=400, 
-            detail=f"任务不是暂停状态，无法重试。当前状态: {context.status.value}"
+            detail=f"任务不是暂停状态，无法重试（内存状态: {mem_status}, 数据库状态: {record_status}）"
         )
     
     try:
@@ -2968,14 +2995,38 @@ async def retry_stage(
             except Exception as e:
                 logger.warning(f"[Retry Stage] Failed to invalidate checkpoints: {e}")
         
-        # Phase 19: 检查是否有正在运行的任务
-        # 如果有，取消它并重新启动（避免竞态条件）
-        # 如果没有，也需要启动新任务（因为暂停状态下后台任务可能已退出）
+        # Phase 19: 终止旧线程并启动新任务
+        # 递增 execution_version，旧线程在 progress_callback/stop_check_callback 中
+        # 检测到版本不匹配后自动抛出 TaskStoppedException 退出。
+        # 这比 STOP 信号更可靠，因为版本检查在 Pipeline 的每个 progress_callback 调用点都会执行，
+        # 不依赖异常穿透 try/except 层级。
+        context._execution_version += 1
+        context._aborted_for_retry = True
+        logger.info(f"[Retry Stage] Incremented execution_version to {context._execution_version}")
+        
         if _is_task_running(execution_id):
-            logger.info(f"[Retry Stage] Found running task for {execution_id}, will cancel and restart")
-            await _cancel_existing_task(execution_id)
+            logger.info(f"[Retry Stage] Found running task for {execution_id}, sending STOP + version bump to terminate old thread")
+            TaskController.request_stop(execution_id)
+            # 等待旧线程退出（最多等3秒）
+            for _ in range(30):
+                await asyncio.sleep(0.1)
+                if not _is_task_running(execution_id):
+                    break
+            if _is_task_running(execution_id):
+                logger.warning(f"[Retry Stage] Old thread didn't exit after 3s, force cancelling")
+                await _cancel_existing_task(execution_id)
+            else:
+                logger.info(f"[Retry Stage] Old thread exited cleanly")
+            TaskController.clear_control(execution_id)
+            context._aborted_for_retry = False
         else:
-            logger.info(f"[Retry Stage] No running task for {execution_id}, will start new task")
+            logger.info(f"[Retry Stage] No running task for {execution_id}")
+            context._aborted_for_retry = False
+        
+        # 重置 context 状态为 RUNNING
+        context.status = ExecutionStatus.RUNNING
+        context.message = "阶段重试中..."
+        ExecutionStore.update(context)
         
         # 启动新任务执行重试
         executor = get_executor()
@@ -4247,6 +4298,68 @@ async def build_overall_analysis_prompt(
             "focus_areas": config.ai_analysis_config.focus_areas if config else []
         }
     }
+
+
+# =============================================================================
+# P2-7: 先验规则解析
+# =============================================================================
+
+@router.post("/prior-rules/parse")
+async def parse_prior_rules(
+    file: UploadFile | None = File(None),
+    text: str | None = Form(None),
+    session_id: str | None = Form(None),
+    data_file: str | None = Form(None),
+):
+    """
+    解析先验规则（CSV 文件上传或文本输入）
+    
+    支持：
+    - CSV/Excel 文件上传（自动识别结构化/表达式格式）
+    - 文本直接输入（每行一条表达式）
+    
+    可选：提供 session_id + data_file 校验列名
+    """
+    import tempfile
+    import os
+    from deepanalyze.analysis.task_SOP.prior_rule_parser import PriorRuleParser
+    
+    parser = PriorRuleParser()
+    
+    if file and file.filename:
+        # F3 安全修复：用 tempfile 替代 /tmp/{filename}
+        suffix = os.path.splitext(file.filename)[1] or '.csv'
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        try:
+            parser.parse_csv(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+    elif text:
+        parser.parse_text(text)
+    else:
+        raise HTTPException(400, "需要提供文件或文本")
+    
+    # 可选列名校验
+    validation = None
+    if session_id and data_file and parser.rules:
+        try:
+            workspace_dir = os.path.join("workspace", session_id)
+            file_path = os.path.join(workspace_dir, data_file)
+            if os.path.exists(file_path):
+                sample_df = pd.read_csv(file_path, nrows=1)
+                validation = parser.validate_columns(set(sample_df.columns))
+        except Exception as e:
+            validation = {"error": str(e)}
+    
+    result = parser.to_dict()
+    if validation:
+        result["validation"] = validation
+    
+    return {"success": True, **result}
 
 
 # =============================================================================

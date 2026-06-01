@@ -23,7 +23,7 @@ RULE_MINING_TASK_META: Dict[str, Any] = {
     "task_name_en": "Rule Mining",
     "description": "基于决策树/阈值分箱的风控策略规则挖掘与效果评估",
     "category": "风控建模",
-    "icon": "target",
+    "icon": "🔍",
     "estimated_time": "3-10分钟",
     
     # ========== Chat 入口配置（新增） ==========
@@ -495,14 +495,19 @@ RULE_MINING_TASK_META: Dict[str, Any] = {
         # Advanced: Prior Rules Evaluation (used in report_generation stage for prior_analysis)
         {
             "name": "prior_rules",
-            "type": "textarea",
+            "type": "prior_rules_input",
             "label": "先验规则（可选）",
             "label_en": "Prior Rules",
             "default": "",
-            "description": "已有的生产规则列表，每行一条规则表达式。用于评估新规则的增量贡献",
+            "description": "已有的生产规则列表。支持手动输入（每行一条表达式）或上传CSV文件（结构化/表达式格式）",
             "placeholder": "例如：\n(age > 30)\n(income < 5000)",
             "stage": "report_generation",
-            "advanced": True
+            "advanced": True,
+            "options": {
+                "accept_formats": [".csv"],
+                "template_download": True,
+                "enable_validation": True
+            }
         },
         
         # Advanced: Amount Column for Amount Analysis (used in report_generation stage for amount_analysis)

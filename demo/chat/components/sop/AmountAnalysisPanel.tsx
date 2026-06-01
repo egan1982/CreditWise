@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign, TrendingUp, PieChart, Info } from "lucide-react";
+import { DollarSign, TrendingUp, PieChart, Info, BarChart3, Percent } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -40,11 +40,14 @@ interface RuleAmountMetrics {
 interface AmountAnalysis {
   total_amount: number;
   total_bad_amount: number;
+  overall_amount_bad_rate?: number;
   rules_amount: RuleAmountMetrics[];
   cumulative: {
     cum_hit_amount: number;
     cum_bad_amount: number;
     amount_recall: number;
+    cum_amount_bad_rate?: number;
+    cum_amount_lift?: number;
   };
 }
 
@@ -91,49 +94,73 @@ export function AmountAnalysisPanel({ analysis, className }: AmountAnalysisPanel
 
   return (
     <div className={cn("space-y-4", className)}>
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* Summary Cards - 3x2 layout */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {/* Row 1: Total metrics */}
         <Card>
-          <CardContent className="pt-4 pb-3">
+          <CardContent className="pt-3 pb-2">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
               <DollarSign className="h-3 w-3" />
               总金额
             </div>
-            <div className="text-lg font-bold">
+            <div className="text-base font-bold">
               {formatCurrency(analysis.total_amount)}
             </div>
           </CardContent>
         </Card>
         
         <Card>
-          <CardContent className="pt-4 pb-3">
+          <CardContent className="pt-3 pb-2">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
               <DollarSign className="h-3 w-3 text-red-500" />
               总坏账金额
             </div>
-            <div className="text-lg font-bold text-red-600">
+            <div className="text-base font-bold text-red-600">
               {formatCurrency(analysis.total_bad_amount)}
             </div>
           </CardContent>
         </Card>
         
         <Card>
-          <CardContent className="pt-4 pb-3">
+          <CardContent className="pt-3 pb-2">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
               <PieChart className="h-3 w-3" />
               累计命中金额
             </div>
-            <div className="text-lg font-bold">
+            <div className="text-base font-bold">
               {formatCurrency(analysis.cumulative?.cum_hit_amount)}
             </div>
           </CardContent>
         </Card>
-        
+
+        {/* Row 2: Rate metrics */}
         <Card>
-          <CardContent className="pt-4 pb-3">
+          <CardContent className="pt-3 pb-2">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <Percent className="h-3 w-3 text-orange-500" />
+              样本金额坏账率
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="h-3 w-3" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>总坏账金额 / 总金额（基准线）</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <div className="text-base font-bold text-orange-600">
+              {formatPercent(analysis.overall_amount_bad_rate)}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-3 pb-2">
             <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
               <TrendingUp className="h-3 w-3" />
-              金额召回率
+              金额累计召回率
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger>
@@ -145,8 +172,32 @@ export function AmountAnalysisPanel({ analysis, className }: AmountAnalysisPanel
                 </Tooltip>
               </TooltipProvider>
             </div>
-            <div className="text-lg font-bold text-green-600">
+            <div className="text-base font-bold text-green-600">
               {formatPercent(analysis.cumulative?.amount_recall)}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-3 pb-2">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
+              <BarChart3 className="h-3 w-3 text-purple-500" />
+              金额累计提升度
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="h-3 w-3" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>累计金额坏账率 / 样本金额坏账率</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <div className="text-base font-bold text-purple-600">
+              {analysis.cumulative?.cum_amount_lift != null
+                ? `${analysis.cumulative.cum_amount_lift.toFixed(2)}x`
+                : "N/A"}
             </div>
           </CardContent>
         </Card>

@@ -50,6 +50,7 @@ export { ScorecardResults } from "./ScorecardResults";
 export { ModelStatisticsPanel } from "./ModelStatisticsPanel";
 export { ScoreConverter } from "./ScoreConverter";
 export { AmountAnalysisPanel } from "./AmountAnalysisPanel";
+export { PriorRulesInput } from "./PriorRulesInput";
 
 // 任务历史组件
 export { TaskHistoryList } from "./TaskHistoryList";

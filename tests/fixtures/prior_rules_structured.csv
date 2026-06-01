@@ -1,0 +1,9 @@
+rule_id,rule_name,feature,operator,threshold,direction
+R001,高频交易标记,f26,>=,3,reject
+R002,近期异常交易,f28,>=,5,reject
+R003,大额累计交易,f30,>=,100,reject
+R004,多渠道活跃,f35,>=,5,reject
+R005,高占比指标,f40,>=,50,reject
+R006,风险二值标记,f45,==,1,reject
+R007,低活跃度筛除,f37,<,1,review
+R008,历史累计异常,f33,>=,10,reject

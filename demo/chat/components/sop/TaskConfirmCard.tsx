@@ -48,8 +48,9 @@ export interface TaskConfirmCardProps {
   status: CardStatus;
 }
 
-// 任务图标映射
+// 任务图标映射（使用 normalize 后的 task_id）
 const TASK_ICON_MAP: Record<string, string> = {
+  "scorecard_dev": "📊",
   "scorecard_development": "📊",
   "rule_mining": "🔍",
 };
@@ -187,7 +188,9 @@ export function TaskConfirmCard({
   }
 
   // === pending 状态（正常卡片） ===
-  const icon = TASK_ICON_MAP[taskType] || taskMeta.icon || "📋";
+  // 防御：后端 icon 可能是纯英文文本（如 "chart", "target"），需要 fallback 到 emoji
+  const rawIcon = TASK_ICON_MAP[taskType] || taskMeta.icon || "📋";
+  const icon = /^[a-zA-Z_-]+$/.test(rawIcon) ? (TASK_ICON_MAP[taskType] || "📋") : rawIcon;
   const stagesPreview = taskMeta.stages
     ?.slice(0, 5)
     .map((s) => s.name)

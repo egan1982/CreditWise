@@ -1520,7 +1520,7 @@ function ModelTrainingPreview({ data }: { data: Record<string, any> }) {
             {(config.significance_mode === 'remove' || config.coefficient_direction_mode === 'remove') && (
               <div className="p-2 bg-white dark:bg-slate-800 rounded col-span-2">
                 <div className="text-gray-500">最大迭代次数</div>
-                <div className="font-medium">{config.max_validation_iterations || 10}</div>
+                <div className="font-medium">{config.max_validation_iterations || 20}</div>
               </div>
             )}
           </div>

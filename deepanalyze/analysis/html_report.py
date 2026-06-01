@@ -1488,22 +1488,58 @@ def _generate_rule_mining_html_report(
         # 8.1 金额维度分析
         if amount_analysis and isinstance(amount_analysis, dict):
             html_parts.append('<h3 style="color:#2e7d32;margin:20px 0 15px;font-size:16px;">💰 金额维度分析</h3>')
-            html_parts.append('<h4 class="subsection-title">汇总指标</h4>')
-            html_parts.append('<table class="data-table info-table">')
-            
-            if 'total_amount' in amount_analysis:
-                html_parts.append(f'<tr><td>总金额</td><td>¥{amount_analysis["total_amount"]:,.2f}</td></tr>')
-            if 'total_bad_amount' in amount_analysis:
-                html_parts.append(f'<tr><td>总坏账金额</td><td>¥{amount_analysis["total_bad_amount"]:,.2f}</td></tr>')
             
             cumulative = amount_analysis.get('cumulative', {})
-            if cumulative:
-                if 'cum_hit_amount' in cumulative:
-                    html_parts.append(f'<tr><td>累计命中金额</td><td>¥{cumulative["cum_hit_amount"]:,.2f}</td></tr>')
-                if 'amount_recall' in cumulative:
-                    html_parts.append(f'<tr><td>金额召回率</td><td>{cumulative["amount_recall"]*100:.2f}%</td></tr>')
+            overall_bad_rate = amount_analysis.get('overall_amount_bad_rate')
             
-            html_parts.append('</table>')
+            # Summary cards - 3x2 grid
+            html_parts.append('<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px;">')
+            
+            # Row 1: Total metrics
+            total_amount = amount_analysis.get('total_amount', 0)
+            html_parts.append(f'''
+                <div style="background:#f0fdf4;padding:12px;border-radius:8px;border:1px solid #bbf7d0;">
+                    <div style="font-size:11px;color:#666;margin-bottom:4px;">💲 总金额</div>
+                    <div style="font-size:16px;font-weight:bold;color:#333;">¥{total_amount:,.2f}</div>
+                </div>''')
+            
+            total_bad = amount_analysis.get('total_bad_amount', 0)
+            html_parts.append(f'''
+                <div style="background:#fef2f2;padding:12px;border-radius:8px;border:1px solid #fecaca;">
+                    <div style="font-size:11px;color:#666;margin-bottom:4px;">💲 总坏账金额</div>
+                    <div style="font-size:16px;font-weight:bold;color:#dc2626;">¥{total_bad:,.2f}</div>
+                </div>''')
+            
+            cum_hit = cumulative.get('cum_hit_amount', 0) if cumulative else 0
+            html_parts.append(f'''
+                <div style="background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div style="font-size:11px;color:#666;margin-bottom:4px;">📊 累计命中金额</div>
+                    <div style="font-size:16px;font-weight:bold;color:#333;">¥{cum_hit:,.2f}</div>
+                </div>''')
+            
+            # Row 2: Rate metrics
+            bad_rate_val = overall_bad_rate if overall_bad_rate is not None else 0
+            html_parts.append(f'''
+                <div style="background:#fff7ed;padding:12px;border-radius:8px;border:1px solid #fed7aa;">
+                    <div style="font-size:11px;color:#666;margin-bottom:4px;">📋 样本金额坏账率</div>
+                    <div style="font-size:16px;font-weight:bold;color:#ea580c;">{bad_rate_val*100:.2f}%</div>
+                </div>''')
+            
+            recall = cumulative.get('amount_recall', 0) if cumulative else 0
+            html_parts.append(f'''
+                <div style="background:#f0fdf4;padding:12px;border-radius:8px;border:1px solid #bbf7d0;">
+                    <div style="font-size:11px;color:#666;margin-bottom:4px;">📈 金额累计召回率</div>
+                    <div style="font-size:16px;font-weight:bold;color:#16a34a;">{recall*100:.2f}%</div>
+                </div>''')
+            
+            cum_lift = cumulative.get('cum_amount_lift', 0) if cumulative else 0
+            html_parts.append(f'''
+                <div style="background:#faf5ff;padding:12px;border-radius:8px;border:1px solid #e9d5ff;">
+                    <div style="font-size:11px;color:#666;margin-bottom:4px;">📊 金额累计提升度</div>
+                    <div style="font-size:16px;font-weight:bold;color:#9333ea;">{cum_lift:.2f}x</div>
+                </div>''')
+            
+            html_parts.append('</div>')
             
             # Rules amount detail
             rules_amount = amount_analysis.get('rules_amount', [])
@@ -1513,9 +1549,11 @@ def _generate_rule_mining_html_report(
                 html_parts.append('''
                     <thead>
                         <tr>
-                            <th>规则</th>
+                            <th style="min-width:200px;">规则</th>
                             <th>命中金额</th>
                             <th>金额占比</th>
+                            <th>坏账金额</th>
+                            <th>金额坏账率</th>
                             <th>金额Lift</th>
                         </tr>
                     </thead>
@@ -1524,7 +1562,6 @@ def _generate_rule_mining_html_report(
                 
                 for item in rules_amount[:20]:
                     rule_text = str(item.get('rule', ''))
-                    display_rule = rule_text[:50] + "..." if len(rule_text) > 50 else rule_text
                     
                     hit_amount = item.get('hit_amount', 0)
                     hit_amount_str = f"¥{hit_amount:,.2f}" if isinstance(hit_amount, (int, float)) else '-'
@@ -1532,15 +1569,43 @@ def _generate_rule_mining_html_report(
                     hit_pct = item.get('hit_amount_pct', 0)
                     hit_pct_str = f"{hit_pct*100:.2f}%" if isinstance(hit_pct, (int, float)) else '-'
                     
+                    bad_amount = item.get('bad_amount', 0)
+                    bad_amount_str = f"¥{bad_amount:,.2f}" if isinstance(bad_amount, (int, float)) else '-'
+                    
+                    amount_bad_rate = item.get('amount_bad_rate', 0)
+                    amount_bad_rate_str = f"{amount_bad_rate*100:.2f}%" if isinstance(amount_bad_rate, (int, float)) else '-'
+                    
                     amount_lift = item.get('amount_lift', 0)
                     amount_lift_str = f"{amount_lift:.2f}" if isinstance(amount_lift, (int, float)) else '-'
                     
                     html_parts.append(f'''
                         <tr>
-                            <td class="rule-text" title="{rule_text}">{display_rule}</td>
+                            <td style="word-break:break-all;white-space:normal;font-family:monospace;font-size:12px;">{rule_text}</td>
                             <td>{hit_amount_str}</td>
                             <td>{hit_pct_str}</td>
+                            <td style="color:#dc2626;">{bad_amount_str}</td>
+                            <td>{amount_bad_rate_str}</td>
                             <td>{amount_lift_str}</td>
+                        </tr>
+                    ''')
+                
+                # Cumulative row
+                if cumulative:
+                    cum_hit = cumulative.get('cum_hit_amount', 0)
+                    cum_hit_str = f"¥{cum_hit:,.2f}" if isinstance(cum_hit, (int, float)) else '-'
+                    cum_hit_pct = cum_hit / amount_analysis.get('total_amount', 1) if amount_analysis.get('total_amount', 0) > 0 else 0
+                    cum_bad = cumulative.get('cum_bad_amount', 0)
+                    cum_bad_str = f"¥{cum_bad:,.2f}" if isinstance(cum_bad, (int, float)) else '-'
+                    recall = cumulative.get('amount_recall', 0)
+                    recall_str = f"{recall*100:.2f}%" if isinstance(recall, (int, float)) else '-'
+                    html_parts.append(f'''
+                        <tr style="background:#f5f5f5;font-weight:bold;">
+                            <td>累计</td>
+                            <td>{cum_hit_str}</td>
+                            <td>{cum_hit_pct*100:.2f}%</td>
+                            <td style="color:#dc2626;">{cum_bad_str}</td>
+                            <td style="color:#16a34a;">{recall_str}</td>
+                            <td>-</td>
                         </tr>
                     ''')
                 
@@ -1570,23 +1635,23 @@ def _generate_rule_mining_html_report(
                 html_parts.append(f'''
                     <div style="background:#e3f2fd;padding:12px;border-radius:8px;text-align:center;">
                         <div style="font-size:20px;font-weight:bold;color:#1976d2;">{matched_count}</div>
-                        <div style="font-size:12px;color:#666;">匹配到的规则</div>
+                        <div style="font-size:12px;color:#666;">新规则数</div>
                     </div>
                 ''')
                 
-                avg_recall = summary.get('avg_recall', 0)
+                incremental_recall = summary.get('incremental_recall', 0)
                 html_parts.append(f'''
                     <div style="background:#e8f5e9;padding:12px;border-radius:8px;text-align:center;">
-                        <div style="font-size:20px;font-weight:bold;color:#388e3c;">{avg_recall*100:.2f}%</div>
-                        <div style="font-size:12px;color:#666;">平均召回率</div>
+                        <div style="font-size:20px;font-weight:bold;color:#388e3c;">{incremental_recall*100:.2f}%</div>
+                        <div style="font-size:12px;color:#666;">增量召回率</div>
                     </div>
                 ''')
                 
-                avg_lift = summary.get('avg_lift', 0)
+                avg_overlap = summary.get('avg_overlap_rate', 0)
                 html_parts.append(f'''
                     <div style="background:#fff3e0;padding:12px;border-radius:8px;text-align:center;">
-                        <div style="font-size:20px;font-weight:bold;color:#f57c00;">{avg_lift:.2f}</div>
-                        <div style="font-size:12px;color:#666;">平均Lift</div>
+                        <div style="font-size:20px;font-weight:bold;color:#f57c00;">{avg_overlap*100:.2f}%</div>
+                        <div style="font-size:12px;color:#666;">平均重叠率</div>
                     </div>
                 ''')
                 
@@ -1600,12 +1665,11 @@ def _generate_rule_mining_html_report(
                 html_parts.append('''
                     <thead>
                         <tr>
-                            <th>规则</th>
-                            <th>召回率</th>
-                            <th>命中率</th>
-                            <th>坏账率</th>
-                            <th>Lift</th>
-                            <th>状态</th>
+                            <th style="min-width:200px;">规则</th>
+                            <th>独立召回</th>
+                            <th>增量召回</th>
+                            <th>重叠率</th>
+                            <th>边际贡献</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1613,31 +1677,26 @@ def _generate_rule_mining_html_report(
                 
                 for rule in prior_rules[:20]:
                     rule_text = str(rule.get('rule', rule.get('condition', '')))
-                    display_rule = rule_text[:50] + "..." if len(rule_text) > 50 else rule_text
                     
-                    recall = rule.get('recall', 0)
-                    recall_str = f"{recall*100:.2f}%" if isinstance(recall, (int, float)) else '-'
+                    standalone = rule.get('standalone_recall', rule.get('recall', 0))
+                    standalone_str = f"{standalone*100:.2f}%" if isinstance(standalone, (int, float)) else '-'
                     
-                    hit_rate = rule.get('hit_rate', 0)
-                    hit_rate_str = f"{hit_rate*100:.2f}%" if isinstance(hit_rate, (int, float)) else '-'
+                    incremental = rule.get('incremental_recall', 0)
+                    incremental_str = f"{incremental*100:.2f}%" if isinstance(incremental, (int, float)) else '-'
                     
-                    bad_rate = rule.get('bad_rate', 0)
-                    bad_rate_str = f"{bad_rate*100:.2f}%" if isinstance(bad_rate, (int, float)) else '-'
+                    overlap = rule.get('overlap_rate', 0)
+                    overlap_str = f"{overlap*100:.2f}%" if isinstance(overlap, (int, float)) else '-'
                     
-                    lift = rule.get('lift', 0)
-                    lift_str = f"{lift:.2f}" if isinstance(lift, (int, float)) else '-'
-                    
-                    matched = rule.get('matched', True)
-                    status_str = '<span style="color:#388e3c;">✓ 匹配</span>' if matched else '<span style="color:#d32f2f;">✗ 未匹配</span>'
+                    marginal = rule.get('marginal_contribution', 0)
+                    marginal_str = f"{marginal*100:.2f}%" if isinstance(marginal, (int, float)) else '-'
                     
                     html_parts.append(f'''
                         <tr>
-                            <td class="rule-text" title="{rule_text}">{display_rule}</td>
-                            <td>{recall_str}</td>
-                            <td>{hit_rate_str}</td>
-                            <td>{bad_rate_str}</td>
-                            <td>{lift_str}</td>
-                            <td>{status_str}</td>
+                            <td style="word-break:break-all;white-space:normal;font-family:monospace;font-size:12px;">{rule_text}</td>
+                            <td>{standalone_str}</td>
+                            <td>{incremental_str}</td>
+                            <td>{overlap_str}</td>
+                            <td>{marginal_str}</td>
                         </tr>
                     ''')
                 

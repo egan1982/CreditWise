@@ -778,6 +778,11 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
     min_lift_threshold_str = f"{min_lift_threshold}" if min_lift_threshold != "N/A" else "N/A"
     max_hit_rate_threshold_str = f"{max_hit_rate_threshold * 100:.1f}%" if isinstance(max_hit_rate_threshold, (int, float)) else "N/A"
     
+    # ========== 2.6. 规则选择模式（贪婪/重叠）==========
+    rule_selection_data = _safe_get(stages, "rule_selection", "output_preview", default={}) or {}
+    allow_overlap = (rule_selection_data or {}).get("allow_overlap", False)
+    selection_mode_str = "允许重叠（独立选择）" if allow_overlap else "贪婪算法（不允许重叠）"
+
     # ========== 3. 筛选过程数据 ==========
     all_rules_raw = _unwrap_data(outputs.get("all_rules_with_status"))
     all_rules_array = all_rules_raw if isinstance(all_rules_raw, list) else []
@@ -786,7 +791,6 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
     rejected_count = len(rejected_rules)
     
     # 从 stages.rule_selection.output_preview.filter_summary 获取筛选统计
-    rule_selection_data = _safe_get(stages, "rule_selection", "output_preview", default={}) or {}
     filter_summary = (rule_selection_data or {}).get("filter_summary") or {}
     
     # 构建淘汰原因分布
@@ -895,6 +899,7 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
 ## 任务参数配置（用户设定的筛选阈值）
 - 最小Lift阈值（单条规则筛选）: {min_lift_threshold_str}
 - 最大命中率阈值（单条规则筛选）: {max_hit_rate_threshold_str}
+- 规则选择模式: {selection_mode_str}
 **注意**: 上述阈值是用户配置的筛选参数，用于过滤单条规则。如需调整，应建议修改这些参数值。
 
 ## 任务执行结果
@@ -943,7 +948,7 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
 1. 规则质量（单条规则Lift是否≥2，坏账率是否显著高于总体）
 2. 累计效果（召回率与命中率的平衡是否合理，累计提升度是否达标）
 3. 筛选策略（淘汰原因分布是否合理，筛选阈值是否需要调整）
-4. 规则重叠度（重叠度为0说明规则互斥，较高则需关注效率损耗）
+4. 规则重叠度（⚠️注意：贪婪算法模式下规则天然互斥、重叠度为0，这是算法特性而非需要优化的问题，不要建议做互斥性检验或重叠度优化；仅在允许重叠模式下，较高重叠度才需关注效率损耗）
 5. 稳定性（PSI是否在可接受范围，OOT命中率CV是否<0.25）
 6. 规则数量是否适中（6条以内较理想）
 
@@ -958,7 +963,7 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
 
 **综合评估** 2-3句话，客观总结本次规则挖掘的整体情况，包括规则集的主要优点、存在的问题点，以及是否具备策略上线条件
 
-**优化建议** 1-3条具体可行的建议，如需调整Lift阈值，应明确指出调整"最小Lift阈值"参数"""
+**优化建议** 1-3条具体可行的建议，每条建议必须对应系统中可调整的参数或可操作的功能。如需调整Lift阈值，应明确指出调整"最小Lift阈值"参数"""
 
 
 # =============================================================================
@@ -1232,14 +1237,13 @@ def _build_data_loading_description(data: dict[str, Any]) -> str:
         derived_total_str = f"\n- 衍生后特征数: {total_features}"
     
     # ========== 数据质量评估（规则挖掘任务特有）==========
+    # 注意：quality_score 不再注入 AI prompt，避免 AI 引用一个用户在 UI 上看不到的评分造成困惑。
+    # quality_score 仍在后端计算，用于特征工程阶段跳过时的提示文案和内部 needs_feature_engineering 判定。
     quality_str = ""
-    quality_score = data.get("quality_score")
-    if quality_score is not None:
-        quality_str = f"\n- 数据质量评分: {quality_score}/100"
-        quality_issues = data.get("quality_issues", [])
-        if quality_issues:
-            issues_text = "; ".join(str(issue) for issue in quality_issues[:3])
-            quality_str += f"\n- 质量问题: {issues_text}"
+    quality_issues = data.get("quality_issues", [])
+    if quality_issues:
+        issues_text = "; ".join(str(issue) for issue in quality_issues[:3])
+        quality_str = f"\n- 数据质量注意事项: {issues_text}"
     
     # ========== var_filter数据质量筛选（评分卡任务特有，参考scorecardpy库设计）==========
     var_filter_str = ""

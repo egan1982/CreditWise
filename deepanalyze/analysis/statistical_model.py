@@ -115,11 +115,54 @@ class StatisticalLogisticRegression(LogisticRegression):
         
         # Calculate statistics if requested
         if self.calculate_stats:
-            self._calculate_statistics(X_array, y_array)
+            # B-STATS-1 FIX: 计算有效样本权重（合并 class_weight + sample_weight）
+            # 当使用 class_weight='balanced' 时，sklearn 内部会生成加权的损失函数，
+            # 但 _calculate_statistics 之前用的是无加权公式，导致似然比检验和伪R²计算错误
+            effective_weights = self._compute_effective_weights(y_array, sample_weight)
+            self._calculate_statistics(X_array, y_array, effective_weights)
             
         return self
     
-    def _calculate_statistics(self, X: np.ndarray, y: np.ndarray) -> None:
+    def _compute_effective_weights(
+        self,
+        y: np.ndarray,
+        sample_weight: np.ndarray | None = None
+    ) -> np.ndarray | None:
+        """
+        Compute effective sample weights by combining class_weight and sample_weight.
+        
+        B-STATS-1 FIX: When class_weight='balanced' is used, sklearn internally
+        computes sample weights for training. We need the same weights for
+        consistent statistical calculations (Hessian, log-likelihood, etc.).
+        
+        Args:
+            y: Target vector
+            sample_weight: Explicit sample weights (optional)
+            
+        Returns:
+            Combined effective weights, or None if no weighting is needed
+        """
+        has_class_weight = self.class_weight is not None
+        has_sample_weight = sample_weight is not None
+        
+        if not has_class_weight and not has_sample_weight:
+            return None
+        
+        weights = np.ones(len(y), dtype=np.float64)
+        
+        # Apply class_weight
+        if has_class_weight:
+            from sklearn.utils.class_weight import compute_sample_weight
+            class_weights = compute_sample_weight(self.class_weight, y)
+            weights *= class_weights
+        
+        # Apply sample_weight
+        if has_sample_weight:
+            weights *= sample_weight
+        
+        return weights
+    
+    def _calculate_statistics(self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None) -> None:
         """
         Calculate statistical information based on Hessian matrix.
         
@@ -127,9 +170,14 @@ class StatisticalLogisticRegression(LogisticRegression):
         the covariance matrix of coefficients, from which standard errors,
         z-statistics, and p-values are derived.
         
+        B-STATS-1 FIX: When sample_weight is provided (e.g. from class_weight='balanced'),
+        the Hessian is computed as H = X^T * diag(w * p * (1-p)) * X to ensure
+        standard errors and p-values are consistent with the weighted training.
+        
         Args:
             X: Feature matrix (numpy array)
             y: Target vector (numpy array)
+            sample_weight: Effective sample weights (optional, includes class_weight effect)
         """
         n_samples, n_features = X.shape
         
@@ -152,8 +200,13 @@ class StatisticalLogisticRegression(LogisticRegression):
         proba = np.clip(proba, 1e-10, 1 - 1e-10)
         
         # Calculate Hessian matrix (negative second derivative of log-likelihood)
-        # H = X^T * W * X, where W = diag(p * (1-p))
-        W = proba * (1 - proba)
+        # B-STATS-1 FIX: When sample_weight is provided, use weighted Hessian:
+        # H = X^T * diag(w * p * (1-p)) * X  (weighted)
+        # H = X^T * diag(p * (1-p)) * X      (unweighted, original)
+        if sample_weight is not None:
+            W = sample_weight * proba * (1 - proba)
+        else:
+            W = proba * (1 - proba)
         
         # Compute Hessian efficiently
         # H_ij = sum_k X_ki * W_k * X_kj
@@ -200,7 +253,8 @@ class StatisticalLogisticRegression(LogisticRegression):
         self._stats["significance"] = self._stats["p_value"].apply(self._get_significance_marker)
         
         # Calculate model fit statistics
-        self._calculate_model_fit_stats(X, y, proba, n_params)
+        # B-STATS-1 FIX: pass sample_weight for weighted log-likelihood calculation
+        self._calculate_model_fit_stats(X, y, proba, n_params, sample_weight)
     
     def _get_significance_marker(self, p_value: float) -> str:
         """Get significance marker based on p-value."""
@@ -221,31 +275,63 @@ class StatisticalLogisticRegression(LogisticRegression):
         X: np.ndarray,
         y: np.ndarray,
         proba: np.ndarray,
-        n_params: int
+        n_params: int,
+        sample_weight: np.ndarray | None = None
     ) -> None:
         """
         Calculate model fit statistics.
+        
+        B-STATS-1 FIX: When sample_weight is provided (e.g. from class_weight='balanced'),
+        uses weighted log-likelihood formulas to ensure pseudo R², AIC, BIC, and
+        likelihood ratio test are consistent with the weighted training objective.
+        
+        Without this fix, class_weight='balanced' models would show:
+        - pseudo R² < 0 (e.g. -204%)
+        - LR test p-value = 1.0
+        because the unweighted log-likelihood of a weighted model can be worse
+        than the null model's unweighted log-likelihood.
         
         Args:
             X: Feature matrix
             y: Target vector
             proba: Predicted probabilities
             n_params: Number of parameters in the model
+            sample_weight: Effective sample weights (optional)
         """
         n_samples = len(y)
+        is_weighted = sample_weight is not None
         
-        # Log-likelihood of fitted model
-        log_likelihood = np.sum(
-            y * np.log(proba + 1e-10) + 
-            (1 - y) * np.log(1 - proba + 1e-10)
-        )
-        
-        # Log-likelihood of null model (intercept only)
-        null_proba = np.mean(y)
-        null_log_likelihood = np.sum(
-            y * np.log(null_proba + 1e-10) + 
-            (1 - y) * np.log(1 - null_proba + 1e-10)
-        )
+        if is_weighted:
+            # B-STATS-1 FIX: Weighted log-likelihood calculation
+            # The model was trained to optimize weighted log-likelihood,
+            # so we must evaluate it with the same weighting for consistency
+            log_likelihood = np.sum(
+                sample_weight * (
+                    y * np.log(proba + 1e-10) + 
+                    (1 - y) * np.log(1 - proba + 1e-10)
+                )
+            )
+            
+            # Weighted null model: use weighted mean as null probability
+            null_proba = np.sum(sample_weight * y) / np.sum(sample_weight)
+            null_log_likelihood = np.sum(
+                sample_weight * (
+                    y * np.log(null_proba + 1e-10) + 
+                    (1 - y) * np.log(1 - null_proba + 1e-10)
+                )
+            )
+        else:
+            # Original unweighted calculation (unchanged)
+            log_likelihood = np.sum(
+                y * np.log(proba + 1e-10) + 
+                (1 - y) * np.log(1 - proba + 1e-10)
+            )
+            
+            null_proba = np.mean(y)
+            null_log_likelihood = np.sum(
+                y * np.log(null_proba + 1e-10) + 
+                (1 - y) * np.log(1 - null_proba + 1e-10)
+            )
         
         # McFadden's pseudo R-squared
         pseudo_r2 = 1 - (log_likelihood / null_log_likelihood) if null_log_likelihood != 0 else 0
@@ -269,6 +355,8 @@ class StatisticalLogisticRegression(LogisticRegression):
             "bic": round(bic, 4),
             "lr_stat": round(lr_stat, 4),
             "lr_pvalue": round(lr_pvalue, 6) if not np.isnan(lr_pvalue) else None,
+            # B-STATS-1 FIX: 标记统计量是否基于加权似然计算
+            "class_weight_applied": is_weighted,
         }
     
     def summary(self) -> dict[str, Any]:

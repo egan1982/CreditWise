@@ -2003,15 +2003,20 @@ function ThreePanelInterfaceInner() {
         if (cardStatus === "pending") {
           const hasRunningTask = isSOPExecuting && selectedTaskId === taskType;
           if (hasRunningTask) {
-            // 执行中跳过：直接渲染 Markdown
+            // 执行中跳过：显示友好提示而非 raw JSON
             return (
-              <div className="markdown-content">{renderMarkdownContent(content)}</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/30 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                <span className="font-medium">📋 已检测到评分卡/规则挖掘任务意图</span>
+                <span className="ml-1">— 当前已有同类型任务在执行中，请等待完成后再启动新任务。</span>
+              </div>
             );
           }
           if (dismissedTaskTypes.has(taskType)) {
-            // 已跳过的 task_type，直接渲染 Markdown
+            // 已跳过的 task_type：同样显示友好提示而非 raw JSON
             return (
-              <div className="markdown-content">{renderMarkdownContent(content)}</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/30 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                已识别到任务意图，您已选择继续对话。如需启动任务，请在左侧任务面板中选择。
+              </div>
             );
           }
         }
@@ -2091,6 +2096,50 @@ function ThreePanelInterfaceInner() {
       // 如果是 File 标签，解析其中的链接为卡片
       let sectionBody = match.content;
       let fileGallery: JSX.Element | null = null;
+
+      // 防御性修复：如果 Code 标签内容实际是任务参数 JSON（后端 extraction/code-execution prompt 冲突遗留），
+      // 则渲染为 TaskConfirmCard 而非代码块
+      if (match.type === "Code") {
+        const taskParamInCode = isTaskParamJson(match.content);
+        if (taskParamInCode && taskParamInCode.task_type) {
+          const messageId = messageIndex !== undefined ? `msg-${messageIndex}` : `msg-${Date.now()}`;
+          const taskType = taskParamInCode.task_type;
+          const cardStatus: CardStatus = confirmCardStatuses[messageId] || "pending";
+
+          if (cardStatus === "pending") {
+            const hasRunningTask = isSOPExecuting && selectedTaskId === taskType;
+            if (hasRunningTask || dismissedTaskTypes.has(taskType)) {
+              parts.push(
+                <div key={sectionKey} className="markdown-content">
+                  {renderMarkdownContent(content)}
+                </div>
+              );
+              lastPosition = match.position + match.fullMatch.length;
+              return;
+            }
+          }
+
+          parts.push(
+            <TaskConfirmCard
+              key={sectionKey}
+              taskType={taskType}
+              extractedParams={taskParamInCode.params}
+              status={cardStatus}
+              onConfirm={(tt, params) => {
+                setConfirmCardStatuses(prev => ({ ...prev, [messageId]: "confirmed" }));
+                handleTaskConfirmCardConfirm(tt, params);
+              }}
+              onDismiss={(tt) => {
+                setConfirmCardStatuses(prev => ({ ...prev, [messageId]: "dismissed" }));
+                handleTaskConfirmCardDismiss(tt);
+              }}
+            />
+          );
+          lastPosition = match.position + match.fullMatch.length;
+          return;
+        }
+      }
+
       if (match.type === "File") {
         const files = parseGeneratedFiles(match.content);
         if (files.length) {
@@ -2808,8 +2857,9 @@ function ThreePanelInterfaceInner() {
       });
       
       // 重启 TaskProgress 轮询（paused 稳定后已停止，需要通过 pollTrigger 重启）
-      // TaskProgress 重启后会立即拉取最新状态，无需独立快速轮询
-      restartPolling();
+      // 延迟 300ms：给 Pipeline 线程时间从 _check_control 的阻塞中恢复并更新 status 为 RUNNING
+      // 否则 TaskProgress 可能拉到旧的 paused 状态，连续 2 次后又停止轮询
+      setTimeout(() => restartPolling(), 300);
     } catch (err) {
       console.error("Failed to resume execution:", err);
       toast({

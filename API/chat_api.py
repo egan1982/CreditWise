@@ -525,6 +525,26 @@ async def chat_completions(
             presence_penalty=presence_penalty,
         )
     
+    # Extraction 模式：LLM 只需返回纯 JSON，不需要 code execution 的 <Code>/<Answer> 标签
+    # 如果走 code execution 路径，prepare_vllm_messages 会注入 <Code>/<Answer> 标签 prompt，
+    # 与 extraction prompt 的"只返回 JSON"指令冲突，导致 LLM 返回 <Code>```json{...}```</Code>，
+    # 前端 renderMessageWithSections 优先匹配 <Code> 标签，跳过 isTaskParamJson 检查，
+    # TaskConfirmCard 无法渲染（显示为 raw JSON 代码块）。
+    if mode == "extraction":
+        logger.info(f"[extraction] 使用 simple_chat_completion（避免 code execution prompt 冲突）")
+        return await _simple_chat_completion(
+            llm_client=llm_client,
+            model=actual_model,
+            messages=messages,
+            temperature=temperature,
+            stream=effective_stream,
+            system_prompt=enhanced_system_prompt,
+            channel_info=channel_info,
+            max_tokens=max_tokens,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+        )
+    
     # 检查是否为非OpenAI兼容厂商，代码执行模式不支持Claude/Google
     if channel_info is not None:
         provider = channel_info.provider.lower() if hasattr(channel_info, 'provider') else 'openai'
@@ -914,6 +934,7 @@ async def _simple_chat_completion(
             # 更新渠道指标
             if channel_info is not None:
                 _update_channel_metrics(channel_info, success=True, response_time=response_time)
+            
             
             return ChatCompletionResponse(
                 id=response.id,

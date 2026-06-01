@@ -578,11 +578,11 @@ export function RuleMiningResults({
     
     // 金额维度分析 - 解包 dict 格式 (新增)
     const amountAnalysisRaw = unwrapData(outputs.amount_analysis);
-    const amountAnalysis = amountAnalysisRaw && typeof amountAnalysisRaw === 'object' ? amountAnalysisRaw : null;
+    const amountAnalysis = amountAnalysisRaw && typeof amountAnalysisRaw === 'object' && (amountAnalysisRaw as Record<string, unknown>).enabled === true ? amountAnalysisRaw : null;
     
     // 先验规则分析 - 解包 dict 格式
     const priorAnalysisRaw = unwrapData(outputs.prior_analysis);
-    const priorAnalysis = priorAnalysisRaw && typeof priorAnalysisRaw === 'object' ? priorAnalysisRaw : null;
+    const priorAnalysis = priorAnalysisRaw && typeof priorAnalysisRaw === 'object' && (priorAnalysisRaw as Record<string, unknown>).enabled === true ? priorAnalysisRaw : null;
     
     // 决策树结构 - 解包 dict 格式 (新增)
     const treeStructureRaw = unwrapData(outputs.tree_structure);
@@ -1033,7 +1033,7 @@ export function RuleMiningResults({
                   data.validationReport.quality_score >= 80 ? "text-green-600" :
                   data.validationReport.quality_score >= 60 ? "text-yellow-600" : "text-red-600"
                 )}>
-                  {data.validationReport.quality_score}/100
+                  {data.validationReport.quality_score}/{data.ootStabilityReport ? 110 : 100}
                 </span>
               </div>
             )}
@@ -1164,8 +1164,8 @@ export function RuleMiningResults({
                   质量验证
                 </TabsTrigger>
               )}
-              {/* PSI 稳定性 tab - 独立显示（核心评估指标） */}
-              {data.psiReport && data.psiReport.length > 0 && (
+              {/* PSI/OOT 稳定性 tab - PSI 或 OOT 任一存在即显示 */}
+              {(data.psiReport && data.psiReport.length > 0 || data.ootStabilityReport) && (
                 <TabsTrigger value="psi" className="text-xs">
                   <Activity className="h-3 w-3 mr-1" />
                   稳定性
@@ -1258,7 +1258,7 @@ export function RuleMiningResults({
           </TabsContent>
 
           <TabsContent value="optimal" className="mt-3">
-            <RuleTable rules={data.optimalRules} showCumulative />
+            <RuleTable rules={data.optimalRules} showCumulative ootStabilityReport={data.ootStabilityReport} />
           </TabsContent>
           
           {/* 规则筛选标签页 - 合并原全部/过滤后Tab */}
@@ -1279,10 +1279,13 @@ export function RuleMiningResults({
             </TabsContent>
           )}
 
-          {/* PSI 稳定性标签页 - 独立显示（核心评估指标） */}
-          {data.psiReport && data.psiReport.length > 0 && (
+          {/* PSI/OOT 稳定性标签页 - 融合展示 */}
+          {(data.psiReport && data.psiReport.length > 0 || data.ootStabilityReport) && (
             <TabsContent value="psi" className="mt-3">
-              <PSIReportPanel report={data.psiReport} />
+              <StabilityPanel 
+                psiReport={data.psiReport} 
+                ootStabilityReport={data.ootStabilityReport}
+              />
             </TabsContent>
           )}
 
@@ -1331,13 +1334,43 @@ function RuleTable({
   rules,
   showCumulative = false,
   maxRows,
+  ootStabilityReport,
 }: {
   rules: RuleData[];
   showCumulative?: boolean;
   maxRows?: number;
+  ootStabilityReport?: Record<string, any> | null;
 }) {
   const displayRules = maxRows ? rules.slice(0, maxRows) : rules;
   const hasMore = maxRows && rules.length > maxRows;
+
+  // 构建规则→稳定性映射（OOT）
+  const stabilityMap = useMemo(() => {
+    const map = new Map<string, { cv: number; level: string }>();
+    if (ootStabilityReport?.rule_stability) {
+      for (const item of ootStabilityReport.rule_stability) {
+        map.set(item.rule, { cv: item.cv, level: item.stability_level });
+      }
+    }
+    return map;
+  }, [ootStabilityReport]);
+
+  const hasOotStability = stabilityMap.size > 0;
+
+  const getStabilityBadge = (level: string, cv: number) => {
+    const config: Record<string, { label: string; color: string; emoji: string }> = {
+      highly_stable: { label: "高度稳定", color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400", emoji: "🟢" },
+      stable: { label: "稳定", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400", emoji: "🟡" },
+      moderate: { label: "中等", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400", emoji: "🟠" },
+      unstable: { label: "不稳定", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400", emoji: "🔴" },
+    };
+    const c = config[level] || config.moderate;
+    return (
+      <Badge className={cn("text-[10px] gap-0.5", c.color)}>
+        {c.emoji} CV={cv.toFixed(2)}
+      </Badge>
+    );
+  };
 
   if (rules.length === 0) {
     return (
@@ -1364,6 +1397,9 @@ function RuleTable({
                   <TableHead className="w-[80px] text-right">累计Recall</TableHead>
                   <TableHead className="w-[80px] text-right">累计Hit</TableHead>
                 </>
+              )}
+              {hasOotStability && (
+                <TableHead className="w-[100px] text-center">OOT稳定性</TableHead>
               )}
             </TableRow>
           </TableHeader>
@@ -1406,6 +1442,14 @@ function RuleTable({
                         : "-"}
                     </TableCell>
                   </>
+                )}
+                {hasOotStability && (
+                  <TableCell className="text-center">
+                    {(() => {
+                      const s = stabilityMap.get(rule.rule);
+                      return s ? getStabilityBadge(s.level, s.cv) : <span className="text-gray-400 text-xs">-</span>;
+                    })()}
+                  </TableCell>
                 )}
               </TableRow>
             ))}
@@ -1767,7 +1811,7 @@ function ValidationReportPanel({ report }: { report: ValidationReport }) {
           report.quality_score >= 60 ? "text-yellow-600" : "text-red-600"
         )}>
           {report.quality_score.toFixed(1)}
-          <span className="text-sm font-normal text-gray-500">/100</span>
+          <span className="text-sm font-normal text-gray-500">/{report.quality_score > 100 ? 110 : 100}</span>
         </div>
       </div>
 
@@ -3302,6 +3346,181 @@ function PriorAnalysisPanel({ priorAnalysis }: PriorAnalysisPanelProps) {
       {(!rules || rules.length === 0) && !summary && (
         <div className="text-center text-gray-500 py-4 text-sm">
           暂无先验规则分析数据
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ========== 融合稳定性面板（PSI + OOT） ==========
+function StabilityPanel({ 
+  psiReport, 
+  ootStabilityReport 
+}: { 
+  psiReport?: PSIReport[] | null; 
+  ootStabilityReport?: Record<string, any> | null;
+}) {
+  const hasPsi = psiReport && psiReport.length > 0;
+  const hasOot = !!ootStabilityReport;
+
+  return (
+    <div className="space-y-6">
+      {/* OOT 时间稳定性 Section */}
+      {hasOot && (() => {
+        const report = ootStabilityReport!;
+        const overallCv = report.overall_hit_rate?.cv || 0;
+        const counts = report.stability_counts || {};
+        const bonus = report.stability_score_bonus || 0;
+        const ruleStability: any[] = report.rule_stability || [];
+        const cvThreshold = report.cv_threshold || 0.35;
+        const ootSamples = report.oot_samples || 0;
+        
+        const getCvColor = (cv: number) => cv < 0.15 ? "text-green-600" : cv < 0.25 ? "text-blue-600" : cv < 0.35 ? "text-yellow-600" : "text-red-600";
+        const getCvLevel = (cv: number) => cv < 0.15 ? "高度稳定" : cv < 0.25 ? "稳定" : cv < 0.35 ? "中等" : "不稳定";
+        const getLevelBg = (level: string) => {
+          switch(level) {
+            case "highly_stable": return "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800";
+            case "stable": return "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800";
+            case "moderate": return "bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800";
+            case "unstable": return "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800";
+            default: return "bg-gray-50 dark:bg-gray-900/20 border-gray-200 dark:border-gray-700";
+          }
+        };
+        const getLevelText = (level: string) => {
+          switch(level) {
+            case "highly_stable": return { label: "高度稳定", color: "text-green-700 dark:text-green-300" };
+            case "stable": return { label: "稳定", color: "text-blue-700 dark:text-blue-300" };
+            case "moderate": return { label: "中等", color: "text-yellow-700 dark:text-yellow-300" };
+            case "unstable": return { label: "不稳定", color: "text-red-700 dark:text-red-300" };
+            default: return { label: "-", color: "text-gray-700" };
+          }
+        };
+
+        return (
+          <div className="space-y-4">
+            <h4 className="text-sm font-medium flex items-center gap-2">
+              <Activity className="h-4 w-4 text-indigo-600" />
+              OOT 时间稳定性验证
+              <span className="text-xs text-gray-400 font-normal">（{ootSamples.toLocaleString()} 条验证数据，CV阈值 {cvThreshold}）</span>
+            </h4>
+
+            {/* 整体指标 + 分布概览 */}
+            <div className="grid grid-cols-5 gap-3">
+              <div className="col-span-1 p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+                <div className="text-xs text-indigo-600 font-medium mb-1">整体 CV</div>
+                <div className={cn("text-2xl font-bold", getCvColor(overallCv))}>
+                  {overallCv.toFixed(3)}
+                </div>
+                <div className={cn("text-xs", getCvColor(overallCv))}>{getCvLevel(overallCv)}</div>
+                {bonus !== 0 && (
+                  <div className={cn("text-xs mt-1", bonus > 0 ? "text-green-600" : "text-red-600")}>
+                    质量分 {bonus > 0 ? "+" : ""}{bonus}
+                  </div>
+                )}
+              </div>
+              <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                <div className="text-xs text-green-600 font-medium mb-1">🟢 高度稳定</div>
+                <div className="text-2xl font-bold text-green-700 dark:text-green-300">{counts.highly_stable || 0}</div>
+                <div className="text-xs text-gray-500">CV &lt; 0.15</div>
+              </div>
+              <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                <div className="text-xs text-blue-600 font-medium mb-1">🟡 稳定</div>
+                <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">{counts.stable || 0}</div>
+                <div className="text-xs text-gray-500">0.15 ≤ CV &lt; 0.25</div>
+              </div>
+              <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                <div className="text-xs text-yellow-600 font-medium mb-1">🟠 中等</div>
+                <div className="text-2xl font-bold text-yellow-700 dark:text-yellow-300">{counts.moderate || 0}</div>
+                <div className="text-xs text-gray-500">0.25 ≤ CV &lt; {cvThreshold}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                <div className="text-xs text-red-600 font-medium mb-1">🔴 不稳定</div>
+                <div className="text-2xl font-bold text-red-700 dark:text-red-300">{counts.unstable || 0}</div>
+                <div className="text-xs text-gray-500">CV ≥ {cvThreshold}</div>
+              </div>
+            </div>
+
+            {/* OOT 规则详情表 */}
+            {ruleStability.length > 0 && (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-[350px] overflow-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-gray-50 dark:bg-gray-900">
+                      <TableRow>
+                        <TableHead className="text-xs">规则</TableHead>
+                        <TableHead className="text-xs text-right">训练集命中率</TableHead>
+                        <TableHead className="text-xs text-right">测试集命中率</TableHead>
+                        <TableHead className="text-xs text-right">OOT命中率</TableHead>
+                        <TableHead className="text-xs text-right">CV</TableHead>
+                        <TableHead className="text-xs text-center">稳定性</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {ruleStability.map((item: any, i: number) => {
+                        const lt = getLevelText(item.stability_level);
+                        return (
+                          <TableRow key={i}>
+                            <TableCell className="text-xs font-mono truncate max-w-[200px]" title={item.rule}>
+                              {item.rule}
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {(item.hit_rate_train * 100).toFixed(2)}%
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {(item.hit_rate_test * 100).toFixed(2)}%
+                            </TableCell>
+                            <TableCell className="text-xs text-right font-medium">
+                              {(item.hit_rate_oot * 100).toFixed(2)}%
+                            </TableCell>
+                            <TableCell className={cn("text-xs text-right font-medium", getCvColor(item.cv))}>
+                              {item.cv.toFixed(4)}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Badge className={cn("text-xs", getLevelBg(item.stability_level))}>
+                                <span className={lt.color}>{lt.label}</span>
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {/* OOT 说明 */}
+            <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+              <div className="flex items-center gap-2 mb-2">
+                <HelpCircle className="h-4 w-4 text-indigo-600" />
+                <span className="text-sm font-medium text-indigo-700 dark:text-indigo-400">OOT 稳定性说明</span>
+              </div>
+              <div className="text-xs text-indigo-700 dark:text-indigo-400 space-y-1">
+                <p>OOT（Out-of-Time）验证评估规则在不同时间段数据上的表现稳定性。</p>
+                <p>• CV（变异系数）= 命中率标准差 / 命中率均值，越小越稳定</p>
+                <p>• 高度稳定（CV&lt;0.15）：规则表现一致，可放心使用</p>
+                <p>• 不稳定（CV≥{cvThreshold}）：规则在时间维度上波动大，建议审查</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 分隔线（两者都有时） */}
+      {hasPsi && hasOot && (
+        <div className="border-t border-gray-200 dark:border-gray-700" />
+      )}
+
+      {/* PSI 稳定性 Section（保留原有 PSIReportPanel） */}
+      {hasPsi && (
+        <div className="space-y-4">
+          {hasOot && (
+            <h4 className="text-sm font-medium flex items-center gap-2">
+              <Activity className="h-4 w-4 text-orange-600" />
+              PSI 样本稳定性
+            </h4>
+          )}
+          <PSIReportPanel report={psiReport!} />
         </div>
       )}
     </div>

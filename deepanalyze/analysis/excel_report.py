@@ -2598,15 +2598,18 @@ class ExcelReportGenerator:
             row += 1
             
             # 汇总指标
+            cumulative = amount_analysis.get('cumulative', {})
             summary_items = [
                 ("总金额", self._format_value(amount_analysis.get('total_amount', 0))),
                 ("总坏账金额", self._format_value(amount_analysis.get('total_bad_amount', 0))),
-                ("整体金额坏账率", self._format_percent(amount_analysis.get('overall_amount_bad_rate', 0))),
             ]
-            cumulative = amount_analysis.get('cumulative', {})
             if cumulative:
                 summary_items.append(("累计命中金额", self._format_value(cumulative.get('cum_hit_amount', 0))))
-                summary_items.append(("金额召回率", self._format_percent(cumulative.get('amount_recall', 0))))
+            summary_items.append(("样本金额坏账率", self._format_percent(amount_analysis.get('overall_amount_bad_rate', 0))))
+            if cumulative:
+                summary_items.append(("金额累计召回率", self._format_percent(cumulative.get('amount_recall', 0))))
+                if 'cum_amount_lift' in cumulative:
+                    summary_items.append(("金额累计提升度", f"{cumulative['cum_amount_lift']:.2f}x"))
             
             for label, value in summary_items:
                 ws.cell(row=row, column=1, value=label).font = self.styles.DATA_FONT
@@ -2637,17 +2640,65 @@ class ExcelReportGenerator:
                         ws.cell(row=row, column=col).border = self.styles.THIN_BORDER
                         ws.cell(row=row, column=col).font = self.styles.DATA_FONT
                     row += 1
+                # Cumulative row
+                if cumulative:
+                    from openpyxl.styles import Font
+                    total_amt = amount_analysis.get('total_amount', 1) or 1
+                    cum_hit = cumulative.get('cum_hit_amount', 0)
+                    cum_hit_pct = cum_hit / total_amt if total_amt > 0 else 0
+                    ws.cell(row=row, column=1, value="累计").font = Font(bold=True, size=10)
+                    ws.cell(row=row, column=2, value=self._format_value(cum_hit)).font = Font(bold=True, size=10)
+                    ws.cell(row=row, column=3, value=self._format_percent(cum_hit_pct)).font = Font(bold=True, size=10)
+                    ws.cell(row=row, column=4, value=self._format_value(cumulative.get('cum_bad_amount', 0))).font = Font(bold=True, size=10)
+                    ws.cell(row=row, column=5, value=self._format_percent(cumulative.get('amount_recall', 0))).font = Font(bold=True, size=10)
+                    ws.cell(row=row, column=6, value="-").font = Font(bold=True, size=10)
+                    for col in range(1, 7):
+                        ws.cell(row=row, column=col).border = self.styles.THIN_BORDER
+                    row += 1
             row += 1
         
-        # 先验规则分析
-        if prior_analysis and isinstance(prior_analysis, dict):
+        # 先验规则分析（FIX-B: 结构化输出替代粗糙 dict items 遍历）
+        if prior_analysis and isinstance(prior_analysis, dict) and prior_analysis.get('enabled'):
             ws.cell(row=row, column=1, value="📋 先验规则分析").font = self.styles.SUBHEADER_FONT
             row += 1
             
-            for key, value in list(prior_analysis.items())[:10]:
-                if not key.startswith('_'):
-                    ws.cell(row=row, column=1, value=str(key)).font = self.styles.DATA_FONT
-                    ws.cell(row=row, column=2, value=self._format_value(value)).font = self.styles.DATA_FONT
+            # 汇总指标
+            summary = prior_analysis.get('summary', {})
+            if summary:
+                summary_items = [
+                    ("先验规则数", summary.get('prior_rules_count', 0)),
+                    ("新规则数", summary.get('matched_count', 0)),
+                    ("增量召回率", self._format_percent(summary.get('incremental_recall', 0))),
+                    ("平均重叠率", self._format_percent(summary.get('avg_overlap_rate', 0))),
+                ]
+                for label, val in summary_items:
+                    ws.cell(row=row, column=1, value=label).font = self.styles.DATA_FONT
+                    ws.cell(row=row, column=2, value=str(val)).font = self.styles.DATA_FONT
+                    for col in range(1, 3):
+                        ws.cell(row=row, column=col).border = self.styles.THIN_BORDER
+                    row += 1
+                row += 1
+            
+            # 规则详情表
+            rules = prior_analysis.get('rules', [])
+            if rules:
+                headers = ['规则', '独立召回', '增量召回', '重叠率', '边际贡献']
+                for i, h in enumerate(headers, 1):
+                    cell = ws.cell(row=row, column=i, value=h)
+                    cell.font = self.styles.HEADER_FONT
+                    cell.fill = self.styles.HEADER_FILL
+                    cell.border = self.styles.THIN_BORDER
+                row += 1
+                
+                for item in rules[:20]:
+                    rule_text = str(item.get('rule', ''))
+                    ws.cell(row=row, column=1, value=rule_text[:50]).font = self.styles.DATA_FONT
+                    ws.cell(row=row, column=2, value=self._format_percent(item.get('standalone_recall', 0))).font = self.styles.DATA_FONT
+                    ws.cell(row=row, column=3, value=self._format_percent(item.get('incremental_recall', 0))).font = self.styles.DATA_FONT
+                    ws.cell(row=row, column=4, value=self._format_percent(item.get('overlap_rate', 0))).font = self.styles.DATA_FONT
+                    ws.cell(row=row, column=5, value=self._format_percent(item.get('marginal_contribution', 0))).font = self.styles.DATA_FONT
+                    for col in range(1, 6):
+                        ws.cell(row=row, column=col).border = self.styles.THIN_BORDER
                     row += 1
         
         return row
@@ -3366,78 +3417,6 @@ class ExcelReportGenerator:
         ws.column_dimensions['B'].width = 50
         for col in ['C', 'D', 'E', 'F', 'G']:
             ws.column_dimensions[col].width = 12
-    
-    def _add_rule_evaluation_sheet(self, wb: "Workbook", results: dict[str, Any]) -> None:
-        """Add rule evaluation sheet."""
-        ws = wb.create_sheet("规则评估")
-        
-        # Similar to rules sheet but with more evaluation metrics
-        self._add_rules_sheet(wb, results)
-    
-    def _add_amount_analysis_sheet(self, wb: "Workbook", results: dict[str, Any]) -> None:
-        """Add amount analysis sheet."""
-        ws = wb.create_sheet("金额分析")
-        
-        amount = results.get('amount_analysis', {})
-        
-        ws['A1'] = "金额维度分析"
-        ws['A1'].font = self.styles.TITLE_FONT
-        ws['A1'].fill = self.styles.HEADER_FILL
-        ws.merge_cells('A1:G1')
-        ws.row_dimensions[1].height = 25
-        
-        # Summary
-        ws['A3'] = "汇总指标"
-        ws['A3'].font = self.styles.SUBHEADER_FONT
-        ws['A3'].fill = self.styles.SUBHEADER_FILL
-        ws.merge_cells('A3:D3')
-        
-        summary_metrics = [
-            ("总金额", self._format_currency(amount.get('total_amount', 0))),
-            ("总坏账金额", self._format_currency(amount.get('total_bad_amount', 0))),
-            ("累计命中金额", self._format_currency(amount.get('cumulative', {}).get('cum_hit_amount', 0))),
-            ("金额召回率", self._format_percent(amount.get('cumulative', {}).get('amount_recall', 0))),
-        ]
-        
-        row = 5
-        for name, value in summary_metrics:
-            ws.cell(row=row, column=1, value=name).font = self.styles.DATA_FONT
-            ws.cell(row=row, column=2, value=value).font = self.styles.DATA_FONT
-            row += 1
-        
-        # Rules amount detail
-        row += 2
-        ws.cell(row=row, column=1, value="规则金额明细").font = self.styles.SUBHEADER_FONT
-        ws.cell(row=row, column=1).fill = self.styles.SUBHEADER_FILL
-        ws.merge_cells(f'A{row}:G{row}')
-        row += 1
-        
-        headers = ['规则', '命中金额', '金额占比', '坏账金额', '坏账占比', '金额坏账率', '金额Lift']
-        for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=row, column=col, value=header)
-            cell.font = self.styles.HEADER_FONT
-            cell.fill = self.styles.HEADER_FILL
-            cell.border = self.styles.THIN_BORDER
-        row += 1
-        
-        rules_amount = amount.get('rules_amount', [])
-        for item in rules_amount:
-            ws.cell(row=row, column=1, value=item.get('rule', ''))
-            ws.cell(row=row, column=2, value=self._format_currency(item.get('hit_amount', 0)))
-            ws.cell(row=row, column=3, value=self._format_percent(item.get('hit_amount_pct', 0)))
-            ws.cell(row=row, column=4, value=self._format_currency(item.get('bad_amount', 0)))
-            ws.cell(row=row, column=5, value=self._format_percent(item.get('bad_amount_pct', 0)))
-            ws.cell(row=row, column=6, value=self._format_percent(item.get('amount_bad_rate', 0)))
-            ws.cell(row=row, column=7, value=round(item.get('amount_lift', 0), 2))
-            
-            for col in range(1, 8):
-                ws.cell(row=row, column=col).border = self.styles.THIN_BORDER
-                ws.cell(row=row, column=col).font = self.styles.DATA_FONT
-            row += 1
-        
-        ws.column_dimensions['A'].width = 40
-        for col in ['B', 'C', 'D', 'E', 'F', 'G']:
-            ws.column_dimensions[col].width = 14
     
     def _add_charts_metrics_sheet(
         self,

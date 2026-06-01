@@ -267,6 +267,9 @@ class ExecutionContext:
     # Stage Retry Support (Phase 6)
     retry_from_stage: str | None = None  # 需要重试的阶段ID，设置后Pipeline将从该阶段重新开始
     executed_retry_stages: set[str] = field(default_factory=set)  # 已执行完的重试阶段ID集合，用于跳过重试阶段的专家模式暂停
+    
+    # Retry 版本号：每次 retry 递增，旧线程的 progress_callback 检测到版本不匹配时抛异常退出
+    _execution_version: int = 0
 
 
 # =============================================================================
@@ -663,27 +666,40 @@ class SOPExecutor:
         
         context.progress_callback = progress_callback
         
+        _was_cancelled = False  # 标记是否被 asyncio.CancelledError 取消（阶段重试场景）
         try:
             # 使用Pipeline模式执行
             await asyncio.to_thread(self._run_task, context)
             # Save results on success
             self._save_results(context)
+        except asyncio.CancelledError:
+            # 任务被取消（通常是阶段重试时 _cancel_existing_task 触发）
+            # 不更新 ExecutionStore，因为 retry API 已经重置了所有阶段状态，
+            # 旧任务的 context（包含已完成阶段的旧状态）不应覆盖重置后的状态
+            _was_cancelled = True
+            logger.info(f"Task cancelled (likely stage retry): {context.execution_id}, skipping ExecutionStore update")
+            raise  # 重新抛出让 asyncio 正确处理
         except Exception as e:
             # Check if it's a stop exception (from pipeline or task_manager)
             error_type = type(e).__name__
             if error_type == 'TaskStoppedException' or 'stopped' in str(e).lower():
-                context.status = ExecutionStatus.CANCELLED
-                context.message = "任务已被用户停止"
-                logger.info(f"Task stopped by user: {context.execution_id}")
-                # 清除重试阶段标记
-                context.executed_retry_stages.clear()
-                # Update status in persistent storage
-                if TASK_MANAGER_AVAILABLE and context.record_id:
-                    TaskHistoryService.update_status(
-                        record_id=context.record_id,
-                        status=TaskStatus.STOPPED,
-                        message="任务已被用户停止"
-                    )
+                # 检查是否是因为阶段重试而被中止（不是用户手动停止）
+                if getattr(context, '_aborted_for_retry', False):
+                    _was_cancelled = True
+                    logger.info(f"Task stopped for retry (aborted_for_retry): {context.execution_id}, skipping status update")
+                else:
+                    context.status = ExecutionStatus.CANCELLED
+                    context.message = "任务已被用户停止"
+                    logger.info(f"Task stopped by user: {context.execution_id}")
+                    # 清除重试阶段标记
+                    context.executed_retry_stages.clear()
+                    # Update status in persistent storage
+                    if TASK_MANAGER_AVAILABLE and context.record_id:
+                        TaskHistoryService.update_status(
+                            record_id=context.record_id,
+                            status=TaskStatus.STOPPED,
+                            message="任务已被用户停止"
+                        )
             else:
                 context.status = ExecutionStatus.FAILED
                 context.message = str(e)
@@ -695,8 +711,29 @@ class SOPExecutor:
                 # Update error in persistent storage
                 self._save_error(context, str(e), full_traceback)
         finally:
-            context.completed_at = datetime.now()
-            ExecutionStore.update(context)
+            if _was_cancelled:
+                # 被取消的任务不更新 ExecutionStore，避免覆盖 retry API 已重置的状态
+                logger.info(f"Skipping ExecutionStore update for cancelled task: {context.execution_id}")
+            else:
+                context.completed_at = datetime.now()
+                ExecutionStore.update(context)
+                
+                # 安全网：确保数据库 status 与内存 context 一致
+                # 场景：_save_results 抛异常（如序列化失败），数据库 status 仍为 'running'，
+                # 但内存 context.status 已是 COMPLETED（由 _run_task 设置），导致历史列表显示"执行中"
+                if TASK_MANAGER_AVAILABLE and context.record_id and context.status == ExecutionStatus.COMPLETED:
+                    try:
+                        record = TaskHistoryService.get_record(context.record_id)
+                        if record and record.get('status') != 'completed':
+                            logger.warning(f"[SOP] DB status mismatch detected: context=COMPLETED, db={record.get('status')}. Fixing...")
+                            TaskHistoryService.update_status(
+                                record_id=context.record_id,
+                                status=TaskStatus.COMPLETED,
+                                progress=100.0,
+                                message="任务执行完成"
+                            )
+                    except Exception as fix_err:
+                        logger.error(f"[SOP] Failed to fix DB status mismatch: {fix_err}")
         
         return context
     
@@ -757,6 +794,9 @@ class SOPExecutor:
         if not self._check_control(context):
             return
         
+        # 记录当前执行版本号，用于检测旧线程
+        my_version = context._execution_version
+        
         # Create progress callback wrapper (supports code parameter for pseudocode)
         def pipeline_progress_callback(
             stage_id: str, 
@@ -765,6 +805,11 @@ class SOPExecutor:
             code: str | None = None,
             output_preview: dict[str, object] | None = None
         ) -> None:
+            # 版本号检查：如果 context 的版本已递增（retry 启动了新线程），旧线程立即退出
+            if context._execution_version != my_version:
+                logger.warning(f"[SOP] Stale thread detected (my_version={my_version}, current={context._execution_version}), aborting")
+                raise TaskStoppedException(f"Stale execution thread (version mismatch: {my_version} != {context._execution_version})")
+            
             logger.info(f"[SOP] Progress: {stage_id} - {progress:.1f}% - {message}")
             
             # 检查是否需要跳过专家模式暂停（阶段重试时，之前的阶段不暂停）
@@ -812,6 +857,10 @@ class SOPExecutor:
                 True: 应该停止
                 False: 继续执行
             """
+            # 版本号检查
+            if context._execution_version != my_version:
+                logger.warning(f"[SOP] Stale thread in stop_check (my_version={my_version}, current={context._execution_version})")
+                return True  # 告诉 Pipeline 停止
             result = self._check_control(context)
             # retry 也应该停止当前执行
             return result == False or result == "retry"
@@ -913,8 +962,11 @@ class SOPExecutor:
         cached_state: dict[str, object] | None = None  # Phase 6: 缓存的中间状态
         
         # 如果任务是从暂停状态恢复，从暂停的阶段继续执行
-        logger.info(f"[SOP] Checking if task is resuming from pause: status={context.status}, current_stage={context.current_stage}")
-        if context.status == ExecutionStatus.PAUSED and context.current_stage:
+        # 注意：如果有 retry_from_stage，说明是阶段重试（不是普通 resume），
+        # 应跳过暂停恢复路径，由 while 循环中的 retry_from_stage 处理
+        has_retry_request = hasattr(context, 'retry_from_stage') and context.retry_from_stage
+        logger.info(f"[SOP] Checking if task is resuming from pause: status={context.status}, current_stage={context.current_stage}, retry_from_stage={getattr(context, 'retry_from_stage', None)}")
+        if context.status == ExecutionStatus.PAUSED and context.current_stage and not has_retry_request:
             logger.info(f"[SOP] Task is paused with current_stage: {context.current_stage}")
             paused_stage_id = context.current_stage
             # 检查暂停的阶段状态，如果已完成则从下一个阶段开始
@@ -1003,6 +1055,35 @@ class SOPExecutor:
                     # 清除重试标记（避免重复处理）
                     context.retry_from_stage = None
                     logger.info(f"[SOP] Using retry_from_stage: {start_from_stage}")
+                    
+                    # 判断retry阶段是否是第一个阶段
+                    is_first_stage = False
+                    _task_def = get_registry().get_task(context.task_id)
+                    if _task_def:
+                        _stage_ids = [s.id for s in _task_def.stages]
+                        is_first_stage = (_stage_ids and start_from_stage == _stage_ids[0])
+                    
+                    if is_first_stage:
+                        # 从第一个阶段重试 = 完全重跑，不需要任何缓存
+                        cached_state = None
+                        start_from_stage = None  # Pipeline 从头执行
+                        logger.info(f"[SOP] Retry from first stage, clearing cached_state and start_from_stage (full re-execution)")
+                    else:
+                        # 从非首阶段重试，重新加载正确的 cached_state
+                        if TASK_MANAGER_AVAILABLE and PersistentExecutionStore is not None:
+                            try:
+                                cached_state = PersistentExecutionStore.get_cached_state_for_retry(
+                                    context.execution_id, start_from_stage
+                                )
+                                if cached_state:
+                                    logger.info(f"[SOP] Reloaded cached state for retry_from_stage={start_from_stage}: {list(cached_state.keys())}")
+                                else:
+                                    logger.info(f"[SOP] No cached state for retry_from_stage={start_from_stage}, will re-execute all stages")
+                            except Exception as e:
+                                logger.warning(f"[SOP] Failed to reload cached state for retry: {e}")
+                                cached_state = None
+                        else:
+                            cached_state = None
                 
                 logger.info(f"[SOP] Running pipeline... (retry_count={retry_count}, start_from_stage={start_from_stage})")
                 
@@ -1146,7 +1227,11 @@ class SOPExecutor:
                                 )
                             
                             TaskController.clear_control(context.execution_id)
-                            return False
+                            # 直接抛异常退出整个调用栈，而非返回 False
+                            # 返回 False 只能通知 progress_callback 的调用者，
+                            # 但 Pipeline 不一定在每个阶段开始前都检查 _should_stop()，
+                            # 导致旧线程可能继续执行后续阶段（如 report_generation）
+                            raise TaskStoppedException("任务已被用户停止")
                         
                         elif new_control == TaskControlAction.RESUME:
                             logger.info(f"Task {context.execution_id} resumed")
@@ -1181,6 +1266,9 @@ class SOPExecutor:
                     # 无控制请求，继续执行
                     return True
                     
+        except TaskStoppedException:
+            # TaskStoppedException 必须穿透，不能被吞掉
+            raise
         except Exception as e:
             logger.warning(f"Failed to check control: {e}")
         

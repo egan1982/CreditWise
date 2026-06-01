@@ -24,7 +24,7 @@ SCORECARD_TASK_META: Dict[str, Any] = {
     "task_name_en": "Scorecard Development",
     "description": "基于WOE/IV方法的标准信用评分卡开发流程",
     "category": "风控建模",
-    "icon": "chart",
+    "icon": "📊",
     "estimated_time": "5-15分钟",
     
     # ========== Chat 入口配置（新增） ==========

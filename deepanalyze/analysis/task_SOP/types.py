@@ -44,6 +44,7 @@ class ParamType(Enum):
     COLUMN_SELECT = "column_select"
     COLUMN_MULTI_SELECT = "column_multi_select"
     COLUMN_COMBOBOX = "column_combobox"  # 支持下拉选择和自定义输入的列选择器
+    PRIOR_RULES_INPUT = "prior_rules_input"  # P2-7: 先验规则增强输入（手动/文件/工作区）
 
 
 class TaskType(Enum):

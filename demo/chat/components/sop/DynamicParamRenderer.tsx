@@ -6,6 +6,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { PriorRulesInput } from "./PriorRulesInput";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -65,6 +66,8 @@ export interface DynamicParamRendererProps {
   disabled?: boolean;
   /** 自定义类名 */
   className?: string;
+  /** 会话ID（用于 prior_rules_input 的工作区文件选择和列名校验） */
+  sessionId?: string;
 }
 
 // =============================================================================
@@ -741,6 +744,34 @@ function ColumnMultiSelectRenderer({
   );
 }
 
+/** P2-7: 先验规则增强输入 */
+function PriorRulesInputRenderer({
+  param,
+  value,
+  onChange,
+  disabled,
+  sessionId,
+  allValues,
+}: DynamicParamRendererProps) {
+  // 从 allValues 中获取当前选择的数据文件（用于列名校验）
+  const dataFile = allValues?.data_file as string | undefined;
+  
+  return (
+    <div className="space-y-2">
+      <ParamLabel param={param} />
+      <PriorRulesInput
+        value={value ?? param.default ?? ""}
+        onChange={onChange}
+        disabled={disabled}
+        sessionId={sessionId}
+        dataFile={dataFile}
+        description={param.description}
+        placeholder={param.placeholder}
+      />
+    </div>
+  );
+}
+
 // =============================================================================
 // 主渲染器
 // =============================================================================
@@ -787,6 +818,9 @@ export function DynamicParamRenderer(props: DynamicParamRendererProps) {
 
     case "column_multi_select":
       return <ColumnMultiSelectRenderer {...props} />;
+
+    case "prior_rules_input":
+      return <PriorRulesInputRenderer {...props} />;
 
     default:
       // 未知类型，使用文本输入

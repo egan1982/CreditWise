@@ -474,7 +474,10 @@ export function TaskHistoryList({
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
             <DialogDescription>
-              确定要删除这条历史记录吗？此操作不可撤销，相关的结果文件也将被删除。
+              <span>确定要删除这条历史记录吗？此操作不可撤销。</span>
+              <span className="block mt-1 text-xs text-amber-600 dark:text-amber-400">
+                ⚠️ 将同时清理：AI 分析结果、执行状态、阶段检查点及本地结果文件
+              </span>
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2 mt-4">

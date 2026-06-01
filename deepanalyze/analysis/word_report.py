@@ -3017,10 +3017,25 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
                     row = table.add_row()
                     row.cells[0].text = "累计命中金额"
                     row.cells[1].text = f"¥{cumulative['cum_hit_amount']:,.2f}"
+            
+            # 样本金额坏账率（基准线）— 排在召回率之前
+            overall_bad_rate = amount_analysis.get('overall_amount_bad_rate')
+            if overall_bad_rate is not None:
+                row = table.add_row()
+                row.cells[0].text = "样本金额坏账率"
+                row.cells[1].text = f"{overall_bad_rate * 100:.2f}%"
+            
+            if cumulative:
                 if 'amount_recall' in cumulative:
                     row = table.add_row()
-                    row.cells[0].text = "金额召回率"
+                    row.cells[0].text = "金额累计召回率"
                     row.cells[1].text = f"{cumulative['amount_recall'] * 100:.2f}%"
+            
+                # 金额累计提升度
+                if 'cum_amount_lift' in cumulative:
+                    row = table.add_row()
+                    row.cells[0].text = "金额累计提升度"
+                    row.cells[1].text = f"{cumulative['cum_amount_lift']:.2f}x"
             
             # Rules amount detail
             rules_amount = amount_analysis.get('rules_amount', [])
@@ -3028,11 +3043,11 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
                 doc.add_paragraph()
                 doc.add_heading("规则金额明细", level=3)
                 
-                table = doc.add_table(rows=1, cols=4)
+                table = doc.add_table(rows=1, cols=6)
                 _set_table_border(table)
                 
                 header_cells = table.rows[0].cells
-                headers = ['规则', '命中金额', '金额占比', '金额Lift']
+                headers = ['规则', '命中金额', '金额占比', '坏账金额', '金额坏账率', '金额Lift']
                 for i, header in enumerate(headers):
                     header_cells[i].text = header
                     _set_cell_shading(header_cells[i], "D6DCE4")
@@ -3043,7 +3058,7 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
                 for item in rules_amount[:20]:  # Limit to 20
                     row = table.add_row()
                     rule_text = str(item.get('rule', ''))
-                    row.cells[0].text = rule_text[:50] + "..." if len(rule_text) > 50 else rule_text
+                    row.cells[0].text = rule_text
                     
                     hit_amount = item.get('hit_amount', 0)
                     row.cells[1].text = f"¥{hit_amount:,.2f}" if isinstance(hit_amount, (int, float)) else '-'
@@ -3051,8 +3066,32 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
                     hit_pct = item.get('hit_amount_pct', 0)
                     row.cells[2].text = f"{hit_pct * 100:.2f}%" if isinstance(hit_pct, (int, float)) else '-'
                     
+                    bad_amount = item.get('bad_amount', 0)
+                    row.cells[3].text = f"¥{bad_amount:,.2f}" if isinstance(bad_amount, (int, float)) else '-'
+                    
+                    amount_bad_rate = item.get('amount_bad_rate', 0)
+                    row.cells[4].text = f"{amount_bad_rate * 100:.2f}%" if isinstance(amount_bad_rate, (int, float)) else '-'
+                    
                     amount_lift = item.get('amount_lift', 0)
-                    row.cells[3].text = f"{amount_lift:.2f}" if isinstance(amount_lift, (int, float)) else '-'
+                    row.cells[5].text = f"{amount_lift:.2f}" if isinstance(amount_lift, (int, float)) else '-'
+                
+                # Cumulative row
+                if cumulative:
+                    row = table.add_row()
+                    row.cells[0].text = "累计"
+                    for para in row.cells[0].paragraphs:
+                        for run in para.runs:
+                            run.font.bold = True
+                    cum_hit = cumulative.get('cum_hit_amount', 0)
+                    total_amt = amount_analysis.get('total_amount', 1) or 1
+                    cum_hit_pct = cum_hit / total_amt if total_amt > 0 else 0
+                    row.cells[1].text = f"¥{cum_hit:,.2f}"
+                    row.cells[2].text = f"{cum_hit_pct * 100:.2f}%"
+                    cum_bad = cumulative.get('cum_bad_amount', 0)
+                    row.cells[3].text = f"¥{cum_bad:,.2f}"
+                    recall = cumulative.get('amount_recall', 0)
+                    row.cells[4].text = f"{recall * 100:.2f}%"
+                    row.cells[5].text = "-"
                 
                 if len(rules_amount) > 20:
                     doc.add_paragraph(f"（仅显示前20条，共{len(rules_amount)}条）")
@@ -3070,7 +3109,7 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
                 _set_table_border(table)
                 
                 # Headers
-                labels = ['先验规则数', '匹配到的规则', '平均召回率', '平均Lift']
+                labels = ['先验规则数', '新规则数', '增量召回率', '平均重叠率']
                 for i, label in enumerate(labels):
                     table.rows[0].cells[i].text = label
                     _set_cell_shading(table.rows[0].cells[i], "D6DCE4")
@@ -3081,10 +3120,10 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
                 # Values
                 table.rows[1].cells[0].text = str(summary.get('prior_rules_count', 0))
                 table.rows[1].cells[1].text = str(summary.get('matched_count', 0))
-                avg_recall = summary.get('avg_recall', 0)
-                table.rows[1].cells[2].text = f"{avg_recall*100:.2f}%" if isinstance(avg_recall, (int, float)) else '-'
-                avg_lift = summary.get('avg_lift', 0)
-                table.rows[1].cells[3].text = f"{avg_lift:.2f}" if isinstance(avg_lift, (int, float)) else '-'
+                incremental_recall = summary.get('incremental_recall', 0)
+                table.rows[1].cells[2].text = f"{incremental_recall*100:.2f}%" if isinstance(incremental_recall, (int, float)) else '-'
+                avg_overlap = summary.get('avg_overlap_rate', 0)
+                table.rows[1].cells[3].text = f"{avg_overlap*100:.2f}%" if isinstance(avg_overlap, (int, float)) else '-'
                 
                 doc.add_paragraph()
             
@@ -3093,11 +3132,11 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
             if prior_rules:
                 doc.add_heading("先验规则详情", level=3)
                 
-                table = doc.add_table(rows=1, cols=6)
+                table = doc.add_table(rows=1, cols=5)
                 _set_table_border(table)
                 
                 header_cells = table.rows[0].cells
-                headers = ['规则', '召回率', '命中率', '坏账率', 'Lift', '状态']
+                headers = ['规则', '独立召回', '增量召回', '重叠率', '边际贡献']
                 for i, header in enumerate(headers):
                     header_cells[i].text = header
                     _set_cell_shading(header_cells[i], "D6DCE4")
@@ -3108,22 +3147,19 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
                 for rule in prior_rules[:20]:
                     row = table.add_row()
                     rule_text = str(rule.get('rule', rule.get('condition', '')))
-                    row.cells[0].text = rule_text[:40] + "..." if len(rule_text) > 40 else rule_text
+                    row.cells[0].text = rule_text
                     
-                    recall = rule.get('recall', 0)
-                    row.cells[1].text = f"{recall*100:.2f}%" if isinstance(recall, (int, float)) else '-'
+                    standalone = rule.get('standalone_recall', rule.get('recall', 0))
+                    row.cells[1].text = f"{standalone*100:.2f}%" if isinstance(standalone, (int, float)) else '-'
                     
-                    hit_rate = rule.get('hit_rate', 0)
-                    row.cells[2].text = f"{hit_rate*100:.2f}%" if isinstance(hit_rate, (int, float)) else '-'
+                    incremental = rule.get('incremental_recall', 0)
+                    row.cells[2].text = f"{incremental*100:.2f}%" if isinstance(incremental, (int, float)) else '-'
                     
-                    bad_rate = rule.get('bad_rate', 0)
-                    row.cells[3].text = f"{bad_rate*100:.2f}%" if isinstance(bad_rate, (int, float)) else '-'
+                    overlap = rule.get('overlap_rate', 0)
+                    row.cells[3].text = f"{overlap*100:.2f}%" if isinstance(overlap, (int, float)) else '-'
                     
-                    lift = rule.get('lift', 0)
-                    row.cells[4].text = f"{lift:.2f}" if isinstance(lift, (int, float)) else '-'
-                    
-                    matched = rule.get('matched', True)
-                    row.cells[5].text = "✓ 匹配" if matched else "✗ 未匹配"
+                    marginal = rule.get('marginal_contribution', 0)
+                    row.cells[4].text = f"{marginal*100:.2f}%" if isinstance(marginal, (int, float)) else '-'
                 
                 if len(prior_rules) > 20:
                     doc.add_paragraph(f"（仅显示前20条，共{len(prior_rules)}条）")

@@ -625,11 +625,17 @@ class DataPreprocessor:
         if do_onehot:
             if progress_callback:
                 progress_callback(7, total_steps)
+            # P1-5 修复：排除列（target、weight、sample_type_col、time_col 等）不应被 one-hot 编码
+            # 将 all_exclude_cols 中存在于 df 中的列加入 force_numeric，防止被 one-hot 后删除原始列
+            onehot_force_numeric = list(force_numeric) if force_numeric else []
+            for exc_col in all_exclude_cols:
+                if exc_col in df_processed.columns and exc_col not in onehot_force_numeric:
+                    onehot_force_numeric.append(exc_col)
             df_processed, onehot_cols = self.onehot_encode(
                 df_processed, 
                 categorical_cols=categorical_cols,
                 force_categorical=force_categorical,
-                force_numeric=force_numeric  # 用户指定的数值列不进行One-Hot编码
+                force_numeric=onehot_force_numeric  # 用户指定的数值列 + 排除列均不进行One-Hot编码
             )
         
         # Build info dict (与评分卡一致，标记检测到的列而非删除的列)
@@ -3958,6 +3964,10 @@ class AmountAnalyzer:
             except Exception:
                 continue
         
+        # Calculate cumulative amount bad rate and lift
+        cum_amount_bad_rate = cum_bad_amount / cum_hit_amount if cum_hit_amount > 0 else 0
+        cum_amount_lift = cum_amount_bad_rate / self._overall_amount_bad_rate if self._overall_amount_bad_rate > 0 else 0
+        
         summary = {
             'enabled': True,
             'amount_col': self.amount_col,
@@ -3968,7 +3978,9 @@ class AmountAnalyzer:
                 'cum_hit_amount': round(cum_hit_amount, 2),
                 'cum_bad_amount': round(cum_bad_amount, 2),
                 'cum_hit_amount_pct': round(cum_hit_amount / self._total_amount, 4) if self._total_amount > 0 else 0,
-                'amount_recall': round(cum_bad_amount / self._total_bad_amount, 4) if self._total_bad_amount > 0 else 0
+                'amount_recall': round(cum_bad_amount / self._total_bad_amount, 4) if self._total_bad_amount > 0 else 0,
+                'cum_amount_bad_rate': round(cum_amount_bad_rate, 4),
+                'cum_amount_lift': round(cum_amount_lift, 2)
             }
         }
         
@@ -5991,8 +6003,14 @@ class RuleMiningPipeline:
         # 记录关键参数
         logger.info(f"[RuleMining] run() called with test_ratio={test_ratio}, sample_type_col={sample_type_col}, time_col={time_col}, oot_ratio={oot_ratio}")
         
+        # P2-7 E2 修复: prior_rules 类型安全转换（前端 textarea 传入纯字符串）
+        if isinstance(prior_rules, str):
+            prior_rules = [r.strip() for r in prior_rules.split('\n') if r.strip()]
+            logger.info(f"[PriorRules] prior_rules 从字符串转换为列表: {len(prior_rules)} 条")
+        
         results: dict[str, Any] = {'mining_mode': self.mining_mode}
         df_processed = df.copy()
+        all_rules_with_status: list[dict[str, Any]] | None = None  # 在 evaluating_rules 阶段赋值，阶段跳过时从缓存恢复
         
         # Store progress callback for _update_progress method (only if provided)
         # This allows the callback set in __init__ to be used if run() is called without one
@@ -6361,6 +6379,10 @@ class RuleMiningPipeline:
                 (time_col and time_col in df_processed.columns and oot_ratio > 0) or
                 test_ratio > 0
             )
+            logger.info(f"[RuleMining DEBUG] has_split_config={has_split_config}, sample_type_col={sample_type_col}, "
+                        f"in_cols={sample_type_col in df_processed.columns if sample_type_col else 'N/A'}, "
+                        f"time_col={time_col}, time_in_cols={time_col in df_processed.columns if time_col else 'N/A'}, "
+                        f"oot_ratio={oot_ratio}, test_ratio={test_ratio}")
             
             if has_split_config:
                 self._update_progress('preprocessing', 80.0, '划分数据集...')
@@ -7094,9 +7116,9 @@ class RuleMiningPipeline:
                 bad_rate = results.get('original_bad_rate', 0.0)
                 if bad_rate < 0.1:
                     resolved_class_weight = 'balanced'
-                    logger.info(f"[P2-6] auto策略: bad_rate={bad_rate:.4f} < 10%, 启用 class_weight='balanced'")
+                    logger.info(f"[Imbalance] auto策略: bad_rate={bad_rate:.4f} < 10%, 启用 class_weight='balanced'")
                 else:
-                    logger.info(f"[P2-6] auto策略: bad_rate={bad_rate:.4f} >= 10%, 不处理")
+                    logger.info(f"[Imbalance] auto策略: bad_rate={bad_rate:.4f} >= 10%, 不处理")
             if hasattr(self.miner, 'class_weight'):
                 self.miner.class_weight = resolved_class_weight
             
@@ -7885,19 +7907,30 @@ class RuleMiningPipeline:
             rejection_reason_map = {r['rule']: r['reason'] for r in rejected_rules_list}
             rejection_rank_map = {r['rule']: r['rank'] for r in rejected_rules_list}
             
-            all_rules_with_status_updated = []
-            for rule_status in all_rules_with_status:
-                rule_status_copy = dict(rule_status)
-                rule_str = rule_status_copy['rule']
-                rule_status_copy['is_optimal'] = rule_str in optimal_rule_set
-                # v2.3: 添加淘汰原因（仅对未被选中的有效规则）
-                if not rule_status_copy['is_optimal'] and rule_status_copy.get('is_valid', False):
-                    rule_status_copy['rejection_reason'] = rejection_reason_map.get(rule_str, '未被选中')
-                    rule_status_copy['rejection_rank'] = rejection_rank_map.get(rule_str)
+            # 更新 all_rules_with_status，添加 is_optimal 标记和淘汰原因
+            # 注意：阶段重试时 evaluating_rules 可能被跳过（用缓存），all_rules_with_status 为 None
+            if all_rules_with_status is None:
+                cached_arws = results.get('all_rules_with_status')
+                if cached_arws:
+                    all_rules_with_status = cached_arws
+                    logger.info(f"[Pipeline] Restored all_rules_with_status from results cache: {len(all_rules_with_status)} rules")
                 else:
-                    rule_status_copy['rejection_reason'] = None
-                    rule_status_copy['rejection_rank'] = None
-                all_rules_with_status_updated.append(rule_status_copy)
+                    logger.warning("[Pipeline] all_rules_with_status not available (evaluating_rules skipped, no cache)")
+            
+            all_rules_with_status_updated = []
+            if all_rules_with_status:
+                for rule_status in all_rules_with_status:
+                    rule_status_copy = dict(rule_status)
+                    rule_str = rule_status_copy['rule']
+                    rule_status_copy['is_optimal'] = rule_str in optimal_rule_set
+                    # v2.3: 添加淘汰原因（仅对未被选中的有效规则）
+                    if not rule_status_copy['is_optimal'] and rule_status_copy.get('is_valid', False):
+                        rule_status_copy['rejection_reason'] = rejection_reason_map.get(rule_str, '未被选中')
+                        rule_status_copy['rejection_rank'] = rejection_rank_map.get(rule_str)
+                    else:
+                        rule_status_copy['rejection_reason'] = None
+                        rule_status_copy['rejection_rank'] = None
+                    all_rules_with_status_updated.append(rule_status_copy)
             
             # 输出到 results，供前端使用
             results['all_rules_with_status'] = all_rules_with_status_updated
@@ -7930,11 +7963,49 @@ class RuleMiningPipeline:
                 prior_results_df = prior_analyzer.analyze(optimal_rules)
                 prior_summary = prior_analyzer.get_summary()
                 
+                # FIX-A: 扁平化 prior_analysis 结构（P2-10 FIX-1 同款方案）
+                # 将 DataFrame 转为 list[dict]，避免 safe_serialize 深层包装
+                # 同时补充报告(Word/MD/HTML)和前端(PriorAnalysisPanel)期望的字段
+                rules_prior_list: list[dict[str, Any]] = []
+                if isinstance(prior_results_df, pd.DataFrame) and not prior_results_df.empty:
+                    prior_cols = ['rule', 'standalone_recall', 'standalone_hit_rate',
+                                  'incremental_recall', 'incremental_hit_rate',
+                                  'overlap_rate', 'marginal_contribution']
+                    existing_cols = [c for c in prior_cols if c in prior_results_df.columns]
+                    rules_prior_list = prior_results_df[existing_cols].fillna(0).to_dict(orient='records')
+                
+                # 补充报告生成器(Word/MD/HTML)期望的字段别名
+                for r in rules_prior_list:
+                    r['recall'] = r.get('standalone_recall', 0)
+                    r['hit_rate'] = r.get('standalone_hit_rate', 0)
+                    r['matched'] = True  # 所有分析过的规则均视为匹配
+                
+                # 计算汇总统计
+                avg_incremental = float(prior_results_df['incremental_recall'].mean()) if (
+                    isinstance(prior_results_df, pd.DataFrame) and 'incremental_recall' in prior_results_df.columns
+                    and not prior_results_df.empty) else 0
+                avg_overlap = float(prior_results_df['overlap_rate'].mean()) if (
+                    isinstance(prior_results_df, pd.DataFrame) and 'overlap_rate' in prior_results_df.columns
+                    and not prior_results_df.empty) else 0
+                avg_recall = float(prior_results_df['standalone_recall'].mean()) if (
+                    isinstance(prior_results_df, pd.DataFrame) and 'standalone_recall' in prior_results_df.columns
+                    and not prior_results_df.empty) else 0
+                
                 results['prior_analysis'] = {
                     'enabled': True,
                     'prior_rules': prior_rules,
-                    'results': prior_results_df,
-                    'summary': prior_summary
+                    'rules': rules_prior_list,  # list[dict] 替代 DataFrame
+                    'summary': {
+                        **prior_summary,
+                        # 报告(Word/MD/HTML)期望的字段
+                        'matched_count': len(rules_prior_list),
+                        'avg_recall': avg_recall,
+                        'avg_lift': 0,  # Pipeline 未计算 prior lift，暂置 0
+                        # 前端(PriorAnalysisPanel)期望的字段
+                        'new_rules_count': len(rules_prior_list),
+                        'incremental_recall': avg_incremental,
+                        'avg_overlap_rate': avg_overlap,
+                    }
                 }
                 
                 # Build output preview
@@ -7942,8 +8013,8 @@ class RuleMiningPipeline:
                     "prior_rules_count": len(prior_rules),
                     "prior_hit_rate": prior_summary['prior_metrics']['prior_hit_rate'],
                     "prior_recall": prior_summary['prior_metrics']['prior_recall'],
-                    "avg_incremental_recall": float(prior_results_df['incremental_recall'].mean()) if 'incremental_recall' in prior_results_df.columns else 0,
-                    "avg_overlap_rate": float(prior_results_df['overlap_rate'].mean()) if 'overlap_rate' in prior_results_df.columns else 0,
+                    "avg_incremental_recall": avg_incremental,
+                    "avg_overlap_rate": avg_overlap,
                     # Phase 25: 添加完整阶段数据用于检查点保存
                     "_full_stage_data": {
                         "df_processed": df_processed,

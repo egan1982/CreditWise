@@ -161,13 +161,13 @@ export function TaskProgress({
           }
         } else if (currentStatus.status === "paused") {
           pausedStableCount++;
-          if (pausedStableCount >= 2) {
-            // 连续2次检测到 paused，状态已稳定，停止轮询
+          if (pausedStableCount >= 3) {
+            // 连续3次检测到 paused，状态已稳定，停止轮询
             // 后续通过 pollTrigger 变化重启（用户点击继续/重试/跳过时触发）
             console.log("[TaskProgress] Paused state stable, stopping poll. Use pollTrigger to restart.");
             return; // 不再调度下一次轮询
           }
-          nextInterval = 500; // 首次检测到 paused，快速确认一次
+          nextInterval = 600; // paused 确认间隔，给 resume 信号传递留出时间窗口
         }
         
         // 继续下一次轮询

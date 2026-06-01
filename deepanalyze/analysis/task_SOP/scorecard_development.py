@@ -2630,7 +2630,7 @@ class ScorecardPipeline:
         significance_mode: str = 'warn',  # B+方案新增：显著性检验模式 ('skip'/'warn'/'remove')
         validate_coefficients: bool = True,
         coefficient_direction_mode: str = 'warn',
-        max_validation_iterations: int = 10,  # B+方案新增：最大迭代次数
+        max_validation_iterations: int = 20,  # B+方案新增：最大迭代次数（B-MODEL-1: 10→20）
         # Score scaling parameters (industry standard: pdo=50 for wider score range)
         base_score: int = 600,
         base_odds: float = 50.0,
@@ -4263,9 +4263,9 @@ class ScorecardPipeline:
                     bad_rate = float(y_train.mean()) if len(y_train) > 0 else 0.0
                     if bad_rate < 0.1:
                         resolved_class_weight = 'balanced'
-                        logger.info(f"[P2-6] auto策略: bad_rate={bad_rate:.4f} < 10%, 启用 class_weight='balanced'")
+                        logger.info(f"[Imbalance] auto策略: bad_rate={bad_rate:.4f} < 10%, 启用 class_weight='balanced'")
                     else:
-                        logger.info(f"[P2-6] auto策略: bad_rate={bad_rate:.4f} >= 10%, 不处理")
+                        logger.info(f"[Imbalance] auto策略: bad_rate={bad_rate:.4f} >= 10%, 不处理")
                 
                 # 迭代训练模型，每次检查显著性和系数方向，直到所有变量都通过验证或达到最大迭代次数
                 post_validation_log: list[dict[str, Any]] = []  # 记录每次迭代的验证结果
@@ -4304,6 +4304,10 @@ class ScorecardPipeline:
                     if model_statistics and 'summary' in model_statistics:
                         for feat_info in model_statistics['summary']:
                             feat_woe = feat_info.get('feature', '')
+                            # B-MODEL-1 FIX: 过滤掉截距项 const，避免将其误认为不显著特征
+                            # 导致每轮尝试移除 "const" 但实际无法匹配 woe_feature_cols 中的任何列
+                            if feat_woe == 'const':
+                                continue
                             feat_name = feat_woe.replace('_woe', '')
                             if 'p_value' in feat_info:
                                 pvalue_dict[feat_name] = feat_info['p_value']
@@ -4363,6 +4367,8 @@ class ScorecardPipeline:
                         logger.info(f"[模型训练] 移除不显著特征: {worst_feature} (p={pvalue_dict.get(worst_feature, 0):.4f})")
                     
                     # 系数方向检验移除（如果没有因显著性移除的特征）
+                    if self.coefficient_direction_mode == 'remove' and invalid_direction_features and features_to_remove:
+                        logger.info(f"[模型训练] 本轮因显著性移除优先，{len(invalid_direction_features)}个系数方向异常特征({invalid_direction_features})延后处理")
                     if self.coefficient_direction_mode == 'remove' and invalid_direction_features and not features_to_remove:
                         # 选择系数最负的特征移除（每次只移除一个）
                         worst_feature = min(invalid_direction_features, key=lambda f: coef_dict.get(f, 0))
@@ -4391,6 +4397,22 @@ class ScorecardPipeline:
                         raise ValueError("迭代验证移除了所有特征，请检查数据质量或调整验证参数")
                     
                     X_train = df_woe[woe_feature_cols]
+                
+                # 迭代结束后：如果最后一轮移除了特征但未收敛（达到最大迭代次数），
+                # 需要用更新后的特征集重新训练最终模型，否则 model.coef_ 与 woe_feature_cols 长度不一致
+                if not validation_converged and len(woe_feature_cols) != len(model.coef_[0]):
+                    logger.info(f"[模型训练] 达到最大迭代次数({self.max_validation_iterations})，用最终特征集({len(woe_feature_cols)}个)重新训练模型")
+                    model = StatisticalLogisticRegression(
+                        calculate_stats=True,
+                        penalty=None,
+                        C=1e10,
+                        solver='lbfgs',
+                        max_iter=1000,
+                        fit_intercept=True,
+                        random_state=self.random_state,
+                        class_weight=resolved_class_weight  # P2-6
+                    )
+                    model.fit(X_train, y_train)
                 
                 # 迭代结束后的最终模型
                 self.model_ = model
@@ -4545,6 +4567,7 @@ class ScorecardPipeline:
                     
                     # Add model fit statistics to preview
                     # 2026-02-11: 添加似然比检验指标(lr_stat, lr_pvalue)
+                    # B-STATS-1 FIX: 添加 class_weight_applied 标记
                     model_training_preview['model_fit'] = {
                         'n_observations': model_statistics.get('n_observations'),
                         'pseudo_r2': model_statistics.get('pseudo_r2'),
@@ -4552,7 +4575,8 @@ class ScorecardPipeline:
                         'aic': model_statistics.get('aic'),
                         'bic': model_statistics.get('bic'),
                         'lr_stat': model_statistics.get('lr_stat'),
-                        'lr_pvalue': model_statistics.get('lr_pvalue')
+                        'lr_pvalue': model_statistics.get('lr_pvalue'),
+                        'class_weight_applied': model_statistics.get('class_weight_applied', False)
                     }
                 
                 # Phase 28: 先更新 results 字典，确保检查点保存时包含完整数据（与规则挖掘任务一致）

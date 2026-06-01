@@ -443,7 +443,7 @@ export function TaskHistoryCompact({
               className="h-6 px-1.5 text-[10px]"
               title="批量选择"
             >
-              <Checkbox className="h-3 w-3 mr-0.5 pointer-events-none border-gray-400 dark:border-gray-400" />
+              <Square className="h-3 w-3 mr-0.5" />
               多选
             </Button>
           ) : (
@@ -565,11 +565,14 @@ export function TaskHistoryCompact({
 
       {/* 删除确认对话框 */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent className="sm:max-w-[360px]">
+        <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="text-base">确认删除</DialogTitle>
-            <DialogDescription className="text-sm">
-              确定要删除这条历史记录吗？此操作不可撤销。
+            <DialogDescription className="text-sm space-y-2">
+              <span>确定要删除这条历史记录吗？此操作不可撤销。</span>
+              <span className="block text-xs text-amber-600 dark:text-amber-400">
+                ⚠️ 将同时清理：AI 分析结果、执行状态、阶段检查点及本地结果文件
+              </span>
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-end gap-2 mt-4">

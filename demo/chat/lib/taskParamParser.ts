@@ -27,6 +27,28 @@ export interface TaskParamResult {
 // =============================================================================
 
 /**
+ * task_type 别名映射表
+ * LLM 可能生成不同的 task_type 名称变体，统一映射到后端注册的 task_id
+ */
+const TASK_TYPE_ALIAS_MAP: Record<string, string> = {
+  // 评分卡相关变体 → scorecard_dev
+  "scorecard_model_development": "scorecard_dev",
+  "scorecard_development": "scorecard_dev",
+  "scorecard": "scorecard_dev",
+  "credit_scorecard": "scorecard_dev",
+  "scorecard_modeling": "scorecard_dev",
+  // 规则挖掘相关变体 → rule_mining
+  "rule_discovery": "rule_mining",
+  "rules_mining": "rule_mining",
+  "rule_extraction": "rule_mining",
+};
+
+/** 将 LLM 生成的 task_type 映射为后端注册的 task_id */
+function normalizeTaskType(taskType: string): string {
+  return TASK_TYPE_ALIAS_MAP[taskType] || taskType;
+}
+
+/**
  * 验证是否为有效的任务参数结果
  */
 function isValidTaskParamResult(obj: any): obj is TaskParamResult {
@@ -125,7 +147,7 @@ function buildPartialTaskParamResult(obj: any): TaskParamResult | null {
   }
 
   return {
-    task_type: obj.task_type || null,
+    task_type: normalizeTaskType(obj.task_type) || null,
     confidence: typeof obj.confidence === 'number' ? obj.confidence : 0.8,
     params: obj.params || {},
     missing_params: Array.isArray(obj.missing_params) ? obj.missing_params : [],
@@ -152,6 +174,7 @@ export function isTaskParamJson(content: string): TaskParamResult | null {
   try {
     const parsed = JSON.parse(content.trim());
     if (isValidTaskParamResult(parsed)) {
+      parsed.task_type = normalizeTaskType(parsed.task_type);
       return parsed;
     }
     // 即使不完全符合，尝试构建部分结果
@@ -167,6 +190,7 @@ export function isTaskParamJson(content: string): TaskParamResult | null {
     try {
       const parsed = JSON.parse(jsonMatch[1].trim());
       if (isValidTaskParamResult(parsed)) {
+        parsed.task_type = normalizeTaskType(parsed.task_type);
         return parsed;
       }
       const partial = buildPartialTaskParamResult(parsed);
@@ -193,6 +217,7 @@ export function isTaskParamJson(content: string): TaskParamResult | null {
     try {
       const parsed = JSON.parse(jsonObjMatch[0]);
       if (isValidTaskParamResult(parsed)) {
+        parsed.task_type = normalizeTaskType(parsed.task_type);
         return parsed;
       }
       const partial = buildPartialTaskParamResult(parsed);

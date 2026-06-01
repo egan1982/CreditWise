@@ -114,6 +114,7 @@ interface StageParamGroupProps {
   columns: DataColumn[];
   columnsLoading: boolean;
   updateValue: (name: string, value: any) => void;
+  sessionId?: string;
 }
 
 function StageParamGroup({
@@ -124,6 +125,7 @@ function StageParamGroup({
   columns,
   columnsLoading,
   updateValue,
+  sessionId,
 }: StageParamGroupProps) {
   const [expanded, setExpanded] = useState(false);
   const [showTuning, setShowTuning] = useState(false);
@@ -167,6 +169,7 @@ function StageParamGroup({
         columns={columns}
         columnsLoading={columnsLoading}
         allValues={formValues}
+        sessionId={sessionId}
       />
     ) : (
       <div key={groupItem.group || `group-${idx}`} className="grid grid-cols-2 gap-3">
@@ -179,6 +182,7 @@ function StageParamGroup({
             columns={columns}
             columnsLoading={columnsLoading}
             allValues={formValues}
+            sessionId={sessionId}
           />
         ))}
       </div>
@@ -606,6 +610,7 @@ export function TaskConfigPanel({
                 columns={columns}
                 columnsLoading={columnsLoading}
                 allValues={formValues}
+                sessionId={sessionId}
               />
             ))}
           </div>
@@ -644,6 +649,7 @@ export function TaskConfigPanel({
                   columns={columns}
                   columnsLoading={columnsLoading}
                   updateValue={updateValue}
+                  sessionId={sessionId}
                 />
               ))}
             </CollapsibleContent>

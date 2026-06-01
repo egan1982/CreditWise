@@ -1106,11 +1106,13 @@ class MarkdownReportGenerator:
         if total_bad_amount is not None:
             md += f"| 总坏账金额 | {total_bad_amount:,.2f} |\n"
         if overall_bad_rate is not None:
-            md += f"| 整体金额坏账率 | {overall_bad_rate * 100:.2f}% |\n"
+            md += f"| 样本金额坏账率 | {overall_bad_rate * 100:.2f}% |\n"
         if cumulative.get('cum_hit_amount') is not None:
             md += f"| 累计命中金额 | {cumulative['cum_hit_amount']:,.2f} |\n"
         if cumulative.get('amount_recall') is not None:
-            md += f"| 金额召回率 | {cumulative['amount_recall'] * 100:.2f}% |\n"
+            md += f"| 金额累计召回率 | {cumulative['amount_recall'] * 100:.2f}% |\n"
+        if cumulative.get('cum_amount_lift') is not None:
+            md += f"| 金额累计提升度 | {cumulative['cum_amount_lift']:.2f}x |\n"
         md += "\n"
         
         # 规则金额明细
@@ -1127,6 +1129,15 @@ class MarkdownReportGenerator:
                 bad_rate = r.get('amount_bad_rate', 0)
                 lift = r.get('amount_lift', 0)
                 md += f"| {rule_text} | {hit_amt:,.2f} | {hit_pct*100:.2f}% | {bad_amt:,.2f} | {bad_rate*100:.2f}% | {lift:.2f} |\n"
+            # Cumulative row
+            cum = amount_analysis.get('cumulative', {})
+            if cum:
+                cum_hit = cum.get('cum_hit_amount', 0)
+                total_amt = amount_analysis.get('total_amount', 1) or 1
+                cum_hit_pct = cum_hit / total_amt if total_amt > 0 else 0
+                cum_bad = cum.get('cum_bad_amount', 0)
+                recall = cum.get('amount_recall', 0)
+                md += f"| **累计** | **{cum_hit:,.2f}** | **{cum_hit_pct*100:.2f}%** | **{cum_bad:,.2f}** | **{recall*100:.2f}%** | - |\n"
             md += "\n"
         
         return md
@@ -1147,45 +1158,41 @@ class MarkdownReportGenerator:
             # Summary metrics
             summary = prior_analysis.get('summary', {})
             if summary:
-                md += "| 先验规则数 | 匹配到的规则 | 平均召回率 | 平均Lift |\n"
-                md += "|------------|--------------|------------|----------|\n"
+                md += "| 先验规则数 | 新规则数 | 增量召回率 | 平均重叠率 |\n"
+                md += "|------------|----------|------------|------------|\n"
                 
                 prior_count = summary.get('prior_rules_count', 0)
                 matched_count = summary.get('matched_count', 0)
-                avg_recall = summary.get('avg_recall', 0)
-                avg_recall_str = f"{avg_recall*100:.2f}%" if isinstance(avg_recall, (int, float)) else '-'
-                avg_lift = summary.get('avg_lift', 0)
-                avg_lift_str = f"{avg_lift:.2f}" if isinstance(avg_lift, (int, float)) else '-'
+                incremental_recall = summary.get('incremental_recall', 0)
+                incremental_str = f"{incremental_recall*100:.2f}%" if isinstance(incremental_recall, (int, float)) else '-'
+                avg_overlap = summary.get('avg_overlap_rate', 0)
+                avg_overlap_str = f"{avg_overlap*100:.2f}%" if isinstance(avg_overlap, (int, float)) else '-'
                 
-                md += f"| {prior_count} | {matched_count} | {avg_recall_str} | {avg_lift_str} |\n\n"
+                md += f"| {prior_count} | {matched_count} | {incremental_str} | {avg_overlap_str} |\n\n"
             
             # Prior rules table
             prior_rules = prior_analysis.get('rules', [])
             if prior_rules:
                 md += "**先验规则详情**\n\n"
-                md += "| 规则 | 召回率 | 命中率 | 坏账率 | Lift | 状态 |\n"
-                md += "|------|--------|--------|--------|------|------|\n"
+                md += "| 规则 | 独立召回 | 增量召回 | 重叠率 | 边际贡献 |\n"
+                md += "|------|----------|----------|--------|----------|\n"
                 
                 for rule in prior_rules[:20]:
-                    rule_text = str(rule.get('rule', rule.get('condition', '')))
-                    display_rule = rule_text[:40] + "..." if len(rule_text) > 40 else rule_text
+                    rule_text = str(rule.get('rule', rule.get('condition', '')))[:40]
                     
-                    recall = rule.get('recall', 0)
-                    recall_str = f"{recall*100:.2f}%" if isinstance(recall, (int, float)) else '-'
+                    standalone = rule.get('standalone_recall', rule.get('recall', 0))
+                    standalone_str = f"{standalone*100:.2f}%" if isinstance(standalone, (int, float)) else '-'
                     
-                    hit_rate = rule.get('hit_rate', 0)
-                    hit_rate_str = f"{hit_rate*100:.2f}%" if isinstance(hit_rate, (int, float)) else '-'
+                    incremental = rule.get('incremental_recall', 0)
+                    incremental_str = f"{incremental*100:.2f}%" if isinstance(incremental, (int, float)) else '-'
                     
-                    bad_rate = rule.get('bad_rate', 0)
-                    bad_rate_str = f"{bad_rate*100:.2f}%" if isinstance(bad_rate, (int, float)) else '-'
+                    overlap = rule.get('overlap_rate', 0)
+                    overlap_str = f"{overlap*100:.2f}%" if isinstance(overlap, (int, float)) else '-'
                     
-                    lift = rule.get('lift', 0)
-                    lift_str = f"{lift:.2f}" if isinstance(lift, (int, float)) else '-'
+                    marginal = rule.get('marginal_contribution', 0)
+                    marginal_str = f"{marginal*100:.2f}%" if isinstance(marginal, (int, float)) else '-'
                     
-                    matched = rule.get('matched', True)
-                    status_str = "✓ 匹配" if matched else "✗ 未匹配"
-                    
-                    md += f"| {display_rule} | {recall_str} | {hit_rate_str} | {bad_rate_str} | {lift_str} | {status_str} |\n"
+                    md += f"| {rule_text} | {standalone_str} | {incremental_str} | {overlap_str} | {marginal_str} |\n"
                 
                 if len(prior_rules) > 20:
                     md += f"\n*（仅显示前20条，共{len(prior_rules)}条）*\n"
