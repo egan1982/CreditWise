@@ -1030,7 +1030,22 @@ def get_stage_analysis_prompt(
         if is_rule_mining_context
         else "**任务类型**：评分卡建模任务"
     )
-    
+
+    # ── 参数建议格式要求（用于一键调参重跑功能）──────────────────────────
+    # 获取当前阶段可调参数 key 列表，约束 LLM 只输出已知参数名
+    stage_available_params = _get_stage_available_params(stage_id, task_type)
+    if stage_available_params:
+        params_hint = (
+            f"\n\n## 参数建议（可选，用于专家模式一键调参）\n"
+            f"如果你认为调整参数能显著改善结果，在分析文本末尾**另起一行**追加以下格式（否则省略此行）：\n"
+            f"SUGGESTED_PARAMS: {{\"param_key\": value, ...}}\n"
+            f"可调整的参数键名（只能使用以下键名，不要发明新键名）：{', '.join(stage_available_params)}\n"
+            f"示例：SUGGESTED_PARAMS: {{\"max_depth\": 5, \"min_samples_leaf\": 0.02}}"
+        )
+    else:
+        params_hint = ""
+    # ──────────────────────────────────────────────────────────────────────
+
     return f"""## 角色设定
 你是一位{role_config['role']}，专长领域：{role_config['expertise']}。
 
@@ -1050,7 +1065,37 @@ def get_stage_analysis_prompt(
 1. 用2-3句话概括本阶段执行情况，结合上述关注维度进行专业点评
 2. 在文中自然融入关键指标状态（如"关键指标：【正常】"），不要单独列出"关键指标评估"段落
 3. 如有问题或优化空间，给出1-2条具体可行的建议
-4. **格式要求**：输出为连贯的段落式文字，禁止使用格式化列表（如"- xxx：yyy"），控制在150字以内"""
+4. **格式要求**：输出为连贯的段落式文字，禁止使用格式化列表（如"- xxx：yyy"），控制在150字以内{params_hint}"""
+
+
+def _get_stage_available_params(stage_id: str, task_type: Optional[str] = None) -> list[str]:
+    """从 TaskMeta 获取指定阶段的可调参数 key 列表，用于约束 LLM 的参数建议输出"""
+    try:
+        from deepanalyze.analysis.task_SOP.registry import get_registry
+        registry = get_registry()
+        # 按 task_type 优先匹配，其次遍历所有任务
+        task_ids = []
+        if task_type == "rule_mining":
+            task_ids = ["rule_mining"]
+        elif task_type == "scorecard_dev":
+            task_ids = ["scorecard_dev"]
+        else:
+            task_ids = list(registry._tasks.keys()) if hasattr(registry, '_tasks') else []
+
+        for task_id in task_ids:
+            task_def = registry.get_task(task_id)
+            if not task_def:
+                continue
+            params = [
+                p.name
+                for p in task_def.params
+                if hasattr(p, 'stage') and getattr(p, 'stage', None) == stage_id
+            ]
+            if params:
+                return params
+    except Exception:
+        pass
+    return []
 
 
 def _build_stage_data_description(stage_id: str, data: dict[str, Any]) -> str:

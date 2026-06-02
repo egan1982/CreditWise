@@ -198,6 +198,19 @@ def check_expert_mode_pause(
 
 
 @dataclass
+class StageSnapshot:
+    """阶段版本快照 — 每次 retry 前保存，用于版本历史对比"""
+    version: int                          # 版本号，从 1 开始
+    params_used: dict[str, object]        # 本次执行实际使用的参数
+    output_preview: dict[str, object] | None  # 本次执行的阶段输出
+    ai_analysis: str | None               # 本次执行的 AI 分析文本（可选）
+    suggested_params: dict[str, object] | None  # AI 建议的参数（如有）
+    execution_time_ms: int | None         # 执行耗时（毫秒）
+    completed_at: str | None              # ISO 时间字符串
+    retry_reason: str | None = None       # 本次重试原因
+
+
+@dataclass
 class StageProgress:
     """阶段进度"""
     stage_id: str
@@ -214,6 +227,8 @@ class StageProgress:
     params_used: dict[str, object] = field(default_factory=dict)  # 该阶段使用的配置参数
     # 参数元数据（用于前端可视化表单渲染）
     params_meta: list[dict[str, object]] = field(default_factory=list)
+    # 版本历史快照（每次 retry 前追加）
+    snapshots: list[StageSnapshot] = field(default_factory=list)
     
     @property
     def execution_time_ms(self) -> int | None:
@@ -424,6 +439,19 @@ class ExecutionStore:
                         "started_at": stage.started_at.isoformat() if stage.started_at else None,
                         "completed_at": stage.completed_at.isoformat() if stage.completed_at else None,
                         "execution_time_ms": stage.execution_time_ms,  # 阶段执行耗时（毫秒）
+                        "snapshots": [
+                            {
+                                "version": s.version,
+                                "params_used": _make_json_serializable(s.params_used),
+                                "output_preview": _make_json_serializable(s.output_preview) if s.output_preview else None,
+                                "ai_analysis": s.ai_analysis,
+                                "suggested_params": _make_json_serializable(s.suggested_params) if s.suggested_params else None,
+                                "execution_time_ms": s.execution_time_ms,
+                                "completed_at": s.completed_at,
+                                "retry_reason": s.retry_reason,
+                            }
+                            for s in (stage.snapshots if hasattr(stage, 'snapshots') else [])
+                        ],
                     }
                     for stage_id, stage in context.stages.items()
                 }
@@ -2059,6 +2087,19 @@ def get_execution_status(execution_id: str) -> dict[str, object] | None:
                 "execution_time_ms": stage.execution_time_ms,  # 阶段执行时间（毫秒）
                 "started_at": stage.started_at.isoformat() if stage.started_at else None,  # 阶段开始时间
                 "completed_at": stage.completed_at.isoformat() if stage.completed_at else None,  # 阶段完成时间
+                "snapshots": [
+                    {
+                        "version": s.version,
+                        "params_used": s.params_used,
+                        "output_preview": s.output_preview,
+                        "ai_analysis": s.ai_analysis,
+                        "suggested_params": s.suggested_params,
+                        "execution_time_ms": s.execution_time_ms,
+                        "completed_at": s.completed_at,
+                        "retry_reason": s.retry_reason,
+                    }
+                    for s in (stage.snapshots if hasattr(stage, 'snapshots') else [])
+                ],
             }
             for stage_id, stage in context.stages.items()
         }

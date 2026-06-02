@@ -9,6 +9,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SuggestedParamsCard } from "./SuggestedParamsCard";
+import { StageVersionSelector } from "./StageVersionSelector";
 import {
   Table,
   TableBody,
@@ -119,13 +121,13 @@ async function fetchAnalysisFromAPI(
   }
 }
 
-// 保存分析结果到后端 API
+// 保存分析结果到后端 API，返回解析到的 suggested_params（如有）
 async function saveAnalysisToAPI(
   recordId: string,
   stageId: string,
   analysisText: string,
   modelUsed?: string
-): Promise<boolean> {
+): Promise<{ success: boolean; suggested_params?: Record<string, unknown> | null }> {
   try {
     const response = await fetch(
       getApiUrl(`/sop/history/${recordId}/stages/${stageId}/analysis`),
@@ -138,9 +140,11 @@ async function saveAnalysisToAPI(
         }),
       }
     );
-    return response.ok;
+    if (!response.ok) return { success: false };
+    const data = await response.json();
+    return { success: true, suggested_params: data.suggested_params ?? null };
   } catch {
-    return false;
+    return { success: false };
   }
 }
 
@@ -188,8 +192,8 @@ interface StageOutputPreviewProps {
   onEditParams?: (stageId: string, params: Record<string, any>) => void;
   /** 编辑代码回调 */
   onEditCode?: (stageId: string) => void;
-  /** 重试阶段回调 - params 是要重试时使用的新参数 */
-  onRetryStage?: (stageId: string, params?: Record<string, any>) => void;
+  /** 重试阶段回调 - params 是要重试时使用的新参数，retry_reason 是重试原因 */
+  onRetryStage?: (stageId: string, params?: Record<string, any>, retry_reason?: string) => void;
   /** 会话ID（用于代码执行和 sessionStorage 降级缓存） */
   sessionId?: string;
   /** 任务记录ID（用于后端 API 持久化 AI 分析，Phase 7） */
@@ -226,6 +230,8 @@ interface StageOutputPreviewProps {
   taskType?: string;
   /** 任务最终结果数据（用于专家模式最后阶段整体分析） */
   taskResult?: Record<string, any> | null;
+  /** 阶段历史快照列表（来自 stages[stageId].snapshots） */
+  snapshots?: import("./StageVersionSelector").StageSnapshotMeta[];
 }
 
 // =============================================================================
@@ -3830,7 +3836,17 @@ export function StageOutputPreview({
   isLastStage = false,
   taskType,
   taskResult,
+  // 版本历史快照
+  snapshots = [],
 }: StageOutputPreviewProps) {
+  // 版本选择：null 表示当前，数字表示历史版本
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  // 根据 selectedVersion 取快照或当前数据
+  const activeSnapshot = selectedVersion !== null
+    ? snapshots.find(s => s.version === selectedVersion) ?? null
+    : null;
+  const activeOutputPreview = activeSnapshot ? activeSnapshot.output_preview : outputPreview;
+  const activeParams = activeSnapshot ? activeSnapshot.params_used : (stageData?.params || {});
   // 编辑模式状态 - 根据阶段状态智能初始化
   // 阶段执行中（有代码但无结果）：显示代码tab
   // 阶段完成（有结果）：显示结果tab
@@ -3942,6 +3958,8 @@ export function StageOutputPreview({
   const [aiAnalysis, setAiAnalysis] = useState<string>(cachedAnalysis || "");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisExpanded, setAnalysisExpanded] = useState(true);
+  // AI 建议的结构化参数（从保存接口返回的 suggested_params 字段）
+  const [suggestedParams, setSuggestedParams] = useState<Record<string, unknown> | null>(null);
   // 如果有缓存，标记为已触发（避免重复调用）
   const [hasTriggeredAnalysis, setHasTriggeredAnalysis] = useState(!!cachedAnalysis);
   // Phase 12: 正在从缓存加载分析结果的标记，防止竞态条件导致重复触发分析
@@ -4185,11 +4203,15 @@ export function StageOutputPreview({
         // 保存到 sessionStorage（降级方案）
         setCachedAnalysis(recordId, stageId, fullAnalysis);
         
-        // 保存到后端 API
+        // 保存到后端 API，并获取解析到的参数建议
         saveAnalysisToAPI(recordId, stageId, fullAnalysis, selectedModel)
-          .then((success) => {
+          .then(({ success, suggested_params }) => {
             if (!success) {
               console.warn(`[AI Analysis] Failed to save analysis to API for ${recordId}/${stageId}`);
+            }
+            // 更新建议参数 state（流式完成后才渲染卡片）
+            if (suggested_params && Object.keys(suggested_params).length > 0) {
+              setSuggestedParams(suggested_params as Record<string, unknown>);
             }
           })
           .catch((error) => {
@@ -4516,13 +4538,13 @@ export function StageOutputPreview({
     return `${minutes}m ${seconds}s`;
   };
 
-  // 根据阶段ID选择预览组件
+  // 根据阶段ID选择预览组件（历史版本时使用快照数据）
   const renderPreview = () => {
-    if (!outputPreview) {
+    if (!activeOutputPreview) {
       return (
         <div className="flex flex-col items-center justify-center py-12 text-gray-400">
           <Database className="h-12 w-12 mb-2 opacity-50" />
-          <p className="text-sm">暂无预览数据</p>
+          <p className="text-sm">{activeSnapshot ? "该版本无结果数据" : "暂无预览数据"}</p>
           <p className="text-xs mt-1">阶段完成后将显示输出预览</p>
         </div>
       );
@@ -4531,30 +4553,30 @@ export function StageOutputPreview({
     switch (stageId) {
       case "data_loading":
       case "preprocessing":
-        return <DataLoadingPreview data={outputPreview} taskType={taskType} />;
+        return <DataLoadingPreview data={activeOutputPreview} taskType={taskType} />;
       case "woe_binning":
-        return <WoeBinningPreview data={outputPreview} />;
+        return <WoeBinningPreview data={activeOutputPreview} />;
       case "feature_selection":
       case "feature_engineering":
-        return <FeatureSelectionPreview data={outputPreview} />;
+        return <FeatureSelectionPreview data={activeOutputPreview} />;
       case "model_training":
-        return <ModelTrainingPreview data={outputPreview} />;
+        return <ModelTrainingPreview data={activeOutputPreview} />;
       case "model_evaluation":
-        return <ModelEvaluationPreview data={outputPreview} />;
+        return <ModelEvaluationPreview data={activeOutputPreview} />;
       case "generating_rules":
-        return <RuleGenerationPreview data={outputPreview} />;
+        return <RuleGenerationPreview data={activeOutputPreview} />;
       case "rule_filtering":
       case "filtering_rules":
       case "evaluating_rules":
-        return <RuleFilteringPreview data={outputPreview} />;
+        return <RuleFilteringPreview data={activeOutputPreview} />;
       case "selecting_rules":
-        return <RuleSelectionPreview data={outputPreview} />;
+        return <RuleSelectionPreview data={activeOutputPreview} />;
       case "score_scaling":
-        return <ScoreScalingPreview data={outputPreview} />;
+        return <ScoreScalingPreview data={activeOutputPreview} />;
       case "report_generation":
-        return <ReportGenerationPreview data={outputPreview} />;
+        return <ReportGenerationPreview data={activeOutputPreview} />;
       default:
-        return <GenericPreview data={outputPreview} />;
+        return <GenericPreview data={activeOutputPreview} />;
     }
   };
 
@@ -4611,9 +4633,9 @@ export function StageOutputPreview({
           )}
         </div>
 
-        {/* 专家模式：编辑模式切换标签 */}
+        {/* 专家模式：编辑模式切换标签 + 版本选择器 */}
         {isExpertMode && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
             <Button
               variant={editMode === "preview" ? "secondary" : "ghost"}
               size="sm"
@@ -4644,6 +4666,17 @@ export function StageOutputPreview({
                 代码
               </Button>
             )}
+            {/* 版本历史选择器（有快照时显示） */}
+            <StageVersionSelector
+              snapshots={snapshots}
+              selectedVersion={selectedVersion}
+              onChange={(v) => {
+                setSelectedVersion(v);
+                // 切换到历史版本时强制显示结果 tab
+                if (v !== null) setEditMode("preview");
+              }}
+              disabled={status === "running"}
+            />
           </div>
         )}
       </div>
@@ -4652,6 +4685,26 @@ export function StageOutputPreview({
       <div className="flex-1 overflow-auto p-4">
         {editMode === "preview" && (
           <>
+            {/* 历史版本 banner */}
+            {activeSnapshot && (
+              <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20 px-3 py-2 text-xs text-blue-700 dark:text-blue-300 flex items-center justify-between">
+                <span>
+                  📸 历史快照 v{activeSnapshot.version}
+                  {activeSnapshot.completed_at
+                    ? ` · ${new Date(activeSnapshot.completed_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                    : ""}
+                  {activeSnapshot.retry_reason ? ` · ${activeSnapshot.retry_reason}` : ""}
+                </span>
+                {onRetryStage && (
+                  <button
+                    className="ml-3 underline text-blue-600 dark:text-blue-400 hover:text-blue-800 shrink-0"
+                    onClick={() => onRetryStage(stageId, activeSnapshot.params_used as Record<string, any>, "回滚到v" + activeSnapshot.version)}
+                  >
+                    用此版本参数重跑
+                  </button>
+                )}
+              </div>
+            )}
             {renderPreview()}
             
             {/* AI分析区域：专家模式（内部分析）或自动模式（外部传入分析） */}
@@ -4788,6 +4841,23 @@ export function StageOutputPreview({
                 )}
               </div>
             )}
+
+            {/* AI 参数建议卡片（流式完成后、专家模式、非历史版本时展示） */}
+            {isExpertMode && !activeSnapshot && suggestedParams && Object.keys(suggestedParams).length > 0 && (
+              <SuggestedParamsCard
+                suggestedParams={suggestedParams}
+                currentParams={stageData?.params || {}}
+                isRetrying={status === "running"}
+                onApplyOnly={(merged) => {
+                  setLocalParams(merged as Record<string, any>);
+                  setEditMode("params");
+                }}
+                onApplyAndRetry={(merged) => {
+                  setLocalParams(merged as Record<string, any>);
+                  onRetryStage?.(stageId, merged as Record<string, any>, "接受AI建议");
+                }}
+              />
+            )}
           </>
         )}
         
@@ -4904,6 +4974,8 @@ export function StageOutputPreview({
                     // 重置 AI 分析状态，确保重试后重新生成
                     setAiAnalysis("");
                     setHasTriggeredAnalysis(false);
+                    // 清除参数建议（重试后重新生成）
+                    setSuggestedParams(null);
                     
                     // 触发阶段重试 - 直接传递参数给 retryStage API
                     // 不再依赖 onEditParams 的异步更新，避免竞态条件

@@ -62,7 +62,8 @@ from deepanalyze.analysis.task_SOP.executor import (
     get_execution_status,
     get_execution_result,
     ExecutionStore,
-    ExecutionStatus
+    ExecutionStatus,
+    StageSnapshot,
 )
 print("[SOP API] Executor imported")
 
@@ -2701,13 +2702,63 @@ async def resume_execution(execution_id: str) -> TaskControlResponse:
         )
 
 
+
+# =============================================================================
+# AI 分析辅助：SUGGESTED_PARAMS 解析
+# =============================================================================
+
+def _parse_suggested_params(analysis_text: str) -> Optional[Dict[str, Any]]:
+    """
+    从 AI 分析文本末尾解析 SUGGESTED_PARAMS: {...} 行。
+    
+    返回解析到的参数字典，解析失败或无此行时返回 None。
+    """
+    if not analysis_text:
+        return None
+    # 逐行从末尾找，支持尾部有空行的情况
+    for line in reversed(analysis_text.splitlines()):
+        line = line.strip()
+        if line.startswith("SUGGESTED_PARAMS:"):
+            json_str = line[len("SUGGESTED_PARAMS:"):].strip()
+            try:
+                import json as _json
+                params = _json.loads(json_str)
+                if isinstance(params, dict) and params:
+                    return params
+            except Exception:
+                logger.warning(f"[AI Analysis] Failed to parse SUGGESTED_PARAMS: {json_str!r}")
+            return None
+    return None
+
+
+def _strip_suggested_params(analysis_text: str) -> str:
+    """
+    从 AI 分析文本中剥离 SUGGESTED_PARAMS: 行，返回干净的展示文本。
+    """
+    if not analysis_text:
+        return analysis_text
+    lines = analysis_text.splitlines()
+    # 从末尾去掉 SUGGESTED_PARAMS 行及其前后的空行
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if lines and lines[-1].strip().startswith("SUGGESTED_PARAMS:"):
+        lines.pop()
+    # 再次去掉末尾空行
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
 # =============================================================================
 # Phase 6: 阶段重试和恢复 API
 # =============================================================================
 
+
+
 class StageRetryRequest(BaseModel):
     """阶段重试请求"""
     new_params: Optional[Dict[str, Any]] = Field(None, description="新参数（可选，覆盖原参数）")
+    retry_reason: Optional[str] = Field(None, description="重试原因，如'接受AI建议'（可选，用于版本历史展示）")
 
 
 class StageRetryResponse(BaseModel):
@@ -2995,9 +3046,48 @@ async def retry_stage(
     try:
         # 如果提供了新参数，更新上下文
         new_params = request.new_params if request else None
+        retry_reason = request.retry_reason if request else None
         if new_params:
             context.params.update(new_params)
             logger.info(f"[Retry Stage] Updated context.params for {execution_id}: {new_params}")
+
+        # ── 版本快照：重置前将当前阶段状态存档 ──────────────────────────
+        target_stage = context.stages.get(stage_id)
+        if (
+            target_stage is not None
+            and target_stage.status == ExecutionStatus.COMPLETED
+            and target_stage.output_preview is not None
+        ):
+            # 从 DB 读取该阶段的 AI 分析文本（异步安全地同步读取）
+            ai_analysis_text: str | None = None
+            try:
+                record_id_for_snap = getattr(context, 'record_id', None)
+                if record_id_for_snap and StageAnalysisService:
+                    analysis_rec = StageAnalysisService.get_analysis(record_id_for_snap, stage_id)
+                    ai_analysis_text = analysis_rec.get('analysis_text') if analysis_rec else None
+            except Exception as e:
+                logger.warning(f"[Retry Stage] Could not load AI analysis for snapshot: {e}")
+
+            # 计算版本号 = 已有快照数 + 1
+            snapshot = StageSnapshot(
+                version=len(target_stage.snapshots) + 1,
+                params_used=dict(target_stage.params_used),
+                output_preview=dict(target_stage.output_preview),
+                ai_analysis=ai_analysis_text,
+                suggested_params=None,   # 前端解析后如需保存，可通过单独接口写入
+                execution_time_ms=target_stage.execution_time_ms,
+                completed_at=target_stage.completed_at.isoformat() if target_stage.completed_at else None,
+                retry_reason=retry_reason,
+            )
+            # FIFO：保留最近 10 个快照
+            target_stage.snapshots.append(snapshot)
+            if len(target_stage.snapshots) > 10:
+                target_stage.snapshots = target_stage.snapshots[-10:]
+            logger.info(
+                f"[Retry Stage] Created snapshot v{snapshot.version} for {execution_id}/{stage_id}"
+                f"  reason={retry_reason}"
+            )
+        # ──────────────────────────────────────────────────────────────────
         
         # 设置重试阶段标记
         context.retry_from_stage = stage_id
@@ -3686,6 +3776,10 @@ async def get_stage_analysis(
     
     analysis = StageAnalysisService.get_analysis(record_id, stage_id)
     
+    # 从缓存的分析文本中提取 suggested_params（如有）
+    if analysis and analysis.get("analysis_text"):
+        analysis["suggested_params"] = _parse_suggested_params(analysis["analysis_text"])
+    
     return {
         "record_id": record_id,
         "stage_id": stage_id,
@@ -3722,11 +3816,15 @@ async def save_stage_analysis(
     if not record:
         logger.warning(f"[AI Analysis] Record not found: {record_id}")
         raise HTTPException(status_code=404, detail=f"Record not found: {record_id}")
+
+    # 解析并剥离 SUGGESTED_PARAMS 行，存储干净的分析文本
+    suggested_params = _parse_suggested_params(request.analysis_text)
+    clean_text = _strip_suggested_params(request.analysis_text)
     
     success = StageAnalysisService.save_analysis(
         record_id=record_id,
         stage_id=stage_id,
-        analysis_text=request.analysis_text,
+        analysis_text=clean_text,
         model_used=request.model_used
     )
     
@@ -3734,12 +3832,13 @@ async def save_stage_analysis(
         logger.error(f"[AI Analysis] Failed to save analysis for record={record_id}, stage={stage_id}")
         raise HTTPException(status_code=500, detail="Failed to save analysis")
     
-    logger.info(f"[AI Analysis] Successfully saved analysis for record={record_id}, stage={stage_id}")
+    logger.info(f"[AI Analysis] Successfully saved analysis for record={record_id}, stage={stage_id}, suggested_params={suggested_params}")
     return {
         "success": True,
         "message": "分析结果已保存",
         "record_id": record_id,
-        "stage_id": stage_id
+        "stage_id": stage_id,
+        "suggested_params": suggested_params,  # 解析到的参数建议（可能为 None）
     }
 
 

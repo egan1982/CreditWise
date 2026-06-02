@@ -768,12 +768,13 @@ class SOPService {
   async retryStage(
     executionId: string,
     stageId: string,
-    newParams?: Record<string, any>
+    newParams?: Record<string, any>,
+    retryReason?: string
   ): Promise<StageRetryResponse> {
     const response = await authFetch(getApiUrl(`/sop/executions/${executionId}/stages/${stageId}/retry`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ new_params: newParams }),
+      body: JSON.stringify({ new_params: newParams, retry_reason: retryReason || null }),
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));

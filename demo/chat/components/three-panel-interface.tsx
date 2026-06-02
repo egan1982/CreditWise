@@ -4555,7 +4555,7 @@ function ThreePanelInterfaceInner() {
                       });
                     }
                   }}
-                  onRetryStage={async (stageId, newParams) => {
+                  onRetryStage={async (stageId, newParams, retryReason) => {
                     // 阶段重试：使用新参数重新执行该阶段及后续阶段
                     if (!currentExecutionId) {
                       toast({ 
@@ -4566,9 +4566,9 @@ function ThreePanelInterfaceInner() {
                     }
                     
                     try {
-                      // 调用阶段重试 API，传递新参数
-                      console.log('[Retry Stage] Calling API:', { executionId: currentExecutionId, stageId, newParams });
-                      const result = await sopService.retryStage(currentExecutionId, stageId, newParams);
+                      // 调用阶段重试 API，传递新参数和重试原因
+                      console.log('[Retry Stage] Calling API:', { executionId: currentExecutionId, stageId, newParams, retryReason });
+                      const result = await sopService.retryStage(currentExecutionId, stageId, newParams, retryReason);
                       console.log('[Retry Stage] API response:', result);
                       
                       if (result.success) {
@@ -4620,6 +4620,10 @@ function ThreePanelInterfaceInner() {
                   // 修复：taskResult 传递条件与 StageOutputPreview 中 shouldUseOverallAnalysis 保持一致
                   // report_generation 阶段需要整体分析，不再依赖 isLastStage 判断
                   taskResult={isExpertModeTask && selectedStageId === "report_generation" ? taskExecutionResult : null}
+                  // 版本历史快照（来自 sopExecutionStatus.stages）
+                  snapshots={
+                    (sopExecutionStatus?.stages?.[selectedStageId || ""]?.snapshots) ?? []
+                  }
                 />
                 );
               })() : (

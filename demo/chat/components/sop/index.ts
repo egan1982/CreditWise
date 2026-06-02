@@ -56,3 +56,9 @@ export { PriorRulesInput } from "./PriorRulesInput";
 export { TaskHistoryList } from "./TaskHistoryList";
 export { TaskHistoryCompact } from "./TaskHistoryCompact";
 export type { TaskHistoryCompactRef } from "./TaskHistoryCompact";
+
+// AI 建议调参 + 版本历史（ai_suggest_retry_design）
+export { SuggestedParamsCard } from "./SuggestedParamsCard";
+export type { SuggestedParamsCardProps } from "./SuggestedParamsCard";
+export { StageVersionSelector } from "./StageVersionSelector";
+export type { StageVersionSelectorProps, StageSnapshotMeta } from "./StageVersionSelector";
