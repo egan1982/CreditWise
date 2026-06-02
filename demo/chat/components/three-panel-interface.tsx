@@ -37,7 +37,6 @@ import {
   ImageIcon,
   ChevronDown,
   ChevronRight,
-  CheckSquare,
   Trash2,
   Download,
   Play,
@@ -75,6 +74,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import ModelSelector from "./ModelSelector";
 import { 
   TaskSelector, 
@@ -997,18 +997,34 @@ function ThreePanelInterfaceInner() {
         <div
           className={`flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-900 rounded px-2 py-1 group ${
             isGenerated ? "bg-purple-50 dark:bg-purple-950/20" : ""
-          } ${!isDir && selectedPaths.has(data.id) ? "bg-blue-50 dark:bg-blue-950/20" : ""}`}
+          } ${!isDir && selectedPaths.has(data.id) ? "!bg-blue-50 dark:!bg-blue-950/30" : ""}`}
           onClick={(e) => {
             if (isDir) {
               node.toggle();
               return;
             }
+            // 单击文件行：切换选中状态（用于多选删除）
+            // 双击行为见 onDoubleClick（预览/下载）
             if (singleClickTimerRef.current) {
               window.clearTimeout(singleClickTimerRef.current);
               singleClickTimerRef.current = null;
             }
-            // 延迟触发预览，若短时间内发生双击会被取消
             singleClickTimerRef.current = window.setTimeout(() => {
+              toggleSelectPath(data.id);
+              singleClickTimerRef.current = null;
+            }, 180);
+          }}
+          onDoubleClick={(e) => {
+            if (isDir) return;
+            e.stopPropagation();
+            // 双击：取消单击的选中切换，改为预览/下载
+            if (singleClickTimerRef.current) {
+              window.clearTimeout(singleClickTimerRef.current);
+              singleClickTimerRef.current = null;
+            }
+            if (data.download_url) {
+              downloadFileByUrl(data.name, data.download_url);
+            } else {
               openNode({
                 name: data.name,
                 path: data.id,
@@ -1018,18 +1034,6 @@ function ThreePanelInterfaceInner() {
                 size: data.size,
                 icon: data.icon,
               } as any);
-              singleClickTimerRef.current = null;
-            }, 180);
-          }}
-          onDoubleClick={(e) => {
-            if (isDir) return;
-            e.stopPropagation();
-            if (singleClickTimerRef.current) {
-              window.clearTimeout(singleClickTimerRef.current);
-              singleClickTimerRef.current = null;
-            }
-            if (data.download_url) {
-              downloadFileByUrl(data.name, data.download_url);
             }
           }}
           onContextMenu={(e) =>
@@ -1081,7 +1085,7 @@ function ThreePanelInterfaceInner() {
               e.dataTransfer.effectAllowed = "move";
             }}
           >
-            {/* 文件行：checkbox 图标（hover 或已选中时显示） */}
+            {/* 文件行：Checkbox（hover 或已选中时显示，点击切换选中） */}
             {!isDir && (
               <div
                 className={`shrink-0 transition-opacity ${
@@ -1092,11 +1096,10 @@ function ThreePanelInterfaceInner() {
                   toggleSelectPath(data.id);
                 }}
               >
-                {selectedPaths.has(data.id) ? (
-                  <CheckSquare className="h-3.5 w-3.5 text-blue-500" />
-                ) : (
-                  <Square className="h-3.5 w-3.5 text-gray-400" />
-                )}
+                <Checkbox
+                  checked={selectedPaths.has(data.id)}
+                  className="h-3.5 w-3.5 border-gray-400 data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                />
               </div>
             )}
             {isDir ? (
@@ -3665,79 +3668,31 @@ function ThreePanelInterfaceInner() {
                     className="hidden"
                     accept="*"
                   />
-                  {/* 全选 / 取消全选 */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-1.5 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
-                        onClick={toggleSelectAll}
-                        aria-label={isAllSelected ? "取消全选" : "全选文件"}
-                      >
-                        {isAllSelected ? (
-                          <CheckSquare className="h-3.5 w-3.5 text-blue-500" />
-                        ) : isPartialSelected ? (
-                          <CheckSquare className="h-3.5 w-3.5 text-blue-300" />
-                        ) : (
-                          <Square className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs">
-                      {isAllSelected ? "取消全选" : "全选文件"}
-                    </TooltipContent>
-                  </Tooltip>
-                  {/* 批量删除（有选中时显示） */}
+                  {/* 全选 / 取消全选 文字按钮 */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`h-6 px-2 text-xs ${
+                      isAllSelected || isPartialSelected
+                        ? "text-blue-500 hover:text-blue-700"
+                        : "text-gray-500 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
+                    }`}
+                    onClick={toggleSelectAll}
+                  >
+                    {isAllSelected ? "取消全选" : "全选"}
+                  </Button>
+                  {/* 批量删除（有选中时显示，替代原清空按钮） */}
                   {selectedPaths.size > 0 && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
-                          onClick={() => setBatchDeleteOpen(true)}
-                        >
-                          <Trash2 className="h-3 w-3 mr-1" />
-                          {selectedPaths.size}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="text-xs">
-                        删除选中的 {selectedPaths.size} 个文件
-                      </TooltipContent>
-                    </Tooltip>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
+                      onClick={() => setBatchDeleteOpen(true)}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      删除({selectedPaths.size})
+                    </Button>
                   )}
-                  {/* 清空 workspace */}
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
-                        title="清空 workspace"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>清空 workspace？</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          将删除 workspace
-                          根目录下的所有文件与文件夹，此操作不可撤销。
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>取消</AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-red-600 hover:bg-red-700"
-                          onClick={clearWorkspace}
-                        >
-                          确认清空
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
                 </div>
               </div>
 
