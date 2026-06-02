@@ -38,7 +38,6 @@ import {
   ChevronDown,
   ChevronRight,
   CheckSquare,
-  Square,
   Trash2,
   Download,
   Play,
