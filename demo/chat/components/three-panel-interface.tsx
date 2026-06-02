@@ -7,7 +7,7 @@ import {
   oneLight,
 } from "react-syntax-highlighter/dist/esm/styles/prism";
 import Editor from "@monaco-editor/react";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -74,6 +74,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import ModelSelector from "./ModelSelector";
 import { 
   TaskSelector, 
@@ -504,6 +505,50 @@ function ThreePanelInterfaceInner() {
   const [sensitiveDialogOpen, setSensitiveDialogOpen] = useState(false);
   const [sensitiveFileName, setSensitiveFileName] = useState<string>("");
   const [sensitiveFilePath, setSensitiveFilePath] = useState<string>(""); // 记录已上传文件路径，用于高危时回滚删除
+
+  // workspace 多选状态
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+
+  // 收集文件树中所有叶子节点（非文件夹）路径，用于全选
+  const collectAllFilePaths = useCallback((node: WorkspaceNode | null): string[] => {
+    if (!node) return [];
+    if (!node.is_dir) return [node.path];
+    return (node.children || []).flatMap(collectAllFilePaths);
+  }, []);
+
+  const allFilePaths = useMemo(
+    () => collectAllFilePaths(workspaceTree),
+    [workspaceTree, collectAllFilePaths]
+  );
+
+  const isAllSelected = allFilePaths.length > 0 && allFilePaths.every(p => selectedPaths.has(p));
+  const isPartialSelected = !isAllSelected && allFilePaths.some(p => selectedPaths.has(p));
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedPaths(new Set());
+    } else {
+      setSelectedPaths(new Set(allFilePaths));
+    }
+  };
+
+  const toggleSelectPath = (path: string) => {
+    setSelectedPaths(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  const handleBatchDelete = async () => {
+    for (const p of Array.from(selectedPaths)) {
+      await deleteFile(p);
+    }
+    setSelectedPaths(new Set());
+    setBatchDeleteOpen(false);
+  };
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(
     null
   );
@@ -950,9 +995,9 @@ function ThreePanelInterfaceInner() {
           </div>
         )}
         <div
-          className={`flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-900 rounded px-2 py-1 ${
+          className={`flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-900 rounded px-2 py-1 group ${
             isGenerated ? "bg-purple-50 dark:bg-purple-950/20" : ""
-          }`}
+          } ${!isDir && selectedPaths.has(data.id) ? "bg-blue-50 dark:bg-blue-950/20" : ""}`}
           onClick={(e) => {
             if (isDir) {
               node.toggle();
@@ -1036,6 +1081,24 @@ function ThreePanelInterfaceInner() {
               e.dataTransfer.effectAllowed = "move";
             }}
           >
+            {/* 文件行：checkbox（hover 或已选中时显示） */}
+            {!isDir && (
+              <div
+                className={`shrink-0 transition-opacity ${
+                  selectedPaths.has(data.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleSelectPath(data.id);
+                }}
+              >
+                <Checkbox
+                  checked={selectedPaths.has(data.id)}
+                  onCheckedChange={() => toggleSelectPath(data.id)}
+                  className="h-3.5 w-3.5"
+                />
+              </div>
+            )}
             {isDir ? (
               <>
                 <span
@@ -3602,6 +3665,45 @@ function ThreePanelInterfaceInner() {
                     className="hidden"
                     accept="*"
                   />
+                  {/* 全选 / 取消全选 */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        className="h-6 w-6 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+                        onClick={toggleSelectAll}
+                        aria-label={isAllSelected ? "取消全选" : "全选文件"}
+                      >
+                        <Checkbox
+                          checked={isAllSelected ? true : isPartialSelected ? "indeterminate" : false}
+                          onCheckedChange={toggleSelectAll}
+                          className="h-3.5 w-3.5 pointer-events-none"
+                        />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">
+                      {isAllSelected ? "取消全选" : "全选文件"}
+                    </TooltipContent>
+                  </Tooltip>
+                  {/* 批量删除（有选中时显示） */}
+                  {selectedPaths.size > 0 && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
+                          onClick={() => setBatchDeleteOpen(true)}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          {selectedPaths.size}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        删除选中的 {selectedPaths.size} 个文件
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  {/* 清空 workspace */}
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
@@ -4813,6 +4915,27 @@ function ThreePanelInterfaceInner() {
       )}
       {/* 全局删除确认弹窗 */}
       {/* 右键移动操作已集成到主菜单顶部，移除单独浮层 */}
+
+      {/* 批量删除确认弹窗 */}
+      <AlertDialog open={batchDeleteOpen} onOpenChange={(o) => !o && setBatchDeleteOpen(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除选中的 {selectedPaths.size} 个文件？</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作不可撤销，选中的文件将被永久删除。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={handleBatchDelete}
+            >
+              确认删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 全局删除确认弹窗 */}
       <AlertDialog
