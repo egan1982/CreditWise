@@ -37,6 +37,8 @@ import {
   ImageIcon,
   ChevronDown,
   ChevronRight,
+  CheckSquare,
+  Square,
   Trash2,
   Download,
   Play,
@@ -74,7 +76,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Checkbox } from "@/components/ui/checkbox";
 import ModelSelector from "./ModelSelector";
 import { 
   TaskSelector, 
@@ -1081,7 +1082,7 @@ function ThreePanelInterfaceInner() {
               e.dataTransfer.effectAllowed = "move";
             }}
           >
-            {/* 文件行：checkbox（hover 或已选中时显示） */}
+            {/* 文件行：checkbox 图标（hover 或已选中时显示） */}
             {!isDir && (
               <div
                 className={`shrink-0 transition-opacity ${
@@ -1092,11 +1093,11 @@ function ThreePanelInterfaceInner() {
                   toggleSelectPath(data.id);
                 }}
               >
-                <Checkbox
-                  checked={selectedPaths.has(data.id)}
-                  onCheckedChange={() => toggleSelectPath(data.id)}
-                  className="h-3.5 w-3.5"
-                />
+                {selectedPaths.has(data.id) ? (
+                  <CheckSquare className="h-3.5 w-3.5 text-blue-500" />
+                ) : (
+                  <Square className="h-3.5 w-3.5 text-gray-400" />
+                )}
               </div>
             )}
             {isDir ? (
@@ -3668,17 +3669,21 @@ function ThreePanelInterfaceInner() {
                   {/* 全选 / 取消全选 */}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button
-                        className="h-6 w-6 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-1.5 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
                         onClick={toggleSelectAll}
                         aria-label={isAllSelected ? "取消全选" : "全选文件"}
                       >
-                        <Checkbox
-                          checked={isAllSelected ? true : isPartialSelected ? "indeterminate" : false}
-                          onCheckedChange={toggleSelectAll}
-                          className="h-3.5 w-3.5 pointer-events-none"
-                        />
-                      </button>
+                        {isAllSelected ? (
+                          <CheckSquare className="h-3.5 w-3.5 text-blue-500" />
+                        ) : isPartialSelected ? (
+                          <CheckSquare className="h-3.5 w-3.5 text-blue-300" />
+                        ) : (
+                          <Square className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="text-xs">
                       {isAllSelected ? "取消全选" : "全选文件"}
