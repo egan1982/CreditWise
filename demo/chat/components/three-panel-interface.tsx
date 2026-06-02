@@ -503,6 +503,7 @@ function ThreePanelInterfaceInner() {
   const [sensitiveResult, setSensitiveResult] = useState<SensitiveCheckResult | null>(null);
   const [sensitiveDialogOpen, setSensitiveDialogOpen] = useState(false);
   const [sensitiveFileName, setSensitiveFileName] = useState<string>("");
+  const [sensitiveFilePath, setSensitiveFilePath] = useState<string>(""); // 记录已上传文件路径，用于高危时回滚删除
   const [contextPos, setContextPos] = useState<{ x: number; y: number } | null>(
     null
   );
@@ -828,6 +829,7 @@ function ThreePanelInterfaceInner() {
             if (result.has_sensitive && (result.max_level === "high" || result.max_level === "medium")) {
               setSensitiveResult(result);
               setSensitiveFileName(csvFile.name);
+              setSensitiveFilePath(filePath);  // 记录路径，高危时回滚删除
               setSensitiveDialogOpen(true);
               break; // 一次只展示一个文件的结果，逐一处理
             }
@@ -4973,14 +4975,21 @@ function ThreePanelInterfaceInner() {
         result={sensitiveResult}
         fileName={sensitiveFileName}
         onConfirm={() => {
-          // 中危：用户确认继续
+          // 中危：用户确认继续，文件保留
           setSensitiveDialogOpen(false);
           setSensitiveResult(null);
+          setSensitiveFilePath("");
         }}
-        onReselect={() => {
-          // 高危/重选：关闭弹窗（文件已上传到 workspace，用户需手动删除并重传脱敏版本）
+        onReselect={async () => {
+          // 高危/重选：删除已上传的敏感文件，提示用户重新上传脱敏版本
           setSensitiveDialogOpen(false);
+          if (sensitiveFilePath) {
+            await deleteFile(sensitiveFilePath);
+          }
           setSensitiveResult(null);
+          setSensitiveFilePath("");
+          // 重新打开文件选择框
+          fileInputRef.current?.click();
         }}
       />
     </>

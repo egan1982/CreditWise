@@ -14,7 +14,8 @@ from pathlib import Path
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
-# 延迟导入，允许在不装 deepanalyze 包的环境下收集测试
+# 直接从子模块导入，绕过 deepanalyze.analysis.__init__ 的重量级依赖链
+# （本地 portable-dev-env 的 Python 3.12 缺少 scorecardpy/aiohttp 等生产依赖）
 from deepanalyze.analysis.data_validator import (
     SensitiveFieldDetector,
     DetectionLevel,
