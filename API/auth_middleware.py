@@ -103,7 +103,17 @@ AUTH_WHITELIST = [
 AUTH_WHITELIST_EXACT = [
     "/",
     "/favicon.ico",
+    "/placeholder-logo.png",     # 前端 Avatar 占位图，不存在时避免 401 触发浏览器弹窗
+    "/placeholder-user.jpg",     # 前端用户 Avatar 占位图
 ]
+
+# 静态资源后缀白名单（浏览器直接加载，无法注入 Authorization header）
+# 这类请求返回 401 会触发浏览器原生 Basic Auth 弹窗
+AUTH_WHITELIST_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+    ".woff", ".woff2", ".ttf", ".eot",
+    ".css", ".map",
+}
 
 # SSE 端点白名单（EventSource 不支持自定义 header）
 SSE_WHITELIST_PATTERNS = [
@@ -133,9 +143,14 @@ def _is_whitelisted(path: str) -> bool:
     for prefix in AUTH_WHITELIST:
         if path == prefix or path.startswith(prefix + "/"):
             return True
+    # SSE 端点
     for pattern in SSE_WHITELIST_PATTERNS:
         if pattern in path and path.endswith("/stream"):
             return True
+    # 静态资源后缀匹配（图片/字体/CSS 等，浏览器直接加载无法带认证头）
+    _, _, ext = path.rpartition(".")
+    if ext and f".{ext.lower()}" in AUTH_WHITELIST_EXTENSIONS:
+        return True
     return False
 
 
@@ -241,7 +256,6 @@ class SimpleAuth:
                 return None  # 格式错误时保守拒绝
 
         return user
-        return None
 
     def authenticate(self, request: Request) -> dict:
         """

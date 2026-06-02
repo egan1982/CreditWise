@@ -4292,7 +4292,6 @@ function ThreePanelInterfaceInner() {
                           </div>
                         </div>
                         <Avatar>
-                          <AvatarImage src="/placeholder-user.jpg" alt="User" />
                           <AvatarFallback className="text-[10px]">
                             U
                           </AvatarFallback>
@@ -4301,10 +4300,6 @@ function ThreePanelInterfaceInner() {
                     ) : (
                       <div className="flex items-start gap-2 min-w-0">
                         <Avatar>
-                          <AvatarImage
-                            src="/placeholder-logo.png"
-                            alt="AI Assistant"
-                          />
                           <AvatarFallback className="text-[10px]">
                             <Sparkles className="h-3 w-3" />
                           </AvatarFallback>
