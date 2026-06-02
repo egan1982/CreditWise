@@ -1064,15 +1064,22 @@ function ThreePanelInterfaceInner() {
                 />
               </div>
             )}
-            <span
-              className={`truncate ${
-                isGenerated
-                  ? "text-purple-700 dark:text-purple-300 font-medium"
-                  : ""
-              }`}
-            >
-              {data.name}
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={`truncate ${
+                    isGenerated
+                      ? "text-purple-700 dark:text-purple-300 font-medium"
+                      : ""
+                  }`}
+                >
+                  {data.name}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="text-xs">
+                {isDir ? "右键查看文件夹操作" : "右键查看文件操作（预览 / 下载 / 删除）"}
+              </TooltipContent>
+            </Tooltip>
             {typeof data.size === "number" && !isDir && (
               <span className="text-[10px] text-gray-400 ml-2 shrink-0">
                 {formatFileSize(data.size)}
@@ -1199,16 +1206,23 @@ function ThreePanelInterfaceInner() {
                 •
               </span>
             )}
-            <span
-              className={`truncate ${
-                isGenerated
-                  ? "text-purple-700 dark:text-purple-300 font-medium"
-                  : ""
-              }`}
-            >
-              {node.icon && !isGenerated ? `${node.icon} ` : ""}
-              {node.name || "workspace"}
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={`truncate ${
+                    isGenerated
+                      ? "text-purple-700 dark:text-purple-300 font-medium"
+                      : ""
+                  }`}
+                >
+                  {node.icon && !isGenerated ? `${node.icon} ` : ""}
+                  {node.name || "workspace"}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="text-xs">
+                {isDir ? "右键查看文件夹操作" : "右键查看文件操作（预览 / 下载 / 删除）"}
+              </TooltipContent>
+            </Tooltip>
             {!isDir && typeof node.size === "number" && (
               <span className="text-[10px] text-gray-400 ml-2 shrink-0">
                 {formatFileSize(node.size)}
