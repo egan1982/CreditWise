@@ -210,16 +210,18 @@
 |:------:|------|---------|-----------|
 | **4** | `feature_derivation_refactor_design.md` | ✅ 已完成（后端+前端+AI提示词+QA 通过） | 1-2天 |
 | **5** | `rule_mining_oot_validation_design.md` | ✅ Phase 1-6 全部完成（后端+前端融合展示+AI Prompt+测试 8/8 通过）。Phase 6 修复：preprocess one-hot 编码未排除 exclude_cols 导致 sample_type 列被删除 | ~14h |
+| **6** | ✅ `sensitive_field_detection` | **已完成 + 人工验证通过（2026-06-02）**：双层检测（L1列名+L2值扫描）+ 高危阻断上传+自动删除 + 中危警告 + SensitiveCheckDialog + 29个单元测试通过 | ~2天 |
 
 ### 🟢 P2 - 中期实施（1个月内）
 
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
-| **6** | ✅ `class_imbalance_handling_plan.md` | Phase 1 MVP 完成 + 测试通过（10/10）：none/auto/class_weight + 前端卡片 + AI Prompt 引导 | ~1天 |
-| **7** | ✅ `prior_rules_enhancement_plan.md` | Phase 1 完成 + 单元测试通过（12/12）+ ✅ 人工 Pipeline 测试全部通过（2026-06-01，PR-01~03 + COMBO-01）：PriorRuleParser + CSV上传 + 三级校验 + E2/E5/F3 安全修复。人工测试期间追加修复：未启用时面板不隐藏 Bug、各报告先验规则汇总卡片/详情表列名与前端对齐 | ~1天 |
-| **8** | ✅ **Chat任务入口交互优化** | 已完成：TaskConfirmCard 轻量卡片三态 + dismissedTaskTypes 防重复 + ConfigPanel initialParams 参数注入 | ~1-2天 |
-| **9** | ✅ **删除历史记录级联清理 + 批量删除** | 已完成 + QA 通过（含 SOP + inference 两种类型验证）：级联清理 7 类资源 + 批量删除 API（POST）+ 前端多选/全选。QA 修复 3 项：路由顺序 Bug、Checkbox 对比度、pending 状态误跳过导致 inference 记录无法批量删除 | ~1天 |
-| **10** | ✅ `amount_analysis_test_plan.md` | 测试 + Bug 修复完成：FIX-1 扁平化 + FIX-2 prop 修复 + FIX-3 DataFrame truthiness×6 + FIX-4 Excel 重写 + FIX-5 Markdown 重写 + FIX-6 类型校验 | ~0.5天+0.5天修复 |
+| **7** | ✅ `class_imbalance_handling_plan.md` | Phase 1 MVP 完成 + 测试通过（10/10）：none/auto/class_weight + 前端卡片 + AI Prompt 引导 | ~1天 |
+| **8** | ✅ `prior_rules_enhancement_plan.md` | Phase 1 完成 + 单元测试通过（12/12）+ ✅ 人工 Pipeline 测试全部通过（2026-06-01，PR-01~03 + COMBO-01）：PriorRuleParser + CSV上传 + 三级校验 + E2/E5/F3 安全修复。人工测试期间追加修复：未启用时面板不隐藏 Bug、各报告先验规则汇总卡片/详情表列名与前端对齐 | ~1天 |
+| **9** | ✅ **Chat任务入口交互优化** | 已完成：TaskConfirmCard 轻量卡片三态 + dismissedTaskTypes 防重复 + ConfigPanel initialParams 参数注入 | ~1-2天 |
+| **10** | ✅ **删除历史记录级联清理 + 批量删除** | 已完成 + QA 通过（含 SOP + inference 两种类型验证）：级联清理 7 类资源 + 批量删除 API（POST）+ 前端多选/全选。QA 修复 3 项：路由顺序 Bug、Checkbox 对比度、pending 状态误跳过导致 inference 记录无法批量删除 | ~1天 |
+| **11** | ✅ `amount_analysis_test_plan.md` | 测试 + Bug 修复完成：FIX-1 扁平化 + FIX-2 prop 修复 + FIX-3 DataFrame truthiness×6 + FIX-4 Excel 重写 + FIX-5 Markdown 重写 + FIX-6 类型校验 | ~0.5天+0.5天修复 |
+| **12** | ✅ **账户有效期控制** | **已完成 + 本机单元测试25/25通过 + CVM集成测试6/6通过（2026-06-01）**：`valid_until` 字段 + 过期拒绝401 + 格式错误保守拒绝 + 部署文档v1.3更新 | ~1.5小时 |
 
 > 详细方案见 [`taskSOP_solution/SOP_WebUI_detail_design.md` 第十章](./taskSOP_solution/SOP_WebUI_detail_design.md#十chat-任务入口交互优化方案待实施)
 
@@ -227,19 +229,19 @@
 
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
-| **11** | `report_config_driven_plan.md` | 报告系统可扩展性，业务功能完善后再处理 | 2-2.5天 |
-| **12** | `multimodal_chat_plan.md` | 多模态功能，非核心业务需求 | 1-2天 |
-| **13** | `right_panel_unified_architecture_plan.md` | 架构优化，依赖Chat API融合完成后 | 中期优化 |
-| **14** | `task_report_ai_analysis_design.md` | 仅剩端到端测试验证，可在其他功能完成后统一测试 | - |
-| **15** | `release_readiness_plan.md` | Release发布流程，代码审计已完成，后续Phase按需推进 | 按Phase分阶段 |
-| **16** | 📋 **导出报告新增指标同步** | 新增指标（CSI/OOT稳定性等）仅在前端/AI Prompt展示，导出报告缺失。Phase 1.7 作为统一登记处，按批次同步 | 按批次评估 |
+| **13** | `report_config_driven_plan.md` | 报告系统可扩展性，业务功能完善后再处理 | 2-2.5天 |
+| **14** | `multimodal_chat_plan.md` | 多模态功能，非核心业务需求 | 1-2天 |
+| **15** | `right_panel_unified_architecture_plan.md` | 架构优化，依赖Chat API融合完成后 | 中期优化 |
+| **16** | `task_report_ai_analysis_design.md` | 仅剩端到端测试验证，可在其他功能完成后统一测试 | - |
+| **17** | `release_readiness_plan.md` | Release发布流程，代码审计已完成，后续Phase按需推进 | 按Phase分阶段 |
+| **18** | 📋 **导出报告新增指标同步** | 新增指标（CSI/OOT稳定性等）仅在前端/AI Prompt展示，导出报告缺失。Phase 1.7 作为统一登记处，按批次同步 | 按批次评估 |
 
 ### 🟣 P4 - 远期/按需
 
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
-| **17** | `analysis_prompt_refactor_plan.md` | Prompt 工程优化 Phase 2，需根据新增 SOP 任务重新评估提示词框架方案 | Phase 2: ~2天 |
-| **18** | `strategy_diagnosis_plan.md` | 策略诊断 SOP 任务：Swap Set + 人数/金额双口径 + 业务/风险影响评估（框架文档已创建，待细化） | ~7-8天 |
+| **19** | `analysis_prompt_refactor_plan.md` | Prompt 工程优化 Phase 2，需根据新增 SOP 任务重新评估提示词框架方案 | Phase 2: ~2天 |
+| **20** | `strategy_diagnosis_plan.md` | 策略诊断 SOP 任务：Swap Set + 人数/金额双口径 + 业务/风险影响评估（框架文档已创建，待细化） | ~7-8天 |
 
 > 详细方案见 [`taskSOP_solution/task_management_module_design.md` Phase 25](./taskSOP_solution/task_management_module_design.md#phase-25删除历史记录级联清理待实施)
 > 详细方案见 [`taskSOP_solution/report_config_driven_plan.md` Phase 1.7](./taskSOP_solution/report_config_driven_plan.md#phase-17导出报告补充新增稳定性指标待实施)
@@ -267,6 +269,14 @@ Week 5:
   ├─ [P2] ✅ 删除历史记录级联清理 + 批量删除（已完成）
   ├─ [P2] ✅ 金额维度分析功能测试（FIX-1~6 修复 + 人工测试 AT-01~03 全通过，2026-06-01）
   └─ [P2] ✅ 先验规则功能人工测试（PR-01~03 + COMBO-01 全通过，2026-06-01）
+
+Week 6（2026-06-02）:
+  ├─ [P1] ✅ 敏感信息预检（个保法合规）：双层检测+高危阻断+自动删除文件+29单元测试通过+人工验证通过
+  ├─ [P2] ✅ 账户有效期控制：valid_until字段+过期401+单元测试25/25+CVM集成测试6/6通过
+  ├─ [UI] ✅ 三项UI优化：SOP面板调出隐藏Chat、规则挖掘默认参数调整、历史记录自动刷新
+  ├─ [UI] ✅ 双重登录彻底修复：全局fetch拦截器+LoginDialog+白名单补充静态资源后缀
+  ├─ [UI] ✅ workspace文件管理：全选文字按钮+行内Checkbox+批量删除(N)+单击选中/双击预览
+  └─ [UI] ✅ workspace文件tooltip：右键操作提示悬浮窗
 
 后续迭代:
   ├─ [P3] report_config_driven_plan Phase 2（业务功能完善后）
@@ -356,6 +366,24 @@ Week 5:
   - `scorecard_development.py` output_preview 的 `model_fit` 字典新增 `class_weight_applied` 字段
 - **验证**: 修复后 pseudo_r²=0.9038、lr_pvalue=0.0；单元测试 8/8 通过（含极端 1% 不平衡场景）
 - **文件**: `deepanalyze/analysis/statistical_model.py`, `deepanalyze/analysis/task_SOP/scorecard_development.py`
+
+### B-LOGIN-1: 双重登录弹窗（2026-06-02）
+- **影响**: 首次访问时出现两次登录弹窗——一次是前端 `window.prompt`（串行两次：用户名+密码），一次是浏览器原生 Basic Auth 弹窗
+- **根因1**: `<img src="/placeholder-logo.png">` 和 `<img src="/placeholder-user.jpg">` 图片资源不存在，后端返回 401+WWW-Authenticate，浏览器对图片 401 触发原生弹窗。图片加载不走 `fetch()`，全局 fetch 拦截器无效
+- **根因2**: 大量组件使用裸 `fetch()` 而非 `authFetch()`，后端 401 触发浏览器弹窗
+- **修复**:
+  - 后端白名单补充静态资源文件后缀（`.png/.jpg/.svg/.woff` 等），图片资源不触发认证
+  - 删除两个不存在的 `<AvatarImage src>` 引用，直接用 `AvatarFallback`
+  - 全局 `window.fetch` 拦截器，所有裸 fetch 自动注入 Authorization 头
+  - `LoginDialog.tsx` 替代两次串行 `window.prompt`，用户名+密码同时展示
+  - 修复 `TaskHistoryList.tsx` 路径 bug：`/api/sop/history` → `/sop/history`
+- **文件**: `API/auth_middleware.py`, `demo/chat/components/three-panel-interface.tsx`, `demo/chat/components/LoginDialog.tsx`, `demo/chat/lib/config.ts`, `demo/chat/components/sop/TaskHistoryList.tsx`
+
+### B-SENSITIVE-1: 高危文件上传后弹窗但文件仍保留（2026-06-02）
+- **影响**: 高危敏感文件触发阻断弹窗，用户点"重新选择文件"后文件仍然存在于 workspace
+- **根因**: 检测逻辑是"先上传再检测"，`onReselect` 回调只关闭弹窗，没有删除已上传的文件
+- **修复**: 新增 `sensitiveFilePath` state 记录已上传路径，`onReselect` 时调用 `deleteFile(sensitiveFilePath)` 回滚删除，并重新打开文件选择框
+- **文件**: `demo/chat/components/three-panel-interface.tsx`
 
 
 
