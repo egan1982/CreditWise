@@ -1071,31 +1071,28 @@ def get_stage_analysis_prompt(
 
 def _get_stage_available_params(stage_id: str, task_type: Optional[str] = None) -> list[str]:
     """从 TaskMeta 获取指定阶段的可调参数 key 列表，用于约束 LLM 的参数建议输出"""
-    try:
-        from deepanalyze.analysis.task_SOP.registry import get_registry
-        registry = get_registry()
-        # 按 task_type 优先匹配，其次遍历所有任务
-        task_ids = []
-        if task_type == "rule_mining":
-            task_ids = ["rule_mining"]
-        elif task_type == "scorecard_dev":
-            task_ids = ["scorecard_dev"]
-        else:
-            task_ids = list(registry._tasks.keys()) if hasattr(registry, '_tasks') else []
+    # stage_id 别名映射：前端 stage_id -> meta 中的 stage 字段值
+    STAGE_ID_ALIASES: dict[str, str] = {
+        "filtering_rules": "rule_filtering",
+    }
+    meta_stage_id = STAGE_ID_ALIASES.get(stage_id, stage_id)
 
-        for task_id in task_ids:
-            task_def = registry.get_task(task_id)
-            if not task_def:
-                continue
-            params = [
-                p.name
-                for p in task_def.params
-                if hasattr(p, 'stage') and getattr(p, 'stage', None) == stage_id
-            ]
+    try:
+        # 优先直接从 meta 文件读取（不依赖 registry 初始化时机）
+        if task_type == "rule_mining" or task_type is None:
+            from deepanalyze.analysis.task_SOP.rule_mining_meta import RULE_MINING_TASK_META
+            all_params = RULE_MINING_TASK_META.get("required_params", []) + RULE_MINING_TASK_META.get("optional_params", [])
+            params = [p["name"] for p in all_params if p.get("stage") == meta_stage_id]
             if params:
                 return params
-    except Exception:
-        pass
+        if task_type == "scorecard_dev" or task_type is None:
+            from deepanalyze.analysis.task_SOP.scorecard_meta import SCORECARD_TASK_META
+            all_params = SCORECARD_TASK_META.get("required_params", []) + SCORECARD_TASK_META.get("optional_params", [])
+            params = [p["name"] for p in all_params if p.get("stage") == meta_stage_id]
+            if params:
+                return params
+    except Exception as e:
+        logger.warning(f"[_get_stage_available_params] Failed for stage={stage_id} task={task_type}: {e}")
     return []
 
 
