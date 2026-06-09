@@ -1077,18 +1077,36 @@ def _get_stage_available_params(stage_id: str, task_type: Optional[str] = None) 
     }
     meta_stage_id = STAGE_ID_ALIASES.get(stage_id, stage_id)
 
+    # 不适合 LLM 推荐的参数类型：列名类、路径类、复杂结构类
+    # 这些参数需要用户根据实际数据填写，LLM 无法给出有效值
+    EXCLUDED_PARAMS = {
+        "exclude_cols",       # 需要知道实际列名
+        "force_categorical",  # 需要知道实际列名
+        "force_numeric",      # 需要知道实际列名
+        "target_col",         # 核心配置，不应被 AI 修改
+        "weight_col",         # 核心配置
+        "sample_type_col",    # 核心配置
+        "time_col",           # 核心配置
+        "prior_rules",        # 规则文件路径
+        "amount_col",         # 核心配置
+        "special_values",     # 复杂结构
+        "rule_directions",    # 复杂结构
+        "custom_thresholds",  # 复杂结构
+    }
+
     try:
-        # 优先直接从 meta 文件读取（不依赖 registry 初始化时机）
         if task_type == "rule_mining" or task_type is None:
             from deepanalyze.analysis.task_SOP.rule_mining_meta import RULE_MINING_TASK_META
             all_params = RULE_MINING_TASK_META.get("required_params", []) + RULE_MINING_TASK_META.get("optional_params", [])
-            params = [p["name"] for p in all_params if p.get("stage") == meta_stage_id]
+            params = [p["name"] for p in all_params
+                      if p.get("stage") == meta_stage_id and p["name"] not in EXCLUDED_PARAMS]
             if params:
                 return params
         if task_type == "scorecard_dev" or task_type is None:
             from deepanalyze.analysis.task_SOP.scorecard_meta import SCORECARD_TASK_META
             all_params = SCORECARD_TASK_META.get("required_params", []) + SCORECARD_TASK_META.get("optional_params", [])
-            params = [p["name"] for p in all_params if p.get("stage") == meta_stage_id]
+            params = [p["name"] for p in all_params
+                      if p.get("stage") == meta_stage_id and p["name"] not in EXCLUDED_PARAMS]
             if params:
                 return params
     except Exception as e:
@@ -1297,7 +1315,6 @@ def _build_data_loading_description(data: dict[str, Any]) -> str:
         removed_count = len(var_filter_result.get("removed_features", []))
         if removed_count > 0:
             var_filter_str = f"\n- var_filter筛选: {input_features} → {output_features} 个特征（移除{removed_count}个）"
-            # 移除原因明细
             removed_by_missing = var_filter_result.get("removed_by_missing", [])
             removed_by_identical = var_filter_result.get("removed_by_identical", [])
             if removed_by_missing:
