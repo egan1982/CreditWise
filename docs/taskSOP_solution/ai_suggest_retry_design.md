@@ -438,7 +438,7 @@ AI 自动分析（streaming，约15秒）
 
 ## 10. 后续优化（已登记，待实施）
 
-### OPT-1：首次评估 vs 重试评估双 Prompt 方案
+### OPT-1：首次评估 vs 重试评估双 Prompt 方案 ✅ 已实施（2026-06-09）
 
 **背景**：当前阶段 AI 评估使用统一 Prompt，重试场景下 LLM 不知道用户已主动调整过参数，容易出现"建议恢复原始值"的自相矛盾。
 
@@ -448,16 +448,23 @@ AI 自动分析（streaming，约15秒）
 
 **Prompt 新增输入**（重试时）：
 ```
-## 上一版本对比
-参数变化：{prev_params_diff}（如 iv_threshold: 0.02 → 0.01）
-上一版结果摘要：{prev_output_summary}（如 筛选后特征数: 29 → 34）
-请基于此对比评估本次调整的效果，不要建议恢复到已被用户主动更改的参数值。
+## 上一版本对比（v1，接受AI建议）
+参数变化：
+  iv_lower: 0.05 → 0.02（↓ 降低）
+  vif_threshold: 5.0 → 3.0（↓ 降低）
+上一版结果：入选特征 18 个、移除特征 12 个
+请基于以上对比评估本次调整的效果，不要建议恢复到用户已主动调整过的参数值。
 ```
 
 **实现点**：
-- 前端 `promptRequest` 新增 `prev_snapshot` 字段（取 `stageData.snapshots[-1]`）
-- 后端 `get_stage_analysis_prompt` 接收 `prev_snapshot`，有值时使用重试评估模板
-- 优先级：P2，预计工作量 ~3h
+- 后端 `_build_param_diff` / `_build_result_summary` / `_build_prev_snapshot_context` 三个新函数
+- `get_stage_analysis_prompt` 新增 `prev_snapshot`/`params_used` 参数
+- 前端 `useAIAnalysis` hook 新增 `snapshots` 字段，`prev_snapshot = snapshots[-1]`
+
+**验证结果（评分卡 feature_selection 场景）**：
+- 首次分析：无对比 section，正常给出调参建议 ✅
+- 重试分析：正确注入对比 section，LLM 给出中间值建议（0.03），未建议恢复旧值（0.05）✅
+- SUGGESTED_PARAMS 正常输出 ✅
 
 *登记时间：2026-06-08*
 
