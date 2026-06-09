@@ -248,7 +248,7 @@ export function useAIAnalysis(options: UseAIAnalysisOptions): UseAIAnalysisRetur
     } finally {
       if (currentVersion === analysisVersionRef.current) setIsAnalyzing(false);
     }
-  }, [isExpertMode, selectedModel, stageId, taskType, stageParams, shouldUseOverallAnalysis, taskResult, outputPreview, recordId]);
+  }, [isExpertMode, selectedModel, stageId, taskType, stageParams, shouldUseOverallAnalysis, taskResult, outputPreview, recordId, snapshots]);
 
   // ─── 核心 Effect：当阶段完成时，查 DB 决定显示或触发 ─────────────────────
   // 逻辑：status=completed + 专家模式 + outputPreview 就绪 → 查 DB
