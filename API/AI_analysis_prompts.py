@@ -967,6 +967,171 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
 
 
 # =============================================================================
+# OPT-1：重试场景上一版本对比 Prompt 构建
+# =============================================================================
+
+# 不纳入参数 diff 的参数（列名类/路径类/复杂结构，与 EXCLUDED_PARAMS 保持一致）
+_DIFF_SKIP_PARAMS = {
+    "exclude_cols", "force_categorical", "force_numeric", "target_col",
+    "weight_col", "sample_type_col", "time_col", "prior_rules", "amount_col",
+    "special_values", "rule_directions", "custom_thresholds", "data_file",
+}
+
+
+def _build_param_diff(prev_params: dict[str, Any], curr_params: dict[str, Any]) -> str:
+    """构建参数变化 diff 字符串，只展示有变化的参数"""
+    if not prev_params or not curr_params:
+        return ""
+    lines = []
+    all_keys = set(prev_params) | set(curr_params)
+    for k in sorted(all_keys):
+        if k in _DIFF_SKIP_PARAMS:
+            continue
+        old_v = prev_params.get(k)
+        new_v = curr_params.get(k)
+        if old_v == new_v or (old_v is None and new_v is None):
+            continue
+        # 变化方向注释
+        try:
+            direction = ""
+            if isinstance(old_v, (int, float)) and isinstance(new_v, (int, float)):
+                direction = "（↑ 提高）" if new_v > old_v else "（↓ 降低）"
+        except Exception:
+            direction = ""
+        lines.append(f"  {k}: {old_v} → {new_v}{direction}")
+    return "\n".join(lines)
+
+
+def _build_result_summary(stage_id: str, output_preview: dict[str, Any]) -> str:
+    """从 output_preview 提取各阶段关键结果指标"""
+    if not output_preview:
+        return ""
+
+    # ── 评分卡阶段 ──────────────────────────────────────────────────────────
+    if stage_id in ("preprocessing", "data_loading"):
+        rows = output_preview.get("rows")
+        target_rate = output_preview.get("target_rate")
+        missing_rate = output_preview.get("missing_rate")
+        parts = []
+        if rows is not None:
+            parts.append(f"样本量 {rows:,}")
+        if target_rate is not None:
+            parts.append(f"坏账率 {target_rate * 100:.2f}%")
+        if missing_rate is not None:
+            parts.append(f"平均缺失率 {missing_rate * 100:.1f}%")
+        return "、".join(parts)
+
+    if stage_id == "woe_binning":
+        iv_table = output_preview.get("iv_table", [])
+        if iv_table:
+            valid_iv = [r for r in iv_table if isinstance(r.get("total_iv"), (int, float)) and r["total_iv"] >= 0.02]
+            mono_pass = [r for r in iv_table if r.get("monotonic") is True]
+            return f"IV≥0.02 特征数 {len(valid_iv)}/{len(iv_table)}、单调性通过 {len(mono_pass)}/{len(iv_table)}"
+
+    if stage_id == "feature_selection":
+        selected = output_preview.get("selected_features", [])
+        removed = output_preview.get("removed_features", [])
+        parts = []
+        if selected is not None:
+            n = len(selected) if isinstance(selected, list) else selected
+            parts.append(f"入选特征 {n} 个")
+        if removed is not None:
+            n = len(removed) if isinstance(removed, list) else removed
+            parts.append(f"移除特征 {n} 个")
+        return "、".join(parts)
+
+    if stage_id == "model_training":
+        metrics = output_preview.get("metrics", {})
+        ks = metrics.get("ks") or output_preview.get("ks")
+        auc = metrics.get("auc") or output_preview.get("auc")
+        parts = []
+        if ks is not None:
+            parts.append(f"训练集KS {ks:.4f}")
+        if auc is not None:
+            parts.append(f"AUC {auc:.4f}")
+        return "、".join(parts)
+
+    if stage_id == "model_evaluation":
+        metrics = output_preview.get("metrics", {})
+        ks_train = metrics.get("ks_train") or metrics.get("ks")
+        ks_test = metrics.get("ks_test")
+        psi = output_preview.get("psi") or metrics.get("psi")
+        parts = []
+        if ks_train is not None and ks_test is not None:
+            diff = abs(ks_train - ks_test)
+            parts.append(f"KS训练/测试 {ks_train:.4f}/{ks_test:.4f}（差值{diff:.4f}）")
+        if psi is not None:
+            parts.append(f"PSI {psi:.4f}")
+        return "、".join(parts)
+
+    # ── 规则挖掘阶段 ─────────────────────────────────────────────────────────
+    if stage_id == "feature_engineering":
+        initial = output_preview.get("initial_features")
+        final = output_preview.get("final_features")
+        if initial is not None and final is not None:
+            return f"初始特征 {initial} → 筛选后 {final} 个"
+
+    if stage_id == "generating_rules":
+        rule_count = output_preview.get("rule_count")
+        if rule_count is not None:
+            return f"生成规则 {rule_count} 条"
+
+    if stage_id in ("filtering_rules", "rule_filtering"):
+        valid = output_preview.get("valid_rules")
+        total = output_preview.get("input_rules")
+        if valid is not None and total is not None:
+            return f"有效规则 {valid}/{total} 条（过滤率 {(total - valid) / total * 100:.1f}%）"
+
+    if stage_id == "selecting_rules":
+        selected = output_preview.get("selected_count") or output_preview.get("valid_rules")
+        if selected is not None:
+            return f"最终入选规则 {selected} 条"
+
+    # 通用兜底：提取数值型字段
+    parts = []
+    for k, v in output_preview.items():
+        if isinstance(v, (int, float)) and not k.startswith("_") and len(parts) < 3:
+            parts.append(f"{k}={v}")
+    return "、".join(parts)
+
+
+def _build_prev_snapshot_context(
+    stage_id: str,
+    prev_snapshot: dict[str, Any],
+    curr_params: dict[str, Any],
+) -> str:
+    """
+    构建上一版本对比 section，用于重试场景的 Prompt 注入。
+
+    返回空字符串表示无可用对比信息（不注入）。
+    """
+    if not prev_snapshot:
+        return ""
+
+    prev_params = prev_snapshot.get("params_used") or {}
+    prev_output = prev_snapshot.get("output_preview") or {}
+    prev_version = prev_snapshot.get("version", "上一版")
+    retry_reason = prev_snapshot.get("retry_reason") or "手动调参"
+
+    # 参数 diff
+    param_diff = _build_param_diff(prev_params, curr_params or {})
+    # 结果摘要
+    prev_summary = _build_result_summary(stage_id, prev_output)
+
+    if not param_diff and not prev_summary:
+        return ""
+
+    lines = [f"\n\n## 上一版本对比（v{prev_version}，{retry_reason}）"]
+    if param_diff:
+        lines.append("参数变化：")
+        lines.append(param_diff)
+    if prev_summary:
+        lines.append(f"上一版结果：{prev_summary}")
+    lines.append("请基于以上对比评估本次调整的效果，不要建议恢复到用户已主动调整过的参数值。")
+    return "\n".join(lines)
+
+
+# =============================================================================
 # 阶段分析 Prompt 构建
 # =============================================================================
 
@@ -974,19 +1139,20 @@ def get_stage_analysis_prompt(
     stage_id: str,
     stage_name: str,
     data: dict[str, Any],
-    task_type: Optional[str] = None
+    task_type: Optional[str] = None,
+    prev_snapshot: Optional[dict[str, Any]] = None,
+    params_used: Optional[dict[str, Any]] = None,
 ) -> str:
     """
     构建阶段分析的提示词
-    
+
     Args:
         stage_id: 阶段ID
         stage_name: 阶段名称
         data: 阶段输出数据
         task_type: 任务类型（可选，用于判断规则挖掘/评分卡）
-    
-    Returns:
-        完整的阶段分析提示词字符串
+        prev_snapshot: 上一版本快照数据（重试场景时传入，用于对比分析）
+        params_used: 本次执行实际使用的参数（用于参数 diff 和避免 AI 矛盾建议）
     """
     stage_display_name = STAGE_NAME_MAP.get(stage_id, stage_name)
     
@@ -1047,6 +1213,9 @@ def get_stage_analysis_prompt(
         params_hint = ""
     # ──────────────────────────────────────────────────────────────────────
 
+    # ── 上一版本对比 section（重试场景）────────────────────────────────────
+    prev_snapshot_context = _build_prev_snapshot_context(stage_id, prev_snapshot or {}, params_used or {})
+
     return f"""## 角色设定
 你是一位{role_config['role']}，专长领域：{role_config['expertise']}。
 
@@ -1059,7 +1228,7 @@ def get_stage_analysis_prompt(
 {data_description}
 
 ## 重点关注维度
-{focus_points_list}{note_section}
+{focus_points_list}{note_section}{prev_snapshot_context}
 
 ## 输出要求
 **重要**：直接输出分析内容，禁止自我介绍或开场白（如"作为...专家，我..."、"您好！我是..."）。
@@ -2231,11 +2400,13 @@ def get_analysis_prompt(
     stage_name: Optional[str] = None,
     data: Optional[dict[str, Any]] = None,
     result: Optional[dict[str, Any]] = None,
+    params_used: Optional[dict[str, Any]] = None,
+    prev_snapshot: Optional[dict[str, Any]] = None,
     analysis_depth: str = "standard"  # noqa: ARG001 - 保留用于未来扩展
 ) -> str:
     """
     获取 AI 分析提示词的统一工厂函数
-    
+
     Args:
         analysis_type: 分析类型 ("overall" 或 "stage")
         task_type: 任务类型 ("scorecard_dev" 或 "rule_mining")
@@ -2243,8 +2414,10 @@ def get_analysis_prompt(
         stage_name: 阶段名称（stage分析必需）
         data: 阶段数据（stage分析必需）
         result: 任务结果（overall分析必需）
+        params_used: 本次执行参数（用于避免 AI 矛盾建议）
+        prev_snapshot: 上一版本快照（重试场景，用于对比分析）
         analysis_depth: 分析深度（预留，目前仅支持 "standard"）
-    
+
     Returns:
         完整的分析提示词字符串
     """
@@ -2253,7 +2426,7 @@ def get_analysis_prompt(
             raise ValueError("Overall analysis requires 'result' parameter")
         task_type_name = "评分卡开发" if task_type == "scorecard_dev" else "规则挖掘"
         return get_overall_analysis_prompt(task_type_name, result)
-    
+
     elif analysis_type == "stage":
         if stage_id is None or data is None:
             raise ValueError("Stage analysis requires 'stage_id' and 'data' parameters")
@@ -2261,9 +2434,11 @@ def get_analysis_prompt(
             stage_id=stage_id,
             stage_name=stage_name or stage_id,
             data=data,
-            task_type=task_type
+            task_type=task_type,
+            prev_snapshot=prev_snapshot,
+            params_used=params_used,
         )
-    
+
     else:
         raise ValueError(f"Unknown analysis_type: {analysis_type}")
 

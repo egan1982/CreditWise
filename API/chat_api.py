@@ -1979,14 +1979,18 @@ async def get_analysis_prompt_endpoint(
         stage_name = request.get("stage_name")
         data = request.get("data")
         result = request.get("result")
-        
+        params_used = request.get("params_used")
+        prev_snapshot = request.get("prev_snapshot")  # OPT-1：重试场景上一版本快照
+
         prompt = get_analysis_prompt(
             analysis_type=analysis_type,
             task_type=task_type,
             stage_id=stage_id,
             stage_name=stage_name,
             data=data,
-            result=result
+            result=result,
+            params_used=params_used,
+            prev_snapshot=prev_snapshot,
         )
         
         return {

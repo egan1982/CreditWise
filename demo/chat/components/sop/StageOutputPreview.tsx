@@ -3943,6 +3943,7 @@ export function StageOutputPreview({
     taskResult,
     isOutputDataReady,
     shouldUseOverallAnalysis: isExpertMode && stageId === "report_generation",
+    snapshots,  // OPT-1：重试场景传快照，供后端构建对比分析
   });
 
   // performAIAnalysis 供"重新分析"按钮调用

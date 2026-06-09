@@ -112,6 +112,8 @@ export interface UseAIAnalysisOptions {
   taskResult?: Record<string, any> | null;
   isOutputDataReady: (data: Record<string, any> | null, stageId: string) => boolean;
   shouldUseOverallAnalysis?: boolean;
+  /** 阶段历史快照列表（OPT-1：重试场景用最后一个做对比分析） */
+  snapshots?: Array<Record<string, any>>;
 }
 
 export interface UseAIAnalysisReturn {
@@ -132,6 +134,7 @@ export function useAIAnalysis(options: UseAIAnalysisOptions): UseAIAnalysisRetur
     recordId, stageId, status, outputPreview,
     isExpertMode, selectedModel, taskType, stageParams,
     taskResult, isOutputDataReady, shouldUseOverallAnalysis = false,
+    snapshots,
   } = options;
 
   // ─── state ────────────────────────────────────────────────────────────────
@@ -169,6 +172,10 @@ export function useAIAnalysis(options: UseAIAnalysisOptions): UseAIAnalysisRetur
             analysis_type: "stage", task_type: taskType,
             stage_id: stageId, stage_name: stageId,
             data: currentOutputPreview, params_used: stageParams || {},
+            // OPT-1：重试场景传上一版本快照，供后端构建对比分析
+            prev_snapshot: snapshots && snapshots.length > 0
+              ? snapshots[snapshots.length - 1]
+              : undefined,
           };
 
       const promptRes = await fetch(getApiUrl("/v1/chat/analysis/prompt"), {
