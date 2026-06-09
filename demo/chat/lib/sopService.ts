@@ -101,6 +101,8 @@ export interface TaskParam {
   max?: number;
   step?: number;
   show_when?: Record<string, any>;
+  disabled_when?: Record<string, any>;  // 条件满足时禁用（显示但不可操作）
+  disabled_reason?: string;             // 禁用时展示的原因提示
   allow_empty?: boolean;
   group?: string;  // 参数分组标识，同组参数将在一行显示
   stage?: string;  // 参数所属阶段ID，用于按阶段分组展示

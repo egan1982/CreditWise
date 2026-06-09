@@ -211,7 +211,7 @@
 | **4** | `feature_derivation_refactor_design.md` | ✅ 已完成（后端+前端+AI提示词+QA 通过） | 1-2天 |
 | **5** | `rule_mining_oot_validation_design.md` | ✅ Phase 1-6 全部完成（后端+前端融合展示+AI Prompt+测试 8/8 通过）。Phase 6 修复：preprocess one-hot 编码未排除 exclude_cols 导致 sample_type 列被删除 | ~14h |
 | **6** | ✅ `sensitive_field_detection` | **已完成 + 人工验证通过（2026-06-02）**：双层检测（L1列名+L2值扫描）+ 高危阻断上传+自动删除 + 中危警告 + SensitiveCheckDialog + 29个单元测试通过 | ~2天 |
-| **6b** | 📋 `ai_suggest_retry_design.md` | **待实施**：专家模式 AI 建议一键调参重跑 + 阶段版本快照 + 版本历史对比。autoplan 已完成（CEO/Design/Eng 三阶段审查通过，8个自动决策，0个阻断问题）。设计详见 `docs/taskSOP_solution/ai_suggest_retry_design.md` | ~2天（16h） |
+| **6b** | ✅ `ai_suggest_retry_design.md` | **已完成（2026-06-02）**：StageSnapshot dataclass + FIFO快照 + SUGGESTED_PARAMS Prompt注入+解析 + SuggestedParamsCard.tsx + StageVersionSelector.tsx + 版本历史对比。B1~B6后端 + F1~F4前端 + T1 12单元测试全通过。待：HT-01~HT-05本机手工验证 | ~2天（实际~2天） |
 
 ### 🟢 P2 - 中期实施（1个月内）
 
@@ -280,7 +280,7 @@ Week 6（2026-06-02）:
   └─ [UI] ✅ workspace文件tooltip：右键操作提示悬浮窗
 
 后续迭代:
-  ├─ [P1] 📋 ai_suggest_retry_design（专家模式AI建议一键调参+版本快照，autoplan已完成，待实施）
+  ├─ [P1] ✅ ai_suggest_retry_design（已完成：StageSnapshot+SUGGESTED_PARAMS+SuggestedParamsCard+StageVersionSelector+12单元测试，待HT-01~05本机手工验证）
   ├─ [P3] report_config_driven_plan Phase 2（业务功能完善后）
   ├─ [P3] 导出报告新增指标同步（Phase 1.7，按批次实施）
   ├─ [P3] multimodal_chat_plan

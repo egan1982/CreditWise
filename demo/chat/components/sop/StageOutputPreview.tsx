@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useAIAnalysis } from "@/hooks/useAIAnalysis";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,119 +56,12 @@ import remarkGfm from "remark-gfm";
 // 类型定义
 // =============================================================================
 
-// AI 分析结果缓存工具
-// Phase 7: 优先使用后端 API 持久化，sessionStorage 作为降级方案
-// Phase 9: 使用 recordId（任务记录ID）而不是 sessionId 来区分不同任务的缓存
-//          这样每个任务的AI分析缓存是独立的，不会在不同任务之间共享
-const AI_ANALYSIS_CACHE_PREFIX = "ai_analysis_cache:";
-
-// 生成缓存键（用于 sessionStorage 降级）
-// 使用 recordId 作为任务标识，确保不同任务的缓存独立
-function getAnalysisCacheKey(recordId: string, stageId: string): string {
-  return `${AI_ANALYSIS_CACHE_PREFIX}${recordId}:${stageId}`;
-}
-
-// 从缓存获取分析结果
-function getCachedAnalysis(recordId: string, stageId: string): string | null {
-  if (typeof window === "undefined" || !recordId) return null;
-  try {
-    const key = getAnalysisCacheKey(recordId, stageId);
-    return sessionStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-// 保存分析结果到缓存
-function setCachedAnalysis(recordId: string, stageId: string, analysis: string): void {
-  if (typeof window === "undefined" || !recordId) return;
-  try {
-    const key = getAnalysisCacheKey(recordId, stageId);
-    sessionStorage.setItem(key, analysis);
-  } catch {
-    // sessionStorage 可能已满或不可用，忽略错误
-  }
-}
-
-// 删除缓存的分析结果
-function deleteCachedAnalysis(recordId: string, stageId: string): void {
-  if (typeof window === "undefined" || !recordId) return;
-  try {
-    const key = getAnalysisCacheKey(recordId, stageId);
-    sessionStorage.removeItem(key);
-  } catch {
-    // 忽略错误
-  }
-}
-
-// =============================================================================
-// Phase 7: 后端 API 持久化函数
-// =============================================================================
-
-// 从后端 API 获取分析结果
-async function fetchAnalysisFromAPI(
-  recordId: string,
-  stageId: string
-): Promise<{ analysis_text: string; model_used: string | null } | null> {
-  try {
-    const response = await fetch(
-      getApiUrl(`/sop/history/${recordId}/stages/${stageId}/analysis`)
-    );
-    if (!response.ok) return null;
-    const data = await response.json();
-    return data.analysis || null;
-  } catch {
-    return null;
-  }
-}
-
-// 保存分析结果到后端 API，返回解析到的 suggested_params（如有）
-async function saveAnalysisToAPI(
-  recordId: string,
-  stageId: string,
-  analysisText: string,
-  modelUsed?: string
-): Promise<{ success: boolean; suggested_params?: Record<string, unknown> | null }> {
-  try {
-    const response = await fetch(
-      getApiUrl(`/sop/history/${recordId}/stages/${stageId}/analysis`),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          analysis_text: analysisText,
-          model_used: modelUsed || null,
-        }),
-      }
-    );
-    if (!response.ok) return { success: false };
-    const data = await response.json();
-    return { success: true, suggested_params: data.suggested_params ?? null };
-  } catch {
-    return { success: false };
-  }
-}
-
-// 删除后端 API 的分析结果
-async function deleteAnalysisFromAPI(
-  recordId: string,
-  stageId: string
-): Promise<boolean> {
-  try {
-    const response = await fetch(
-      getApiUrl(`/sop/history/${recordId}/stages/${stageId}/analysis`),
-      { method: "DELETE" }
-    );
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
 
 // =============================================================================
 // 构建任务整体分析的提示词（已迁移至后端 AI_analysis_prompts.py）
 // Phase 22: 前端仅通过 /v1/chat/analysis/prompt API 获取，此处保留类型导出
 // =============================================================================
+
 
 // 阶段数据接口（用于编辑功能）
 export interface StageEditableData {
@@ -3845,6 +3739,7 @@ export function StageOutputPreview({
   const activeSnapshot = selectedVersion !== null
     ? snapshots.find(s => s.version === selectedVersion) ?? null
     : null;
+  const isViewingHistory = activeSnapshot !== null;
   const activeOutputPreview = activeSnapshot ? activeSnapshot.output_preview : outputPreview;
   const activeParams = activeSnapshot ? activeSnapshot.params_used : (stageData?.params || {});
   // 编辑模式状态 - 根据阶段状态智能初始化
@@ -3951,294 +3846,19 @@ export function StageOutputPreview({
     loadColumns();
   }, [dataFilePath, localParams.data_file, stageData?.params?.data_file, sessionId, columns.length]);
   
-  // AI分析相关状态
-  // 初始化时从缓存读取（如果有）
-  // Phase 9: 使用 recordId 作为缓存键，确保不同任务的缓存独立
-  const cachedAnalysis = getCachedAnalysis(recordId || "", stageId);
-  const [aiAnalysis, setAiAnalysis] = useState<string>(cachedAnalysis || "");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisExpanded, setAnalysisExpanded] = useState(true);
-  // AI 建议的结构化参数（从保存接口返回的 suggested_params 字段）
-  const [suggestedParams, setSuggestedParams] = useState<Record<string, unknown> | null>(null);
-  // 如果有缓存，标记为已触发（避免重复调用）
-  const [hasTriggeredAnalysis, setHasTriggeredAnalysis] = useState(!!cachedAnalysis);
-  // Phase 12: 正在从缓存加载分析结果的标记，防止竞态条件导致重复触发分析
-  // Phase 13: 当有 recordId 且没有 sessionStorage 缓存时，初始化为 true，
-  //           表示需要先尝试从后端 API 加载缓存，防止自动触发分析抢先执行
-  const [isLoadingCachedAnalysis, setIsLoadingCachedAnalysis] = useState(
-    () => !!recordId && !cachedAnalysis
-  );
-  
-  // Phase 14: 分析请求版本号，用于防止竞态条件
-  // 当新的分析请求开始时，旧的请求结果应该被忽略（不保存到后端）
-  const analysisVersionRef = useRef(0);
-  
-  // 用于跟踪上一次的状态，实现自动切换
+  // 用于跟踪上一次的状态（tab 自动切换使用）
   const prevStatusRef = useRef(status);
-  // 用于跟踪上一次的 stageId，检测阶段切换
-  const prevStageIdRef = useRef(stageId);
-  
-  // Phase 16: 重试时保存旧的 outputPreview 引用，用于检测数据是否真正更新
-  // 解决重试后 AI 分析仍使用旧数据的问题
-  const retryPendingOutputRef = useRef<any>(null);
-  
-  // Phase 17: 跟踪上一次的 outputPreview 内容哈希，用于检测数据是否真正更新
-  // 使用内容哈希而非引用比较，避免 React 状态更新时机导致的竞态问题
-  const prevOutputHashRef = useRef<string>("");
-  // Phase 17: 跟踪 status 刚变为 completed 的时间点，用于延迟触发分析
-  const statusJustCompletedRef = useRef(false);
-  // Phase 18: 延迟触发 AI 分析的定时器
-  const analysisDelayTimerRef = useRef<NodeJS.Timeout | null>(null);
-  // Phase 19: 存储最新的 outputPreview，解决 useCallback 闭包问题
-  const latestOutputPreviewRef = useRef<Record<string, any> | null>(null);
-  
-  // Phase 11: 组件挂载时从 API 加载 AI 分析缓存（处理历史任务加载场景）
-  // 这解决了加载历史任务后点击已完成阶段时，AI 分析没有从缓存加载的问题
-  // Phase 12: 添加 isLoadingCachedAnalysis 状态管理
-  const initialLoadDoneRef = useRef(false);
-  useEffect(() => {
-    // 只在组件首次挂载且有 recordId 时执行一次
-    if (initialLoadDoneRef.current || !recordId || cachedAnalysis) return;
-    initialLoadDoneRef.current = true;
-    
-    // Phase 12: 开始加载缓存
-    setIsLoadingCachedAnalysis(true);
-    
-    const loadInitialAnalysis = async () => {
-      try {
-        const apiResult = await fetchAnalysisFromAPI(recordId, stageId);
-        if (apiResult?.analysis_text) {
-          setAiAnalysis(apiResult.analysis_text);
-          setHasTriggeredAnalysis(true);
-          // 同步到 sessionStorage
-          setCachedAnalysis(recordId, stageId, apiResult.analysis_text);
-        }
-      } finally {
-        // Phase 12: 加载完成
-        setIsLoadingCachedAnalysis(false);
-      }
-    };
-    
-    loadInitialAnalysis();
-  }, [recordId, stageId, cachedAnalysis]);
+
+  const [analysisExpanded, setAnalysisExpanded] = useState(true);
 
   // 代码是否可编辑（专家模式下始终只读，因为 Pipeline 执行引擎不支持代码编辑）
-  // 注意：LLM SOP 执行模式已废弃，代码编辑功能不再可用
   const isCodeEditable = false;
   
   // 是否有参数元数据（决定是否显示可视化表单）
   const hasParamsMeta = stageData?.params_meta && stageData.params_meta.length > 0;
 
-  // =============================================================================
-  // Phase 22: AI分析Prompt已迁移至后端 API/AI_analysis_prompts.py
-  // 前端通过 /v1/chat/analysis/prompt API 获取分析提示词
-  // 以下冗余代码已清理：stageNameMap, stageRoleConfig, buildStageAnalysisPrompt
-  // =============================================================================
-
-  // 执行AI分析
-  // Phase 14: 使用版本号机制防止竞态条件，确保只有最新的分析结果被保存
-  // Phase 19: 使用 latestOutputPreviewRef 获取最新数据，避免闭包问题
-  // Phase 20: 专家模式最后阶段使用整体分析Prompt
-  // Phase 22: 迁移到后端 API 获取 prompt（Phase 1 实施）
-  const performAIAnalysis = useCallback(async () => {
-    // Phase 19: 优先使用 ref 中的最新数据
-    const currentOutputPreview = latestOutputPreviewRef.current || outputPreview;
-    
-    // 前置条件检查和日志
-    if (!currentOutputPreview) {
-      console.warn("[AI Analysis] Skipped: No output preview data");
-      return;
-    }
-    if (!selectedModel) {
-      console.warn("[AI Analysis] Skipped: No model selected");
-      return;
-    }
-    if (isAnalyzing) {
-      console.warn("[AI Analysis] Skipped: Already analyzing");
-      return;
-    }
-    
-    // Phase 14: 递增版本号，标记这是一个新的分析请求
-    analysisVersionRef.current += 1;
-    const currentVersion = analysisVersionRef.current;
-    
-    // Phase 20: 判断是否应使用整体分析Prompt
-    // 专家模式下报告生成阶段完成后，直接使用整体分析prompt（不需要单独的阶段分析）
-    // 修复：移除对 isLastStage 的依赖，因为 report_generation 在评分卡和规则挖掘任务中都是最后一个阶段
-    // 避免因 isLastStage 计算时序问题导致使用错误的阶段分析模板
-    const shouldUseOverallAnalysis = isExpertMode && stageId === "report_generation";
-    
-    // 如果应该使用整体分析但 taskResult 还未加载，跳过本次触发
-    // taskResult 会在 three-panel-interface 的 handleSOPStatusUpdate 中异步加载
-    // 加载完成后会触发 useEffect 重新执行
-    if (shouldUseOverallAnalysis && !taskResult) {
-      console.log("[AI Analysis] Skipped: shouldUseOverallAnalysis=true but taskResult is not ready yet");
-      return;
-    }
-    
-    setIsAnalyzing(true);
-    setAiAnalysis("");
-    
-    // 用于累积完整的分析结果
-    let fullAnalysis = "";
-    
-    try {
-      // Phase 22: 调用后端 API 获取 prompt 和参数（替代前端硬编码）
-      const promptRequest = shouldUseOverallAnalysis
-        ? {
-            analysis_type: "overall",
-            task_type: taskType,
-            result: taskResult,
-          }
-        : {
-            analysis_type: "stage",
-            task_type: taskType,
-            stage_id: stageId,
-            stage_name: stageName,
-            data: currentOutputPreview,
-          };
-      
-      console.log(`[AI Analysis] Requesting prompt for stage=${stageId}, taskType=${taskType}, analysisType=${promptRequest.analysis_type}`);
-      // Debug: 检查整体分析时 taskResult 的数据结构
-      if (shouldUseOverallAnalysis && taskResult) {
-        console.log(`[AI Analysis Debug] taskResult keys:`, Object.keys(taskResult));
-        console.log(`[AI Analysis Debug] taskResult.outputs keys:`, taskResult.outputs ? Object.keys(taskResult.outputs) : 'N/A');
-        console.log(`[AI Analysis Debug] taskResult.stages keys:`, taskResult.stages ? Object.keys(taskResult.stages) : 'N/A');
-        // 检查关键指标
-        const multiMetrics = taskResult.outputs?.multi_dataset_metrics;
-        console.log(`[AI Analysis Debug] multi_dataset_metrics:`, multiMetrics ? JSON.stringify(multiMetrics).slice(0, 200) : 'N/A');
-      }
-      
-      
-      const promptResponse = await fetch(getApiUrl("/v1/chat/analysis/prompt"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(promptRequest),
-      });
-      
-      if (!promptResponse.ok) {
-        const errorText = await promptResponse.text().catch(() => "");
-        throw new Error(`获取分析Prompt失败: ${promptResponse.status} - ${errorText}`);
-      }
-      
-      const promptResult = await promptResponse.json();
-      if (!promptResult.success) {
-        throw new Error(promptResult.error || "获取分析Prompt失败");
-      }
-      
-      const prompt = promptResult.prompt;
-      const AI_ANALYSIS_PARAMS = promptResult.params;
-      
-      const response = await fetch(getApiUrl("/v1/chat/completions"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: [
-            { role: "user", content: prompt }
-          ],
-          stream: true,
-          ...AI_ANALYSIS_PARAMS,
-          // 禁用任务感知和代码执行，避免触发参数推断模式
-          include_task_list: false,
-          enable_code_execution: false,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        throw new Error(`LLM API请求失败: ${response.status} - ${errorText}`);
-      }
-
-      // 流式响应处理（带buffer处理跨chunk数据）
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("无法获取响应流");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-
-        // 使用stream: true确保多字节字符正确解码
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        // 保留最后一个可能不完整的行
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data === "[DONE]") continue;
-            
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content;
-              if (content) {
-                fullAnalysis += content;
-                // Phase 14: 只有当前版本的分析才更新UI
-                if (currentVersion === analysisVersionRef.current) {
-                  setAiAnalysis(prev => prev + content);
-                }
-              }
-            } catch {
-              // 忽略解析错误
-            }
-          }
-        }
-      }
-      
-      // Phase 14: 只有当前版本的分析才保存到缓存
-      // 如果版本号不匹配，说明有新的分析请求已经开始，当前结果应该被丢弃
-      if (currentVersion !== analysisVersionRef.current) {
-        return;
-      }
-      
-      // 分析完成后保存到缓存
-      // Phase 7: 优先保存到后端 API（如果有 recordId），同时保存到 sessionStorage 作为降级
-      // Phase 9: 使用 recordId 作为缓存键
-      if (fullAnalysis && recordId) {
-        // 保存到 sessionStorage（降级方案）
-        setCachedAnalysis(recordId, stageId, fullAnalysis);
-        
-        // 保存到后端 API，并获取解析到的参数建议
-        saveAnalysisToAPI(recordId, stageId, fullAnalysis, selectedModel)
-          .then(({ success, suggested_params }) => {
-            if (!success) {
-              console.warn(`[AI Analysis] Failed to save analysis to API for ${recordId}/${stageId}`);
-            }
-            // 更新建议参数 state（流式完成后才渲染卡片）
-            if (suggested_params && Object.keys(suggested_params).length > 0) {
-              setSuggestedParams(suggested_params as Record<string, unknown>);
-            }
-          })
-          .catch((error) => {
-            console.error(`[AI Analysis] Error saving analysis to API: ${error}`);
-          });
-      } else if (fullAnalysis && !recordId) {
-        console.warn(`[AI Analysis] Cannot save to API: recordId is missing (stageId=${stageId})`);
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error("AI分析失败:", errorMessage, error);
-      console.error(`[AI Analysis Debug] stageId=${stageId}, selectedModel=${selectedModel}, hasOutputPreview=${!!currentOutputPreview}`);
-      // Phase 14: 只有当前版本的分析才更新错误状态
-      if (currentVersion === analysisVersionRef.current) {
-        // 显示更详细的错误信息帮助用户和开发者诊断问题
-        setAiAnalysis(`分析生成失败：${errorMessage}。请检查控制台获取详细信息。`);
-      }
-    } finally {
-      // Phase 14: 只有当前版本的分析才重置loading状态
-      if (currentVersion === analysisVersionRef.current) {
-        setIsAnalyzing(false);
-      }
-    }
-  }, [outputPreview, selectedModel, stageId, stageName, sessionId, recordId, isAnalyzing, modelConfig, isExpertMode, taskResult, taskType]);
-
-  // 专家模式下，阶段完成时自动触发AI分析
-  // 检查 outputPreview 数据是否完整（非空对象且包含有效数据）
+  // isOutputDataReady：判断 outputPreview 数据是否完整，供 useAIAnalysis hook 使用
+  // 必须在 useAIAnalysis hook 调用之前定义（避免暂时性死区）
   const isOutputDataReady = useCallback((data: Record<string, any> | null, stage: string): boolean => {
     if (!data || typeof data !== 'object') return false;
     
@@ -4303,6 +3923,38 @@ export function StageOutputPreview({
     }
   }, []);
 
+  // ── useAIAnalysis hook：統一管理 AI 分析所有状态（须在 isOutputDataReady 之后调用）──
+  const {
+    aiAnalysis,
+    suggestedParams,
+    isAnalyzing,
+    isLoadingCachedAnalysis,
+    triggerAnalysis: hookTriggerAnalysis,
+    clearAndReset: hookClearAndReset,
+  } = useAIAnalysis({
+    recordId,
+    stageId,
+    status,
+    outputPreview,
+    isExpertMode,
+    selectedModel,
+    taskType,
+    stageParams: stageData?.params,
+    taskResult,
+    isOutputDataReady,
+    shouldUseOverallAnalysis: isExpertMode && stageId === "report_generation",
+  });
+
+  // performAIAnalysis 供"重新分析"按钮调用
+  const performAIAnalysis = useCallback(() => {
+    hookTriggerAnalysis();
+  }, [hookTriggerAnalysis]);
+
+  // 历史版本时展示快照保存的 ai_analysis，当前版本展示 hook state
+  // 快照中保存的是原始文本（含 SUGGESTED_PARAMS 标记块），需要剥离后展示（支持多行 JSON）
+  const displayedAiAnalysis = isViewingHistory
+    ? (activeSnapshot?.ai_analysis ?? "").replace(/\n?SUGGESTED_PARAMS:\s*[\s\S]*$/m, "").trimEnd()
+    : aiAnalysis;
 
 
 
@@ -4310,202 +3962,12 @@ export function StageOutputPreview({
 
 
 
-  // Phase 12: 自动触发 AI 分析（仅在未加载缓存且无缓存时触发）
-  // Phase 16: 增加重试等待检查，确保 outputPreview 真正更新后才触发分析
-  // Phase 17: 增加 outputPreview 变化检测，避免用旧数据触发分析
-  useEffect(() => {
-    // Phase 19: 始终更新最新的 outputPreview ref
-    latestOutputPreviewRef.current = outputPreview;
-    
-    // Phase 16: 如果正在等待重试后的新数据，检查 outputPreview 是否已更新
-    if (retryPendingOutputRef.current !== null) {
-      // 比较引用是否相同（浅比较）
-      if (outputPreview === retryPendingOutputRef.current) {
-        // outputPreview 还是旧数据，不触发分析
-        return;
-      } else {
-        // outputPreview 已更新，清除等待标记
-        retryPendingOutputRef.current = null;
-      }
-    }
-    
-    // Phase 18: 计算 outputPreview 的内容哈希（用于检测数据是否真正变化）
-    const getOutputHash = (data: any): string => {
-      if (!data) return "";
-      try {
-        // 只取关键字段计算哈希，避免时间戳等无关字段影响
-        const keyFields = {
-          generated_count: data.generated_count,
-          after_count: data.after_count,
-          direction_filtered_count: data.direction_filtered_count,
-          before_count: data.before_count,
-          total_rules: data.total_rules,
-          filter_criteria: data.filter_criteria,
-        };
-        return JSON.stringify(keyFields);
-      } catch {
-        return "";
-      }
-    };
-    
-    const currentHash = getOutputHash(outputPreview);
-    const outputDataChanged = currentHash !== prevOutputHashRef.current && currentHash !== "";
-    
-    // 只有当数据真正变化时才更新哈希
-    if (outputDataChanged) {
-      prevOutputHashRef.current = currentHash;
-    }
-    
-    // 判断是否需要整体分析（专家模式报告生成阶段）
-    // 修复：移除对 isLastStage 的依赖，保持与 performAIAnalysis 中 shouldUseOverallAnalysis 一致
-    // report_generation 阶段不需要单独的阶段AI分析，完成后直接触发任务整体分析
-    const needsOverallAnalysis = isExpertMode && stageId === "report_generation";
-    // 整体分析需要 taskResult，阶段分析不需要
-    const isDataReadyForAnalysis = needsOverallAnalysis ? !!taskResult : true;
-    
-    if (
-      isExpertMode && 
-      status === "completed" && 
-      outputPreview && 
-      isOutputDataReady(outputPreview, stageId) &&  // 增加数据完整性检查
-      selectedModel &&
-      !hasTriggeredAnalysis &&
-      !aiAnalysis &&
-      !isLoadingCachedAnalysis &&  // Phase 12: 正在加载缓存时不触发
-      isDataReadyForAnalysis  // 整体分析需要等待 taskResult 加载完成
-    ) {
-      // Phase 18: 使用延迟触发，确保 React 状态完全同步
-      // 清除之前的定时器
-      if (analysisDelayTimerRef.current) {
-        clearTimeout(analysisDelayTimerRef.current);
-      }
-      
-      // 延迟 300ms 触发，让 React 有时间完成所有状态更新
-      analysisDelayTimerRef.current = setTimeout(() => {
-        // 再次检查条件（防止在延迟期间状态变化）
-        setHasTriggeredAnalysis(true);
-        performAIAnalysis();
-      }, 300);  // Phase 19: 增加延迟确保数据同步
-      
-      return; // 等待延迟触发
-    }
-  }, [isExpertMode, status, outputPreview, stageId, selectedModel, hasTriggeredAnalysis, aiAnalysis, performAIAnalysis, isOutputDataReady, isLoadingCachedAnalysis, taskResult]);
 
 
-  // Phase 18: 组件卸载时清理延迟触发定时器
-  useEffect(() => {
-    return () => {
-      if (analysisDelayTimerRef.current) {
-        clearTimeout(analysisDelayTimerRef.current);
-      }
-    };
-  }, []);
 
-  // 当阶段ID变化时，从缓存加载分析结果（而不是重置）
-  // Phase 7: 优先从后端 API 读取，降级到 sessionStorage
-  // Phase 8: 当阶段被跳过（_skipped_during_retry）时，清除旧的AI分析缓存，避免显示与当前数据不一致的分析结果
-  // Phase 12: 使用 isLoadingCachedAnalysis 状态防止竞态条件
-  useEffect(() => {
-    // 检测阶段是否真的变化了
-    if (prevStageIdRef.current !== stageId) {
-      prevStageIdRef.current = stageId;
-      
-      // Phase 12: 开始加载缓存，阻止自动触发分析
-      setIsLoadingCachedAnalysis(true);
-      
-      // 异步加载分析结果
-      const loadAnalysis = async () => {
-        try {
-          // 2026-02-10: 移除对 _skipped_during_retry 的缓存清理逻辑
-          // 原错误逻辑：跳过的阶段清除AI缓存
-          // 正确逻辑：跳过的阶段数据没有变化，AI分析缓存仍然有效，应该保留
-          // 只有重新执行的阶段（从 pending -> running）才需要清理 AI 分析缓存
-          
-          // 1. 优先从后端 API 读取（如果有 recordId）
-          if (recordId) {
-            const apiResult = await fetchAnalysisFromAPI(recordId, stageId);
-            if (apiResult?.analysis_text) {
-              setAiAnalysis(apiResult.analysis_text);
-              setHasTriggeredAnalysis(true);
-              // 同步到 sessionStorage（使用 recordId 作为键）
-              setCachedAnalysis(recordId, stageId, apiResult.analysis_text);
-              return;
-            }
-          }
-          
-          // 2. 降级：从 sessionStorage 读取（使用 recordId 作为键）
-          if (recordId) {
-            const cached = getCachedAnalysis(recordId, stageId);
-            if (cached) {
-              setAiAnalysis(cached);
-              setHasTriggeredAnalysis(true);
-              return;
-            }
-          }
-          
-          // 无缓存，重置状态（等待自动触发或手动触发）
-          setAiAnalysis("");
-          setHasTriggeredAnalysis(false);
-        } finally {
-          // Phase 12: 加载完成，允许自动触发分析
-          setIsLoadingCachedAnalysis(false);
-        }
-      };
-      
-      loadAnalysis();
-    }
-  }, [stageId, sessionId, recordId, outputPreview]);
+
   
-  // Phase 10 修复：当 recordId 变化时（例如从历史任务恢复），重新加载AI分析缓存
-  // 这处理用户恢复暂停任务后点击已完成阶段的情况
-  // Phase 12: 添加 isLoadingCachedAnalysis 状态管理
-  const prevRecordIdRef = useRef(recordId);
-  useEffect(() => {
-    // 只在 recordId 从无到有变化时触发（不是 stageId 变化）
-    if (prevRecordIdRef.current !== recordId && recordId && !aiAnalysis) {
-      prevRecordIdRef.current = recordId;
-      
-      // Phase 12: 开始加载缓存
-      setIsLoadingCachedAnalysis(true);
-      
-      // 异步加载分析结果
-      const loadAnalysisOnRecordIdChange = async () => {
-        try {
-          const apiResult = await fetchAnalysisFromAPI(recordId, stageId);
-          if (apiResult?.analysis_text) {
-            setAiAnalysis(apiResult.analysis_text);
-            setHasTriggeredAnalysis(true);
-            // 同步到 sessionStorage
-            setCachedAnalysis(recordId, stageId, apiResult.analysis_text);
-          }
-        } finally {
-          // Phase 12: 加载完成
-          setIsLoadingCachedAnalysis(false);
-        }
-      };
-      
-      loadAnalysisOnRecordIdChange();
-    } else {
-      prevRecordIdRef.current = recordId;
-    }
-  }, [recordId, stageId, aiAnalysis]);
   
-  // 2026-02-10: 移除对 _skipped_during_retry 的缓存清理逻辑
-  // 原逻辑错误：跳过的阶段（重试阶段之前）数据没有变化，AI 分析缓存仍然有效，不应清理
-  // 正确逻辑：只有重新执行的阶段（从 pending -> running）才需要清理 AI 分析缓存
-  
-  // 2026-02-10: 当阶段从非running变为running时，清除AI分析缓存
-  // 这处理阶段重试后重新执行的情况（非跳过阶段）
-  // 重新执行的阶段会产生新的输出，旧的AI分析不再适用
-  useEffect(() => {
-    if (prevStatusRef.current !== "running" && status === "running" && recordId) {
-      // 阶段开始重新执行，清除旧的AI分析
-      setAiAnalysis("");
-      setHasTriggeredAnalysis(false);
-      deleteCachedAnalysis(recordId, stageId);
-      // 注意：后端缓存已在 retryStage API 中通过 invalidate_checkpoints_from 清理
-    }
-  }, [status, recordId, stageId]);
   
   // 自动切换tab：阶段开始执行时显示代码，完成时切换到结果
   useEffect(() => {
@@ -4513,13 +3975,12 @@ export function StageOutputPreview({
     if (prevStatusRef.current !== "running" && status === "running" && stageData?.code) {
       setEditMode("code");
     }
-    // 阶段完成时切换到结果tab（放宽条件：只要之前不是completed且现在是completed就切换）
-    // 这样可以处理：running -> completed, paused -> completed, pending -> completed（缓存恢复）等情况
-    if (prevStatusRef.current !== "completed" && status === "completed" && outputPreview) {
+    // 阶段完成时切换到结果tab（不依赖 outputPreview，避免数据延迟到达时错过切换）
+    if (prevStatusRef.current !== "completed" && status === "completed") {
       setEditMode("preview");
     }
     prevStatusRef.current = status;
-  }, [status, stageData?.code, outputPreview]);
+  }, [status, stageData?.code]);
   
   // 同步更新本地代码（当外部code变化时）
   useEffect(() => {
@@ -4640,6 +4101,7 @@ export function StageOutputPreview({
               variant={editMode === "preview" ? "secondary" : "ghost"}
               size="sm"
               onClick={() => setEditMode("preview")}
+              disabled={status === "running"}
               className="h-6 px-2 text-xs"
             >
               结果
@@ -4649,6 +4111,7 @@ export function StageOutputPreview({
                 variant={editMode === "params" ? "secondary" : "ghost"}
                 size="sm"
                 onClick={() => setEditMode("params")}
+                disabled={status === "running"}
                 className="h-6 px-2 text-xs"
               >
                 <Settings className="h-3 w-3 mr-1" />
@@ -4660,6 +4123,7 @@ export function StageOutputPreview({
                 variant={editMode === "code" ? "secondary" : "ghost"}
                 size="sm"
                 onClick={() => setEditMode("code")}
+                disabled={status === "running"}
                 className="h-6 px-2 text-xs"
               >
                 <Code2 className="h-3 w-3 mr-1" />
@@ -4708,9 +4172,12 @@ export function StageOutputPreview({
             {renderPreview()}
             
             {/* AI分析区域：专家模式（内部分析）或自动模式（外部传入分析） */}
-            {/* 专家模式：阶段完成且有输出时显示 */}
+            {/* 专家模式：阶段完成且有输出时显示（历史版本：有快照 ai_analysis 时也显示） */}
             {/* 自动模式：有外部分析结果或正在分析时显示 */}
-            {((isExpertMode && status === "completed" && outputPreview) || 
+            {((isExpertMode && (
+              (isViewingHistory && activeSnapshot?.ai_analysis) ||
+              (!isViewingHistory && status === "completed" && outputPreview)
+            )) || 
               (!isExpertMode && (externalAiAnalysis !== undefined || isExternalAnalyzing))) && (
               <div className="mt-4 border-t pt-4">
                 <div 
@@ -4727,8 +4194,8 @@ export function StageOutputPreview({
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    {/* 专家模式：内部重新分析按钮 */}
-                    {isExpertMode && !isAnalyzing && aiAnalysis && (
+                    {/* 专家模式：内部重新分析按钮（历史版本只读，不显示） */}
+                    {isExpertMode && !isViewingHistory && !isAnalyzing && displayedAiAnalysis && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -4737,17 +4204,9 @@ export function StageOutputPreview({
                           // Phase 14: 清除持久化缓存，等待删除完成后再重新调用 LLM
                           // 这避免了删除操作和保存操作的竞态条件
                           if (recordId) {
-                            deleteCachedAnalysis(recordId, stageId);
-                            try {
-                              await deleteAnalysisFromAPI(recordId, stageId);
-                            } catch {
-                              // 删除失败不阻塞重新分析
-                            }
+                            // hookTriggerAnalysis handles cache deletion
                           }
-                          setHasTriggeredAnalysis(false);
-                          setAiAnalysis("");
-                          // Phase 14: 直接调用，不需要 setTimeout，因为版本号机制已经处理了竞态
-                          performAIAnalysis();
+                          hookTriggerAnalysis();
                         }}
                         className="h-6 px-2 text-xs text-purple-600 hover:text-purple-700"
                       >
@@ -4783,17 +4242,17 @@ export function StageOutputPreview({
                     {/* 专家模式：使用内部状态 */}
                     {isExpertMode ? (
                       <>
-                        {isAnalyzing && !aiAnalysis ? (
+                        {!isViewingHistory && isAnalyzing && !displayedAiAnalysis ? (
                           <div className="flex items-center justify-center py-4">
                             <Loader2 className="h-5 w-5 animate-spin text-purple-500 mr-2" />
                             <span className="text-sm text-purple-600 dark:text-purple-400">
                               正在分析阶段结果...
                             </span>
                           </div>
-                        ) : aiAnalysis ? (
+                        ) : displayedAiAnalysis ? (
                           <div className="prose prose-sm dark:prose-invert max-w-none text-gray-700 dark:text-gray-300">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {aiAnalysis}
+                              {displayedAiAnalysis}
                             </ReactMarkdown>
                           </div>
                         ) : (
@@ -4854,7 +4313,10 @@ export function StageOutputPreview({
                 }}
                 onApplyAndRetry={(merged) => {
                   setLocalParams(merged as Record<string, any>);
+                  // 先触发重试（后端打快照保存旧 AI 分析），再清除本地状态
                   onRetryStage?.(stageId, merged as Record<string, any>, "接受AI建议");
+                  hookClearAndReset();
+                  setEditMode("preview");
                 }}
               />
             )}
@@ -4960,32 +4422,15 @@ export function StageOutputPreview({
                 <Button
                   size="sm"
                   onClick={() => {
-                    // Phase 15: 清除该阶段的 AI 评估缓存，因为阶段将重新执行并产生新的输出
-                    // 重试后需要重新生成 AI 评估，而不是使用旧的缓存
-                    if (recordId) {
-                      deleteCachedAnalysis(recordId, stageId);
-                      deleteAnalysisFromAPI(recordId, stageId).catch(() => {});
-                    }
-                    
-                    // Phase 16: 保存当前 outputPreview 的引用，用于检测数据是否真正更新
-                    // 只有当 outputPreview 变化后才触发 AI 分析，避免使用旧数据
-                    retryPendingOutputRef.current = outputPreview;
-                    
-                    // 重置 AI 分析状态，确保重试后重新生成
-                    setAiAnalysis("");
-                    setHasTriggeredAnalysis(false);
-                    // 清除参数建议（重试后重新生成）
-                    setSuggestedParams(null);
-                    
-                    // 触发阶段重试 - 直接传递参数给 retryStage API
-                    // 不再依赖 onEditParams 的异步更新，避免竞态条件
+                    // 先触发重试（后端打快照保存旧 AI 分析），再清除本地状态
                     if (editMode === "params") {
                       onRetryStage(stageId, localParams);
                     } else {
                       onRetryStage(stageId);
                     }
+                    hookClearAndReset();
                     setEditMode("preview");
-                    setIsUserEditing(false); // 重置编辑状态
+                    setIsUserEditing(false);
                   }}
                   className="h-7 text-xs bg-blue-500 hover:bg-blue-600"
                 >
@@ -4996,12 +4441,12 @@ export function StageOutputPreview({
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
             <p className="text-xs text-gray-500">
               📊 此面板显示阶段执行的中间结果预览
             </p>
             <p className="text-xs text-blue-600">
-              💡 如需重试此阶段，请切换到参数或代码标签页
+              💡 如需重试此阶段：使用 AI 参数建议卡片一键重试，或切换到参数标签页手动调参后重试
             </p>
           </div>
         )}

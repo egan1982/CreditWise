@@ -420,7 +420,7 @@ export function IVAnalyzer() {
                   </p>
                 </div>
                 <div className="p-3 border rounded-lg">
-                  <p className="text-sm text-muted-foreground">强预测 (>0.3)</p>
+                  <p className="text-sm text-muted-foreground">强预测 (&gt;0.3)</p>
                   <p className="text-2xl font-bold text-green-600">
                     {result.summary.strong_predictors}
                   </p>

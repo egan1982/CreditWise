@@ -203,7 +203,7 @@ def collect_file_info(directory: str) -> str:
 
 def prepare_vllm_messages(
     messages: List[Dict[str, Any]],
-    workspace_dir: str,
+    workspace_dir: Optional[str],
     system_prompt: Optional[str] = None,
 ) -> List[Dict[str, str]]:
     """
@@ -214,7 +214,7 @@ def prepare_vllm_messages(
     
     Parameters:
     - messages: Original message list
-    - workspace_dir: Workspace directory for file info collection
+    - workspace_dir: Workspace directory for file info collection; None = skip file scanning
     - system_prompt: Optional system prompt to prepend to messages
     """
     vllm_messages: List[Dict[str, str]] = []
@@ -244,7 +244,7 @@ def prepare_vllm_messages(
             last_user_idx = idx
             break
 
-    workspace_file_info = collect_file_info(workspace_dir)
+    workspace_file_info = collect_file_info(workspace_dir) if workspace_dir is not None else ""
 
     if last_user_idx is not None:
         user_content = str(vllm_messages[last_user_idx].get("content", "")).strip()

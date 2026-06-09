@@ -747,8 +747,8 @@ async def _simple_chat_completion(
         effective_temperature = temperature if temperature is not None else 0.7
         effective_system_prompt = system_prompt
     
-    # Prepare messages with system prompt (empty workspace_dir for simple mode)
-    prepared_messages = prepare_vllm_messages(messages, workspace_dir="", system_prompt=effective_system_prompt)
+    # Prepare messages with system prompt (None workspace_dir for simple mode = no file scanning)
+    prepared_messages = prepare_vllm_messages(messages, workspace_dir=None, system_prompt=effective_system_prompt)
     
     # 如果使用LLM Manager渠道，根据provider类型选择调用方式
     if channel_info is not None:

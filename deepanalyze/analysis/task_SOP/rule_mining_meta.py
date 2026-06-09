@@ -460,9 +460,16 @@ RULE_MINING_TASK_META: Dict[str, Any] = {
             "label": "启用OOT稳定性验证",
             "label_en": "Enable OOT Validation",
             "default": False,
-            "description": "启用后，将在OOT验证集上评估规则的时间稳定性（需先配置时间列或样本类型列含oot标注）",
+            "description": "在OOT验证集上评估规则的时间稳定性（命中率跨期变化）",
             "stage": "selecting_rules",
-            "advanced": True
+            "advanced": True,
+            "disabled_when": {
+                "$and": [
+                    {"sample_type_col": None},
+                    {"time_col": None}
+                ]
+            },
+            "disabled_reason": "需先在数据预处理阶段配置「时间列」（智能OOT划分）或「样本类型列」（含oot标注），否则无OOT数据可用"
         },
         {
             "name": "enable_stability_filter",
@@ -473,7 +480,14 @@ RULE_MINING_TASK_META: Dict[str, Any] = {
             "description": "启用后，将过滤掉在OOT上表现不稳定的规则（命中率CV超过阈值）",
             "stage": "selecting_rules",
             "show_when": {"enable_oot_validation": True},
-            "advanced": True
+            "advanced": True,
+            "disabled_when": {
+                "$and": [
+                    {"sample_type_col": None},
+                    {"time_col": None}
+                ]
+            },
+            "disabled_reason": "需先在数据预处理阶段配置「时间列」或「样本类型列」以获得OOT数据"
         },
         {
             "name": "cv_threshold",

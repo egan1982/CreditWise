@@ -1348,6 +1348,10 @@ class SOPExecutor:
                 stage.started_at = None
                 stage.completed_at = None
                 stage.output_preview = None
+                # 清空历史快照：上游阶段重试后，下游阶段的历史快照已无效
+                # （快照记录的是该阶段自身的重试历史，上游重置后这些历史与新执行无关）
+                if hasattr(stage, 'snapshots'):
+                    stage.snapshots = []
                 
                 # 只有曾经执行过的阶段才记录"已重置"日志
                 if was_executed:

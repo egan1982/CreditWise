@@ -1036,10 +1036,11 @@ def get_stage_analysis_prompt(
     stage_available_params = _get_stage_available_params(stage_id, task_type)
     if stage_available_params:
         params_hint = (
-            f"\n\n## 参数建议（可选，用于专家模式一键调参）\n"
-            f"如果你认为调整参数能显著改善结果，在分析文本末尾**另起一行**追加以下格式（否则省略此行）：\n"
+            f"\n\n## 参数建议（必须遵守）\n"
+            f"如果你在分析中提到了任何调参建议（如'建议调整'、'可以提高'、'适当降低'等），**必须**在分析文本末尾另起一行输出以下格式，不得省略：\n"
             f"SUGGESTED_PARAMS: {{\"param_key\": value, ...}}\n"
-            f"可调整的参数键名（只能使用以下键名，不要发明新键名）：{', '.join(stage_available_params)}\n"
+            f"如果没有任何调参建议，则省略此行。\n"
+            f"可调整的参数键名（只能使用以下键名）：{', '.join(stage_available_params)}\n"
             f"示例：SUGGESTED_PARAMS: {{\"max_depth\": 5, \"min_samples_leaf\": 0.02}}"
         )
     else:

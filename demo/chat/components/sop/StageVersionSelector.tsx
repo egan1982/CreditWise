@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * StageVersionSelector — 阶段版本历史选择器
+ * StageVersionSelector — 阶段版本历史选择器（下拉形式）
  *
  * 展示在阶段结果 Tab 栏右侧（仅当有历史快照时）。
  * 支持切换查看历史版本的输出、参数和 AI 分析。
@@ -48,36 +48,37 @@ export function StageVersionSelector({
 }: StageVersionSelectorProps) {
   if (!snapshots || snapshots.length === 0) return null;
 
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    onChange(val === "current" ? null : Number(val));
+  };
+
+  const selectValue = selectedVersion === null ? "current" : String(selectedVersion);
+
   return (
-    <div className="flex items-center gap-1 ml-auto">
+    <div className="flex items-center gap-1 ml-auto shrink-0">
       <History className="h-3 w-3 text-gray-400 shrink-0" />
-      <span className="text-[10px] text-gray-400 mr-0.5">版本:</span>
-      {snapshots.map((s) => (
-        <button
-          key={s.version}
-          disabled={disabled}
-          onClick={() => onChange(s.version)}
-          className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${
-            selectedVersion === s.version
-              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-semibold"
-              : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-          } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-        >
-          v{s.version}
-          {s.completed_at ? ` ${formatTime(s.completed_at)}` : ""}
-        </button>
-      ))}
-      <button
+      <span className="text-[10px] text-gray-400">版本:</span>
+      <select
+        value={selectValue}
+        onChange={handleChange}
         disabled={disabled}
-        onClick={() => onChange(null)}
-        className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${
-          selectedVersion === null
-            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-semibold"
-            : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+        className={`text-[10px] rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-1 py-0.5 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-400 ${
+          disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+        } ${
+          selectedVersion !== null
+            ? "text-blue-700 dark:text-blue-300 font-semibold border-blue-300 dark:border-blue-700"
+            : ""
+        }`}
       >
-        当前
-      </button>
+        {snapshots.map((s) => (
+          <option key={s.version} value={String(s.version)}>
+            v{s.version}{s.completed_at ? ` ${formatTime(s.completed_at)}` : ""}
+            {s.retry_reason ? ` · ${s.retry_reason}` : ""}
+          </option>
+        ))}
+        <option value="current">当前</option>
+      </select>
     </div>
   );
 }

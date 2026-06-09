@@ -194,7 +194,7 @@ class TestMissingAuthorization:
 
     def test_no_auth_header(self, client):
         """#3 无认证 header 返回 401"""
-        response = client.get("/")
+        response = client.get("/workspace/files")
         assert response.status_code == 401
         assert "WWW-Authenticate" in response.headers
 
@@ -210,13 +210,13 @@ class TestInvalidBase64:
 
     def test_bad_base64(self, client):
         """#4 非法 Base64 编码"""
-        response = client.get("/", headers={"Authorization": "Basic !!!invalid!!!"})
+        response = client.get("/workspace/files", headers={"Authorization": "Basic !!!invalid!!!"})
         assert response.status_code == 401
 
     def test_missing_colon(self, client):
         """#4 Base64 内容缺少冒号分隔符"""
         encoded = base64.b64encode(b"nocolon").decode()
-        response = client.get("/", headers={"Authorization": f"Basic {encoded}"})
+        response = client.get("/workspace/files", headers={"Authorization": f"Basic {encoded}"})
         assert response.status_code == 401
 
 
@@ -229,11 +229,11 @@ class TestAccountLockout:
 
         # 触发 max_login_failures (3次) 失败
         for _ in range(3):
-            resp = client.get("/", headers=wrong_headers)
+            resp = client.get("/workspace/files", headers=wrong_headers)
             assert resp.status_code == 401
 
         # 第 4 次应该返回 429
-        resp = client.get("/", headers=wrong_headers)
+        resp = client.get("/workspace/files", headers=wrong_headers)
         assert resp.status_code == 429
 
 
@@ -243,13 +243,13 @@ class TestBcryptFailure:
     def test_wrong_password(self, client):
         """#6 错误密码"""
         headers = _make_basic_header("admin", "wrongpassword")
-        response = client.get("/", headers=headers)
+        response = client.get("/workspace/files", headers=headers)
         assert response.status_code == 401
 
     def test_nonexistent_user(self, client):
         """#6 不存在的用户"""
         headers = _make_basic_header("nobody", "password")
-        response = client.get("/", headers=headers)
+        response = client.get("/workspace/files", headers=headers)
         assert response.status_code == 401
 
 

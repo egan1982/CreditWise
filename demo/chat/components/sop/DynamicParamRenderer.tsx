@@ -182,6 +182,18 @@ export function shouldShowParam(
   return evaluateShowWhen(param.show_when as Record<string, unknown>, allValues);
 }
 
+/**
+ * 判断参数是否应该禁用（显示但不可操作）
+ * disabled_when 中的条件满足时，参数置灰禁用并在 tooltip 中显示 disabled_reason
+ */
+export function shouldDisableParam(
+  param: TaskParam,
+  allValues: Record<string, any>
+): boolean {
+  if (!param.disabled_when) return false;
+  return evaluateShowWhen(param.disabled_when as Record<string, unknown>, allValues);
+}
+
 // =============================================================================
 // 参数标签组件
 // =============================================================================
@@ -503,10 +515,30 @@ function CheckboxRenderer({
   onChange,
   disabled,
 }: DynamicParamRendererProps) {
+  const isDisabled = disabled;
+  const hasDisabledReason = isDisabled && param.disabled_reason;
+
   return (
-    <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-900/30">
-      <div>
-        <Label>{param.label}</Label>
+    <div className={cn(
+      "flex items-center justify-between p-3 rounded-lg",
+      isDisabled
+        ? "bg-gray-100 dark:bg-gray-800/50 opacity-60"
+        : "bg-gray-50 dark:bg-gray-900/30"
+    )}>
+      <div className="flex-1">
+        <div className="flex items-center gap-1">
+          <Label className={cn(isDisabled && "text-muted-foreground")}>{param.label}</Label>
+          {hasDisabledReason && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <HelpCircle className="h-3.5 w-3.5 text-amber-500 cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[280px]">
+                <p>{param.disabled_reason}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
         {param.description && (
           <p className="text-xs text-gray-500">{param.description}</p>
         )}
@@ -514,7 +546,7 @@ function CheckboxRenderer({
       <Switch
         checked={value ?? param.default ?? false}
         onCheckedChange={onChange}
-        disabled={disabled}
+        disabled={isDisabled}
       />
     </div>
   );
@@ -781,51 +813,62 @@ function PriorRulesInputRenderer({
  * 根据参数类型自动选择合适的表单控件
  */
 export function DynamicParamRenderer(props: DynamicParamRendererProps) {
-  const { param, allValues = {} } = props;
+  const { param, allValues = {}, disabled } = props;
 
   // 检查是否应该显示
   if (!shouldShowParam(param, allValues)) {
     return null;
   }
 
+  // 检查是否应该禁用（disabled_when 条件满足时覆盖外部 disabled）
+  const isDisabledByCondition = shouldDisableParam(param, allValues);
+  const effectiveDisabled = disabled || isDisabledByCondition;
+
+  // 将禁用原因注入 param（避免修改接口，直接覆盖传递）
+  const effectiveParam = isDisabledByCondition && param.disabled_reason
+    ? { ...param }
+    : param;
+
+  const effectiveProps = { ...props, param: effectiveParam, disabled: effectiveDisabled };
+
   // 根据类型选择渲染器
-  switch (param.type) {
+  switch (effectiveProps.param.type) {
     case "number":
-      return <NumberRenderer {...props} />;
+      return <NumberRenderer {...effectiveProps} />;
 
     case "text":
     case "string":
-      return <TextRenderer {...props} />;
+      return <TextRenderer {...effectiveProps} />;
 
     case "textarea":
-      return <TextareaRenderer {...props} />;
+      return <TextareaRenderer {...effectiveProps} />;
 
     case "select":
-      return <SelectRenderer {...props} />;
+      return <SelectRenderer {...effectiveProps} />;
 
     case "radio":
-      return <RadioRenderer {...props} />;
+      return <RadioRenderer {...effectiveProps} />;
 
     case "checkbox":
     case "boolean":
-      return <CheckboxRenderer {...props} />;
+      return <CheckboxRenderer {...effectiveProps} />;
 
     case "column_select":
-      return <ColumnSelectRenderer {...props} />;
+      return <ColumnSelectRenderer {...effectiveProps} />;
 
     case "column_combobox":
-      return <ColumnComboboxRenderer {...props} />;
+      return <ColumnComboboxRenderer {...effectiveProps} />;
 
     case "column_multi_select":
-      return <ColumnMultiSelectRenderer {...props} />;
+      return <ColumnMultiSelectRenderer {...effectiveProps} />;
 
     case "prior_rules_input":
-      return <PriorRulesInputRenderer {...props} />;
+      return <PriorRulesInputRenderer {...effectiveProps} />;
 
     default:
       // 未知类型，使用文本输入
-      console.warn(`Unknown param type: ${param.type}, falling back to text`);
-      return <TextRenderer {...props} />;
+      console.warn(`Unknown param type: ${effectiveProps.param.type}, falling back to text`);
+      return <TextRenderer {...effectiveProps} />;
   }
 }
 

@@ -2703,50 +2703,108 @@ async def resume_execution(execution_id: str) -> TaskControlResponse:
 
 
 
+
+
+
+
 # =============================================================================
 # AI 分析辅助：SUGGESTED_PARAMS 解析
 # =============================================================================
 
 def _parse_suggested_params(analysis_text: str) -> Optional[Dict[str, Any]]:
     """
-    从 AI 分析文本末尾解析 SUGGESTED_PARAMS: {...} 行。
-    
-    返回解析到的参数字典，解析失败或无此行时返回 None。
+    从 AI 分析文本末尾解析 SUGGESTED_PARAMS: {...} 块。
+
+    支持两种格式：
+      1. 单行：SUGGESTED_PARAMS: {"k": v}
+      2. 多行：SUGGESTED_PARAMS: {\n  "k": v\n}   （LLM 有时格式化 JSON）
+
+    从文本末尾向上扫描，找到 SUGGESTED_PARAMS: 行后，
+    收集从该行到文本末尾的所有内容尝试解析 JSON。
     """
     if not analysis_text:
         return None
-    # 逐行从末尾找，支持尾部有空行的情况
-    for line in reversed(analysis_text.splitlines()):
-        line = line.strip()
-        if line.startswith("SUGGESTED_PARAMS:"):
-            json_str = line[len("SUGGESTED_PARAMS:"):].strip()
-            try:
-                import json as _json
-                params = _json.loads(json_str)
-                if isinstance(params, dict) and params:
-                    return params
-            except Exception:
-                logger.warning(f"[AI Analysis] Failed to parse SUGGESTED_PARAMS: {json_str!r}")
-            return None
+
+    import json as _json
+
+    lines = analysis_text.splitlines()
+    # 去掉末尾空行
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    # 从末尾向上找 SUGGESTED_PARAMS: 行
+    marker_idx = None
+    for i in range(len(lines) - 1, -1, -1):
+        stripped = lines[i].strip()
+        if stripped.startswith("SUGGESTED_PARAMS:"):
+            marker_idx = i
+            break
+        # 只允许跳过空行和纯 JSON 行（} ] , 数字 字符串等）
+        # 如果遇到普通文本行，说明没有 SUGGESTED_PARAMS
+        if stripped and not stripped.startswith(("{", "}", "[", "]", '"', "'")) and not stripped[-1] in (",", "}"):
+            break
+
+    if marker_idx is None:
+        return None
+
+    # 提取从 SUGGESTED_PARAMS: 开始的内容
+    first_line = lines[marker_idx].strip()
+    json_start = first_line[len("SUGGESTED_PARAMS:"):].strip()
+
+    # 拼接后续行（多行 JSON）
+    remaining = "\n".join(lines[marker_idx + 1:]).strip()
+    json_str = (json_start + "\n" + remaining).strip() if remaining else json_start
+
+    try:
+        params = _json.loads(json_str)
+        if isinstance(params, dict) and params:
+            return params
+    except Exception:
+        # 尝试只用第一行（可能后续行不是 JSON 的一部分）
+        try:
+            params = _json.loads(json_start)
+            if isinstance(params, dict) and params:
+                return params
+        except Exception:
+            pass
+        logger.warning(f"[AI Analysis] Failed to parse SUGGESTED_PARAMS: {json_str!r}")
     return None
 
 
 def _strip_suggested_params(analysis_text: str) -> str:
     """
-    从 AI 分析文本中剥离 SUGGESTED_PARAMS: 行，返回干净的展示文本。
+    从 AI 分析文本中剥离 SUGGESTED_PARAMS: 块（含多行 JSON），返回干净的展示文本。
     """
     if not analysis_text:
         return analysis_text
+
     lines = analysis_text.splitlines()
-    # 从末尾去掉 SUGGESTED_PARAMS 行及其前后的空行
+    # 去掉末尾空行
     while lines and not lines[-1].strip():
         lines.pop()
-    if lines and lines[-1].strip().startswith("SUGGESTED_PARAMS:"):
-        lines.pop()
-    # 再次去掉末尾空行
+
+    # 从末尾向上找 SUGGESTED_PARAMS: 行
+    marker_idx = None
+    for i in range(len(lines) - 1, -1, -1):
+        stripped = lines[i].strip()
+        if stripped.startswith("SUGGESTED_PARAMS:"):
+            marker_idx = i
+            break
+        # 只允许跳过空行和纯 JSON 结构行
+        if stripped and not stripped.startswith(("{", "}", "[", "]", '"', "'")) and not stripped[-1] in (",", "}"):
+            break
+
+    if marker_idx is None:
+        return "\n".join(lines)
+
+    # 截断到 marker 之前，再去末尾空行
+    lines = lines[:marker_idx]
     while lines and not lines[-1].strip():
         lines.pop()
     return "\n".join(lines)
+
+
+
 
 
 # =============================================================================
@@ -3087,6 +3145,15 @@ async def retry_stage(
                 f"[Retry Stage] Created snapshot v{snapshot.version} for {execution_id}/{stage_id}"
                 f"  reason={retry_reason}"
             )
+
+            # 快照已保存旧分析，删除 DB 中的 AI 分析记录
+            # 这样前端重试完成后 fetchAnalysis 返回 null，触发重新生成新版本分析
+            if record_id_for_snap and StageAnalysisService:
+                try:
+                    StageAnalysisService.delete_analysis(record_id_for_snap, stage_id)
+                    logger.info(f"[Retry Stage] Deleted AI analysis for {record_id_for_snap}/{stage_id} (saved in snapshot v{snapshot.version})")
+                except Exception as e:
+                    logger.warning(f"[Retry Stage] Failed to delete AI analysis: {e}")
         # ──────────────────────────────────────────────────────────────────
         
         # 设置重试阶段标记
@@ -3121,6 +3188,18 @@ async def retry_stage(
                         stage.output_preview = None
                         # 清除 params_used，让阶段重新执行时从 context.params 获取最新参数
                         stage.params_used = {}
+                        # 后续阶段（非重试阶段本身）清空快照历史：上游重试后旧快照已无效
+                        if sid != stage_id and hasattr(stage, 'snapshots'):
+                            stage.snapshots = []
+                        # 后续阶段（非重试阶段本身）删除 DB 中的 AI 分析：避免旧分析被展示
+                        if sid != stage_id and was_executed:
+                            record_id_for_downstream = getattr(context, 'record_id', None)
+                            if record_id_for_downstream and StageAnalysisService:
+                                try:
+                                    StageAnalysisService.delete_analysis(record_id_for_downstream, sid)
+                                    logger.info(f"[Retry Stage] Deleted downstream AI analysis for {record_id_for_downstream}/{sid}")
+                                except Exception as e:
+                                    logger.warning(f"[Retry Stage] Failed to delete downstream AI analysis for {sid}: {e}")
                         
                         # 只有曾经执行过的阶段才记录"已重置"日志
                         if was_executed:
@@ -3776,9 +3855,12 @@ async def get_stage_analysis(
     
     analysis = StageAnalysisService.get_analysis(record_id, stage_id)
     
-    # 从缓存的分析文本中提取 suggested_params（如有）
+    # 从分析文本中提取 suggested_params，并确保返回给前端的文本是干净的（无 SUGGESTED_PARAMS 行）
     if analysis and analysis.get("analysis_text"):
-        analysis["suggested_params"] = _parse_suggested_params(analysis["analysis_text"])
+        raw_text = analysis["analysis_text"]
+        analysis["suggested_params"] = _parse_suggested_params(raw_text)
+        # 防御性剥离：若 DB 中存储了含标记行的旧数据，在返回时一并剥离
+        analysis["analysis_text"] = _strip_suggested_params(raw_text)
     
     return {
         "record_id": record_id,
@@ -3817,14 +3899,13 @@ async def save_stage_analysis(
         logger.warning(f"[AI Analysis] Record not found: {record_id}")
         raise HTTPException(status_code=404, detail=f"Record not found: {record_id}")
 
-    # 解析并剥离 SUGGESTED_PARAMS 行，存储干净的分析文本
+    # 解析 SUGGESTED_PARAMS 行（用于返回给前端），但存储原始文本（保留标记行，供 GET 接口反解析）
     suggested_params = _parse_suggested_params(request.analysis_text)
-    clean_text = _strip_suggested_params(request.analysis_text)
     
     success = StageAnalysisService.save_analysis(
         record_id=record_id,
         stage_id=stage_id,
-        analysis_text=clean_text,
+        analysis_text=request.analysis_text,  # 存原始文本，GET 接口返回时再剥离
         model_used=request.model_used
     )
     

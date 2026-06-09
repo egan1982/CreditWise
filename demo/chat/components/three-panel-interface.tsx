@@ -2841,6 +2841,8 @@ function ThreePanelInterfaceInner() {
 
       setCurrentExecutionId(response.execution_id);
       setShowConfigPanel(false);
+      // 任务启动后立即刷新历史记录，让执行中的任务出现在列表里
+      historyCompactRef.current?.refresh();
 
       toast({
         description: `任务已启动 (Pipeline/${interactionMode}): ${response.execution_id}`,
