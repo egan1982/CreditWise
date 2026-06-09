@@ -4424,9 +4424,9 @@ export function StageOutputPreview({
                   onClick={() => {
                     // 先触发重试（后端打快照保存旧 AI 分析），再清除本地状态
                     if (editMode === "params") {
-                      onRetryStage(stageId, localParams);
+                      onRetryStage(stageId, localParams, "手动调参");
                     } else {
-                      onRetryStage(stageId);
+                      onRetryStage(stageId, undefined, "手动调参");
                     }
                     hookClearAndReset();
                     setEditMode("preview");
