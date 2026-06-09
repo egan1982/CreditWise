@@ -4301,8 +4301,8 @@ export function StageOutputPreview({
               </div>
             )}
 
-            {/* AI 参数建议卡片（流式完成后、专家模式、非历史版本时展示） */}
-            {isExpertMode && !activeSnapshot && suggestedParams && Object.keys(suggestedParams).length > 0 && (
+            {/* AI 参数建议卡片（流式完成后、专家模式、非历史版本、非报告生成阶段时展示） */}
+            {isExpertMode && !activeSnapshot && stageId !== "report_generation" && suggestedParams && Object.keys(suggestedParams).length > 0 && (
               <SuggestedParamsCard
                 suggestedParams={suggestedParams}
                 currentParams={stageData?.params || {}}
