@@ -3951,9 +3951,9 @@ export function StageOutputPreview({
   }, [hookTriggerAnalysis]);
 
   // 历史版本时展示快照保存的 ai_analysis，当前版本展示 hook state
-  // 快照中保存的是原始文本（含 SUGGESTED_PARAMS 标记块），需要剥离后展示（支持多行 JSON）
+  // 快照中保存的是原始文本（含 SUGGESTED_PARAMS 标记块），需要剥离后展示（支持行中任意位置）
   const displayedAiAnalysis = isViewingHistory
-    ? (activeSnapshot?.ai_analysis ?? "").replace(/\n?SUGGESTED_PARAMS:\s*[\s\S]*$/m, "").trimEnd()
+    ? (activeSnapshot?.ai_analysis ?? "").replace(/\s*SUGGESTED_PARAMS:\s*[\s\S]*$/, "").trimEnd()
     : aiAnalysis;
 
 

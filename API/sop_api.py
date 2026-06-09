@@ -2713,95 +2713,76 @@ async def resume_execution(execution_id: str) -> TaskControlResponse:
 
 def _parse_suggested_params(analysis_text: str) -> Optional[Dict[str, Any]]:
     """
-    从 AI 分析文本末尾解析 SUGGESTED_PARAMS: {...} 块。
+    从 AI 分析文本中解析 SUGGESTED_PARAMS: {...} 块。
 
-    支持两种格式：
-      1. 单行：SUGGESTED_PARAMS: {"k": v}
-      2. 多行：SUGGESTED_PARAMS: {\n  "k": v\n}   （LLM 有时格式化 JSON）
+    支持三种格式：
+      1. 独立行：...文本\nSUGGESTED_PARAMS: {"k": v}
+      2. 多行 JSON：SUGGESTED_PARAMS: {\n  "k": v\n}
+      3. 嵌入句末：...建议调整。SUGGESTED_PARAMS: {"k": v}
 
-    从文本末尾向上扫描，找到 SUGGESTED_PARAMS: 行后，
-    收集从该行到文本末尾的所有内容尝试解析 JSON。
+    使用正则从全文中定位标记，不依赖行首位置。
     """
     if not analysis_text:
         return None
 
     import json as _json
+    import re as _re
 
-    lines = analysis_text.splitlines()
-    # 去掉末尾空行
-    while lines and not lines[-1].strip():
-        lines.pop()
-
-    # 从末尾向上找 SUGGESTED_PARAMS: 行
-    marker_idx = None
-    for i in range(len(lines) - 1, -1, -1):
-        stripped = lines[i].strip()
-        if stripped.startswith("SUGGESTED_PARAMS:"):
-            marker_idx = i
-            break
-        # 只允许跳过空行和纯 JSON 行（} ] , 数字 字符串等）
-        # 如果遇到普通文本行，说明没有 SUGGESTED_PARAMS
-        if stripped and not stripped.startswith(("{", "}", "[", "]", '"', "'")) and not stripped[-1] in (",", "}"):
-            break
-
-    if marker_idx is None:
+    # 找到 SUGGESTED_PARAMS: 的位置（最后一次出现，防止多次输出）
+    marker = "SUGGESTED_PARAMS:"
+    idx = analysis_text.rfind(marker)
+    if idx == -1:
         return None
 
-    # 提取从 SUGGESTED_PARAMS: 开始的内容
-    first_line = lines[marker_idx].strip()
-    json_start = first_line[len("SUGGESTED_PARAMS:"):].strip()
+    after_marker = analysis_text[idx + len(marker):].strip()
+    if not after_marker:
+        return None
 
-    # 拼接后续行（多行 JSON）
-    remaining = "\n".join(lines[marker_idx + 1:]).strip()
-    json_str = (json_start + "\n" + remaining).strip() if remaining else json_start
-
-    try:
-        params = _json.loads(json_str)
-        if isinstance(params, dict) and params:
-            return params
-    except Exception:
-        # 尝试只用第一行（可能后续行不是 JSON 的一部分）
+    # 尝试解析：先尝试完整内容，再尝试第一行
+    for candidate in [after_marker, after_marker.split("\n")[0].strip()]:
+        if not candidate:
+            continue
+        # 找到第一个完整的 {...} 块
+        m = _re.match(r'(\{.*?\})', candidate, _re.DOTALL)
+        if m:
+            try:
+                params = _json.loads(m.group(1))
+                if isinstance(params, dict) and params:
+                    return params
+            except Exception:
+                pass
+        # 直接尝试解析
         try:
-            params = _json.loads(json_start)
+            params = _json.loads(candidate)
             if isinstance(params, dict) and params:
                 return params
         except Exception:
             pass
-        logger.warning(f"[AI Analysis] Failed to parse SUGGESTED_PARAMS: {json_str!r}")
+
+    logger.warning(f"[AI Analysis] Failed to parse SUGGESTED_PARAMS from: {after_marker[:100]!r}")
     return None
 
 
 def _strip_suggested_params(analysis_text: str) -> str:
     """
     从 AI 分析文本中剥离 SUGGESTED_PARAMS: 块（含多行 JSON），返回干净的展示文本。
+    支持行中任意位置出现（嵌入句末的情况）。
     """
     if not analysis_text:
         return analysis_text
 
-    lines = analysis_text.splitlines()
-    # 去掉末尾空行
-    while lines and not lines[-1].strip():
-        lines.pop()
+    marker = "SUGGESTED_PARAMS:"
+    idx = analysis_text.rfind(marker)
+    if idx == -1:
+        return analysis_text.rstrip()
 
-    # 从末尾向上找 SUGGESTED_PARAMS: 行
-    marker_idx = None
-    for i in range(len(lines) - 1, -1, -1):
-        stripped = lines[i].strip()
-        if stripped.startswith("SUGGESTED_PARAMS:"):
-            marker_idx = i
-            break
-        # 只允许跳过空行和纯 JSON 结构行
-        if stripped and not stripped.startswith(("{", "}", "[", "]", '"', "'")) and not stripped[-1] in (",", "}"):
-            break
+    # 截断到标记之前，去掉末尾的标点/空白
+    before = analysis_text[:idx].rstrip()
+    # 如果标记紧跟在句末标点后，去掉多余的空格
+    return before
 
-    if marker_idx is None:
-        return "\n".join(lines)
 
-    # 截断到 marker 之前，再去末尾空行
-    lines = lines[:marker_idx]
-    while lines and not lines[-1].strip():
-        lines.pop()
-    return "\n".join(lines)
+
 
 
 

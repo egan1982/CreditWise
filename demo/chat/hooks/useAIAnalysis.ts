@@ -27,8 +27,8 @@ import { getApiUrl } from "@/lib/config";
 // =============================================================================
 
 const AI_ANALYSIS_CACHE_PREFIX = "ai_analysis_cache:";
-// 支持单行或多行 JSON：匹配 SUGGESTED_PARAMS: 及其后到文本末尾的所有内容（含多行 JSON 块）
-const STRIP_SUGGESTED_PARAMS_RE = /\n?SUGGESTED_PARAMS:\s*[\s\S]*$/m;
+// 支持 SUGGESTED_PARAMS 出现在行中任意位置（含嵌入句末、单行/多行 JSON）
+const STRIP_SUGGESTED_PARAMS_RE = /\s*SUGGESTED_PARAMS:\s*[\s\S]*$/;
 
 // =============================================================================
 // sessionStorage 工具
