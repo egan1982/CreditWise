@@ -636,9 +636,51 @@ function WoeBinningPreview({ data }: { data: Record<string, any> }) {
   const displayFeatures = ivTable.slice(0, displayCount);
   const hasMore = totalCount > 10;
 
+  // 参数设定展示
+  const binningMethod = data.binning_method;
+  const binNumLimit = data.bin_num_limit;
+  const useHighPrecision = data.use_high_precision;
+  const hasParams = binningMethod !== undefined || binNumLimit !== undefined || useHighPrecision !== undefined;
+
+  const binningMethodLabel: Record<string, string> = {
+    decision_tree: "决策树分箱",
+    chimerge: "ChiMerge分箱",
+    quantile: "等频分箱",
+    equal_width: "等宽分箱",
+  };
+
   return (
     <div className="space-y-4">
-      {/* IV统计 */}
+      {/* 参数设定 */}
+      {hasParams && (
+        <div className="p-3 bg-gray-50 dark:bg-gray-800/40 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">分箱配置</div>
+          <div className="grid grid-cols-3 gap-3 text-xs">
+            {binningMethod !== undefined && (
+              <div className="text-center">
+                <div className="font-semibold text-blue-600 dark:text-blue-400">
+                  {binningMethodLabel[binningMethod] || binningMethod}
+                </div>
+                <div className="text-gray-500">分箱方法</div>
+              </div>
+            )}
+            {binNumLimit !== undefined && (
+              <div className="text-center">
+                <div className="font-semibold text-gray-700 dark:text-gray-300">{binNumLimit}</div>
+                <div className="text-gray-500">最大分箱数</div>
+              </div>
+            )}
+            {useHighPrecision !== undefined && (
+              <div className="text-center">
+                <div className={`font-semibold ${useHighPrecision ? "text-green-600" : "text-gray-400"}`}>
+                  {useHighPrecision ? "开启" : "关闭"}
+                </div>
+                <div className="text-gray-500">高精度模式</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-3">
         <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
           <div className="text-xl font-bold text-blue-600">

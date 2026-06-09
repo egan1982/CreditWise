@@ -1213,6 +1213,19 @@ def get_stage_analysis_prompt(
         params_hint = ""
     # ──────────────────────────────────────────────────────────────────────
 
+    # ── 当前执行参数上下文（避免 AI 建议与现有值相同或矛盾）──────────────────
+    params_context = ""
+    if params_used:
+        skip_keys = {"data_file", "target_col", "weight_col", "exclude_cols",
+                     "force_categorical", "force_numeric", "sample_type_col",
+                     "time_col", "prior_rules", "amount_col"}
+        relevant = {k: v for k, v in params_used.items()
+                    if k not in skip_keys and v is not None and v != "" and v != []}
+        if relevant:
+            import json as _json
+            params_str = ", ".join(f"{k}={_json.dumps(v, ensure_ascii=False)}" for k, v in relevant.items())
+            params_context = f"\n\n## 本次执行参数\n{params_str}\n（如建议调参，请确认建议值与当前值不同，避免建议保持现状）"
+
     # ── 上一版本对比 section（重试场景）────────────────────────────────────
     prev_snapshot_context = _build_prev_snapshot_context(stage_id, prev_snapshot or {}, params_used or {})
 
@@ -1223,7 +1236,7 @@ def get_stage_analysis_prompt(
 
 ## 任务
 请对"{stage_display_name}"阶段的执行结果进行专业分析和评估。
-
+{params_context}
 ## 阶段结果数据
 {data_description}
 

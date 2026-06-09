@@ -3731,6 +3731,10 @@ class ScorecardPipeline:
                 woe_binning_preview: dict[str, Any] = {
                     "total_features": len(bins),
                     "input_features": input_feature_count,  # 输入特征数（来自数据加载阶段）
+                    # 分箱配置参数（前端参数设定展示用）
+                    "binning_method": self.woe_transformer.method,
+                    "bin_num_limit": self.woe_transformer.bin_num_limit,
+                    "use_high_precision": self.woe_transformer.use_scorecardpy,
                     "iv_range": {
                         "min": float(iv_table['iv'].min()) if len(iv_table) > 0 else 0.0,
                         "max": float(iv_table['iv'].max()) if len(iv_table) > 0 else 0.0,
