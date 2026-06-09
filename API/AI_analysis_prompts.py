@@ -1073,7 +1073,8 @@ def _get_stage_available_params(stage_id: str, task_type: Optional[str] = None) 
     """从 TaskMeta 获取指定阶段的可调参数 key 列表，用于约束 LLM 的参数建议输出"""
     # stage_id 别名映射：前端 stage_id -> meta 中的 stage 字段值
     STAGE_ID_ALIASES: dict[str, str] = {
-        "filtering_rules": "rule_filtering",
+        "filtering_rules": "rule_filtering",   # rule_mining
+        "preprocessing": "data_loading",        # scorecard_dev 的预处理阶段
     }
     meta_stage_id = STAGE_ID_ALIASES.get(stage_id, stage_id)
 
