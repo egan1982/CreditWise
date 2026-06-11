@@ -977,18 +977,40 @@ _DIFF_SKIP_PARAMS = {
     "special_values", "rule_directions", "custom_thresholds", "data_file",
 }
 
+# Pipeline 内部参数名 → meta/LLM 可见参数名 反向映射
+# 仅适用于 scorecard_dev 任务（规则挖掘的 bin_method 本身就是 meta 名，无需映射）
+_SCORECARD_PIPELINE_TO_META: dict[str, str] = {
+    "bin_method": "binning_method",
+    "max_bins": "bin_num_limit",
+}
 
-def _build_param_diff(prev_params: dict[str, Any], curr_params: dict[str, Any]) -> str:
+
+def _get_pipeline_to_meta_key(task_type: Optional[str]) -> dict[str, str]:
+    """返回当前任务类型对应的 Pipeline→meta key 映射表"""
+    if task_type == "rule_mining":
+        return {}   # 规则挖掘的参数名在 Pipeline 和 meta 中完全一致
+    # scorecard_dev 或未指定时，使用评分卡映射
+    return _SCORECARD_PIPELINE_TO_META
+
+
+def _build_param_diff(prev_params: dict[str, Any], curr_params: dict[str, Any],
+                      task_type: Optional[str] = None) -> str:
     """构建参数变化 diff 字符串，只展示有变化的参数"""
     if not prev_params or not curr_params:
         return ""
+    # 统一将 Pipeline 内部 key 映射为 meta/LLM 可见 key，与 params_hint 保持一致
+    _P2M = _get_pipeline_to_meta_key(task_type)
+    def _norm(d: dict[str, Any]) -> dict[str, Any]:
+        return {_P2M.get(k, k): v for k, v in d.items()}
+    prev_norm = _norm(prev_params)
+    curr_norm = _norm(curr_params)
     lines = []
-    all_keys = set(prev_params) | set(curr_params)
+    all_keys = set(prev_norm) | set(curr_norm)
     for k in sorted(all_keys):
         if k in _DIFF_SKIP_PARAMS:
             continue
-        old_v = prev_params.get(k)
-        new_v = curr_params.get(k)
+        old_v = prev_norm.get(k)
+        new_v = curr_norm.get(k)
         if old_v == new_v or (old_v is None and new_v is None):
             continue
         # 变化方向注释
@@ -1099,6 +1121,7 @@ def _build_prev_snapshot_context(
     stage_id: str,
     prev_snapshot: dict[str, Any],
     curr_params: dict[str, Any],
+    task_type: Optional[str] = None,
 ) -> str:
     """
     构建上一版本对比 section，用于重试场景的 Prompt 注入。
@@ -1114,7 +1137,7 @@ def _build_prev_snapshot_context(
     retry_reason = prev_snapshot.get("retry_reason") or "手动调参"
 
     # 参数 diff
-    param_diff = _build_param_diff(prev_params, curr_params or {})
+    param_diff = _build_param_diff(prev_params, curr_params or {}, task_type=task_type)
     # 结果摘要
     prev_summary = _build_result_summary(stage_id, prev_output)
 
@@ -1127,7 +1150,18 @@ def _build_prev_snapshot_context(
         lines.append(param_diff)
     if prev_summary:
         lines.append(f"上一版结果：{prev_summary}")
-    lines.append("请基于以上对比评估本次调整的效果，不要建议恢复到用户已主动调整过的参数值。")
+    # 明确列出当前参数值，强化禁止建议回退的约束
+    _P2M = _get_pipeline_to_meta_key(task_type)
+    import json as _json2
+    curr_adjustable = {
+        _P2M.get(k, k): v for k, v in (curr_params or {}).items()
+        if k not in _DIFF_SKIP_PARAMS and v is not None
+    }
+    if curr_adjustable:
+        curr_str = ", ".join(f"{k}={_json2.dumps(v, ensure_ascii=False)}" for k, v in curr_adjustable.items())
+        lines.append(f"**严禁**建议恢复到上一版本的参数值（当前值已是用户主动调整后的结果）：{curr_str}。如无新的优化空间，请勿在 SUGGESTED_PARAMS 中输出任何参数。")
+    else:
+        lines.append("请基于以上对比评估本次调整的效果，不要建议恢复到用户已主动调整过的参数值。")
     return "\n".join(lines)
 
 
@@ -1197,37 +1231,81 @@ def get_stage_analysis_prompt(
         else "**任务类型**：评分卡建模任务"
     )
 
+    # ── 计算本次执行的可见参数（供 params_hint 和 params_context 共用）────────
+    import json as _json
+    skip_keys = {"data_file", "target_col", "weight_col", "exclude_cols",
+                 "force_categorical", "force_numeric", "sample_type_col",
+                 "time_col", "prior_rules", "amount_col"}
+    # Pipeline 内部参数名 → meta/LLM 可见参数名 反向映射（task_type 感知）
+    PIPELINE_TO_META_KEY = _get_pipeline_to_meta_key(task_type)
+    relevant_params: dict[str, object] = {}
+    if params_used:
+        for k, v in params_used.items():
+            if k in skip_keys or v is None or v == "" or v == []:
+                continue
+            relevant_params[PIPELINE_TO_META_KEY.get(k, k)] = v
+
     # ── 参数建议格式要求（用于一键调参重跑功能）──────────────────────────
     # 获取当前阶段可调参数 key 列表，约束 LLM 只输出已知参数名
     stage_available_params = _get_stage_available_params(stage_id, task_type)
+    stage_available_params_meta = _get_stage_available_params_meta(stage_id, task_type)
     if stage_available_params:
+        # 为布尔参数追加 true=开启/false=关闭 语义注释，防止 LLM 搞反方向
+        def _param_label(p: dict) -> str:
+            name = p["name"]
+            if p.get("type") in ("checkbox", "bool"):
+                label = p.get("label") or p.get("label_en") or name
+                return f"{name}（true={label}开启，false={label}关闭）"
+            return name
+        params_label_list = ", ".join(_param_label(p) for p in stage_available_params_meta)
+        # 将当前值和上一版本值嵌入约束规则，紧挨着 SUGGESTED_PARAMS 要求
+        current_vals_note = ""
+        if relevant_params:
+            current_vals_str = ", ".join(
+                f"{k}={_json.dumps(v, ensure_ascii=False)}"
+                for k, v in relevant_params.items()
+                if k in stage_available_params
+            )
+            if current_vals_str:
+                current_vals_note = (
+                    f"\n**当前参数值（禁止建议与当前值相同的值）**：{current_vals_str}"
+                )
+        # 如果有上一版本快照，把上一版本用过的参数值也加入禁止列表
+        # 防止 LLM 在"本次更好"的情况下仍然建议回退到历史值
+        if prev_snapshot:
+            _P2M_hint = _get_pipeline_to_meta_key(task_type)
+            prev_params_raw = prev_snapshot.get("params_used") or {}
+            prev_vals_str = ", ".join(
+                f"{_P2M_hint.get(k, k)}={_json.dumps(v, ensure_ascii=False)}"
+                for k, v in prev_params_raw.items()
+                if _P2M_hint.get(k, k) in stage_available_params
+                and v is not None
+                and k not in _DIFF_SKIP_PARAMS
+            )
+            if prev_vals_str:
+                current_vals_note += (
+                    f"\n**上一版本参数值（严禁建议回退至这些值）**：{prev_vals_str}"
+                )
         params_hint = (
             f"\n\n## 参数建议（必须遵守）\n"
             f"如果你在分析中提到了任何调参建议（如'建议调整'、'可以提高'、'适当降低'等），**必须**在分析文本末尾另起一行输出以下格式，不得省略：\n"
             f"SUGGESTED_PARAMS: {{\"param_key\": value, ...}}\n"
             f"如果没有任何调参建议，则省略此行。\n"
-            f"可调整的参数键名（只能使用以下键名）：{', '.join(stage_available_params)}\n"
+            f"可调整的参数键名（只能使用以下键名）：{params_label_list}{current_vals_note}\n"
             f"示例：SUGGESTED_PARAMS: {{\"max_depth\": 5, \"min_samples_leaf\": 0.02}}"
         )
     else:
         params_hint = ""
     # ──────────────────────────────────────────────────────────────────────
 
-    # ── 当前执行参数上下文（避免 AI 建议与现有值相同或矛盾）──────────────────
+    # ── 当前执行参数上下文（prompt 中部展示，供分析时参考）──────────────────
     params_context = ""
-    if params_used:
-        skip_keys = {"data_file", "target_col", "weight_col", "exclude_cols",
-                     "force_categorical", "force_numeric", "sample_type_col",
-                     "time_col", "prior_rules", "amount_col"}
-        relevant = {k: v for k, v in params_used.items()
-                    if k not in skip_keys and v is not None and v != "" and v != []}
-        if relevant:
-            import json as _json
-            params_str = ", ".join(f"{k}={_json.dumps(v, ensure_ascii=False)}" for k, v in relevant.items())
-            params_context = f"\n\n## 本次执行参数\n{params_str}\n（如建议调参，请确认建议值与当前值不同，避免建议保持现状）"
+    if relevant_params:
+        params_str = ", ".join(f"{k}={_json.dumps(v, ensure_ascii=False)}" for k, v in relevant_params.items())
+        params_context = f"\n\n## 本次执行参数\n{params_str}\n"
 
     # ── 上一版本对比 section（重试场景）────────────────────────────────────
-    prev_snapshot_context = _build_prev_snapshot_context(stage_id, prev_snapshot or {}, params_used or {})
+    prev_snapshot_context = _build_prev_snapshot_context(stage_id, prev_snapshot or {}, params_used or {}, task_type=task_type)
 
     return f"""## 角色设定
 你是一位{role_config['role']}，专长领域：{role_config['expertise']}。
@@ -1253,6 +1331,11 @@ def get_stage_analysis_prompt(
 
 def _get_stage_available_params(stage_id: str, task_type: Optional[str] = None) -> list[str]:
     """从 TaskMeta 获取指定阶段的可调参数 key 列表，用于约束 LLM 的参数建议输出"""
+    return [p["name"] for p in _get_stage_available_params_meta(stage_id, task_type)]
+
+
+def _get_stage_available_params_meta(stage_id: str, task_type: Optional[str] = None) -> list[dict]:
+    """从 TaskMeta 获取指定阶段的可调参数元数据列表（含 name/type/label）"""
     # stage_id 别名映射：前端 stage_id -> meta 中的 stage 字段值
     STAGE_ID_ALIASES: dict[str, str] = {
         "filtering_rules": "rule_filtering",   # rule_mining
@@ -1281,19 +1364,20 @@ def _get_stage_available_params(stage_id: str, task_type: Optional[str] = None) 
         if task_type == "rule_mining" or task_type is None:
             from deepanalyze.analysis.task_SOP.rule_mining_meta import RULE_MINING_TASK_META
             all_params = RULE_MINING_TASK_META.get("required_params", []) + RULE_MINING_TASK_META.get("optional_params", [])
-            params = [p["name"] for p in all_params
+            params = [p for p in all_params
                       if p.get("stage") == meta_stage_id and p["name"] not in EXCLUDED_PARAMS]
             if params:
                 return params
         if task_type == "scorecard_dev" or task_type is None:
             from deepanalyze.analysis.task_SOP.scorecard_meta import SCORECARD_TASK_META
             all_params = SCORECARD_TASK_META.get("required_params", []) + SCORECARD_TASK_META.get("optional_params", [])
-            params = [p["name"] for p in all_params
+            params = [p for p in all_params
                       if p.get("stage") == meta_stage_id and p["name"] not in EXCLUDED_PARAMS]
             if params:
                 return params
     except Exception as e:
-        logger.warning(f"[_get_stage_available_params] Failed for stage={stage_id} task={task_type}: {e}")
+        import sys as _sys
+        print(f"[WARN][_get_stage_available_params] Failed for stage={stage_id} task={task_type}: {e}", file=_sys.stderr)
     return []
 
 

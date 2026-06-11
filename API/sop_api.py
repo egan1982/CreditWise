@@ -2708,59 +2708,15 @@ async def resume_execution(execution_id: str) -> TaskControlResponse:
 
 
 # =============================================================================
-# AI 分析辅助：SUGGESTED_PARAMS 解析
+# AI 分析辅助：SUGGESTED_PARAMS 解析（实现已迁移至 chat_api.py，在调用处 lazy import）
 # =============================================================================
 
-def _parse_suggested_params(analysis_text: str) -> Optional[Dict[str, Any]]:
-    """
-    从 AI 分析文本中解析 SUGGESTED_PARAMS: {...} 块。
 
-    支持三种格式：
-      1. 独立行：...文本\nSUGGESTED_PARAMS: {"k": v}
-      2. 多行 JSON：SUGGESTED_PARAMS: {\n  "k": v\n}
-      3. 嵌入句末：...建议调整。SUGGESTED_PARAMS: {"k": v}
 
-    使用正则从全文中定位标记，不依赖行首位置。
-    """
-    if not analysis_text:
-        return None
 
-    import json as _json
-    import re as _re
 
-    # 找到 SUGGESTED_PARAMS: 的位置（最后一次出现，防止多次输出）
-    marker = "SUGGESTED_PARAMS:"
-    idx = analysis_text.rfind(marker)
-    if idx == -1:
-        return None
 
-    after_marker = analysis_text[idx + len(marker):].strip()
-    if not after_marker:
-        return None
 
-    # 尝试解析：先尝试完整内容，再尝试第一行
-    for candidate in [after_marker, after_marker.split("\n")[0].strip()]:
-        if not candidate:
-            continue
-        # 找到第一个完整的 {...} 块
-        m = _re.match(r'(\{.*?\})', candidate, _re.DOTALL)
-        if m:
-            try:
-                params = _json.loads(m.group(1))
-                if isinstance(params, dict) and params:
-                    return params
-            except Exception:
-                pass
-        # 直接尝试解析
-        try:
-            params = _json.loads(candidate)
-            if isinstance(params, dict) and params:
-                return params
-        except Exception:
-            pass
-
-    logger.warning(f"[AI Analysis] Failed to parse SUGGESTED_PARAMS from: {after_marker[:100]!r}")
-    return None
 
 
 def _strip_suggested_params(analysis_text: str) -> str:
@@ -3838,8 +3794,27 @@ async def get_stage_analysis(
     
     # 从分析文本中提取 suggested_params，并确保返回给前端的文本是干净的（无 SUGGESTED_PARAMS 行）
     if analysis and analysis.get("analysis_text"):
+        from chat_api import _parse_suggested_params, _filter_unchanged_params, _filter_out_of_range_params
         raw_text = analysis["analysis_text"]
-        analysis["suggested_params"] = _parse_suggested_params(raw_text)
+        suggested = _parse_suggested_params(raw_text)
+        # 同 POST 逻辑：过滤与当前值相同/回退旧值/越界值（兼容旧数据）
+        if suggested:
+            try:
+                # record_id → execution_id → ExecutionStore
+                _rec = TaskHistoryService.get_record(record_id)
+                _exec_id = _rec.get("execution_id") if _rec else None
+                ctx = ExecutionStore.get(_exec_id) if _exec_id else None
+                if ctx and stage_id in ctx.stages:
+                    stage_obj = ctx.stages[stage_id]
+                    current_params = stage_obj.params_used or {}
+                    prev_params = stage_obj.snapshots[-1].params_used if stage_obj.snapshots else {}
+                    task_type = getattr(ctx, "task_type", None)
+                    suggested = _filter_unchanged_params(suggested, current_params, prev_params)
+                    if suggested:
+                        suggested = _filter_out_of_range_params(suggested, stage_id, task_type)
+            except Exception as _e:
+                logger.warning(f"[GET Analysis] Failed to filter suggested_params: {_e}")
+        analysis["suggested_params"] = suggested
         # 防御性剥离：若 DB 中存储了含标记行的旧数据，在返回时一并剥离
         analysis["analysis_text"] = _strip_suggested_params(raw_text)
     
@@ -3880,8 +3855,32 @@ async def save_stage_analysis(
         logger.warning(f"[AI Analysis] Record not found: {record_id}")
         raise HTTPException(status_code=404, detail=f"Record not found: {record_id}")
 
-    # 解析 SUGGESTED_PARAMS 行（用于返回给前端），但存储原始文本（保留标记行，供 GET 接口反解析）
+
+    # 解析 SUGGESTED_PARAMS，并过滤掉与当前/上一版本参数值相同的建议
+    # lazy import 避免模块加载顺序问题（chat_api 与 sop_api 互为依赖）
+    from chat_api import (
+        _parse_suggested_params,
+        _filter_unchanged_params,
+        _filter_out_of_range_params,
+    )
     suggested_params = _parse_suggested_params(request.analysis_text)
+    task_type_for_filter: Optional[str] = None
+    if suggested_params:
+        try:
+            # record_id → execution_id → ExecutionStore
+            _exec_id = record.get("execution_id") if record else None
+            ctx = ExecutionStore.get(_exec_id) if _exec_id else None
+            if ctx and stage_id in ctx.stages:
+                stage = ctx.stages[stage_id]
+                current_params = stage.params_used or {}
+                prev_params = stage.snapshots[-1].params_used if stage.snapshots else {}
+                task_type_for_filter = getattr(ctx, "task_type", None)
+                suggested_params = _filter_unchanged_params(suggested_params, current_params, prev_params)
+        except Exception as _e:
+            logger.warning(f"[AI Analysis] Failed to get current params for filtering: {_e}")
+    # 过滤超出 meta 定义范围的建议值
+    if suggested_params:
+        suggested_params = _filter_out_of_range_params(suggested_params, stage_id, task_type=task_type_for_filter)
     
     success = StageAnalysisService.save_analysis(
         record_id=record_id,

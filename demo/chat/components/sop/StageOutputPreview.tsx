@@ -643,7 +643,8 @@ function WoeBinningPreview({ data }: { data: Record<string, any> }) {
   const hasParams = binningMethod !== undefined || binNumLimit !== undefined || useHighPrecision !== undefined;
 
   const binningMethodLabel: Record<string, string> = {
-    decision_tree: "决策树分箱",
+    tree: "决策树分箱",          // scorecard_dev Pipeline 实际值
+    decision_tree: "决策树分箱", // 兼容旧值
     chimerge: "ChiMerge分箱",
     quantile: "等频分箱",
     equal_width: "等宽分箱",
@@ -651,36 +652,6 @@ function WoeBinningPreview({ data }: { data: Record<string, any> }) {
 
   return (
     <div className="space-y-4">
-      {/* 参数设定 */}
-      {hasParams && (
-        <div className="p-3 bg-gray-50 dark:bg-gray-800/40 rounded-lg border border-gray-200 dark:border-gray-700">
-          <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">分箱配置</div>
-          <div className="grid grid-cols-3 gap-3 text-xs">
-            {binningMethod !== undefined && (
-              <div className="text-center">
-                <div className="font-semibold text-blue-600 dark:text-blue-400">
-                  {binningMethodLabel[binningMethod] || binningMethod}
-                </div>
-                <div className="text-gray-500">分箱方法</div>
-              </div>
-            )}
-            {binNumLimit !== undefined && (
-              <div className="text-center">
-                <div className="font-semibold text-gray-700 dark:text-gray-300">{binNumLimit}</div>
-                <div className="text-gray-500">最大分箱数</div>
-              </div>
-            )}
-            {useHighPrecision !== undefined && (
-              <div className="text-center">
-                <div className={`font-semibold ${useHighPrecision ? "text-green-600" : "text-gray-400"}`}>
-                  {useHighPrecision ? "开启" : "关闭"}
-                </div>
-                <div className="text-gray-500">高精度模式</div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
       <div className="grid grid-cols-3 gap-3">
         <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
           <div className="text-xl font-bold text-blue-600">
@@ -711,6 +682,36 @@ function WoeBinningPreview({ data }: { data: Record<string, any> }) {
         </div>
       </div>
 
+      {/* 分箱配置（核心指标之后，与规则挖掘"生成参数"块位置对齐） */}
+      {hasParams && (
+        <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">分箱配置</div>
+          <div className="grid grid-cols-3 gap-3 text-xs">
+            {binningMethod !== undefined && (
+              <div className="text-center">
+                <div className="font-semibold text-blue-600 dark:text-blue-400">
+                  {binningMethodLabel[binningMethod] || binningMethod}
+                </div>
+                <div className="text-gray-500">分箱方法</div>
+              </div>
+            )}
+            {binNumLimit !== undefined && (
+              <div className="text-center">
+                <div className="font-semibold text-gray-700 dark:text-gray-300">{binNumLimit}</div>
+                <div className="text-gray-500">最大分箱数</div>
+              </div>
+            )}
+            {useHighPrecision !== undefined && (
+              <div className="text-center">
+                <div className={`font-semibold ${useHighPrecision ? "text-green-600" : "text-gray-400"}`}>
+                  {useHighPrecision ? "开启" : "关闭"}
+                </div>
+                <div className="text-gray-500">高精度模式</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* IV分布统计（简洁单行方案，与规则挖掘任务保持一致） */}
       {data.iv_distribution && (
@@ -4356,8 +4357,16 @@ export function StageOutputPreview({
                 }}
                 onApplyAndRetry={(merged) => {
                   setLocalParams(merged as Record<string, any>);
+                  // 构建具体的参数变更描述，替代通用的"接受AI建议"
+                  const currentP = stageData?.params || {};
+                  const changedParts = Object.entries(suggestedParams)
+                    .filter(([k, v]) => String(currentP[k]) !== String(v))
+                    .map(([k, v]) => `${k}=${v}`);
+                  const retryReason = changedParts.length > 0
+                    ? `AI建议: ${changedParts.join(", ")}`
+                    : "接受AI建议";
                   // 先触发重试（后端打快照保存旧 AI 分析），再清除本地状态
-                  onRetryStage?.(stageId, merged as Record<string, any>, "接受AI建议");
+                  onRetryStage?.(stageId, merged as Record<string, any>, retryReason);
                   hookClearAndReset();
                   setEditMode("preview");
                 }}

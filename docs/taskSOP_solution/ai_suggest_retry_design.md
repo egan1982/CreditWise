@@ -516,3 +516,70 @@ AI 自动分析（streaming，约15秒）
 **VERDICT:** APPROVED — 8个自动决策，0个阻断问题，1个 taste 决策（已采纳）。  
 **Cross-phase theme:** LLM 输出稳定性（CEO+Eng均提及）→ 已有降级，首批上线后统计服从率。  
 **Next:** 实施时按 §6 任务分解顺序执行，B1→B2→B4→B5→F1→F2。
+
+---
+
+## 11. AI 建议卡片质量修复（2026-06-09 ~ 06-11）
+
+> 状态：✅ 已完成
+
+### 11.1 问题清单
+
+| ID | 问题 | 根因 |
+|----|------|------|
+| Q1 | AI 建议与当前值相同（如 `use_high_precision true→true`） | `params_context` 注入 key 名与 `params_hint` 可用键名不一致（Pipeline key vs meta key） |
+| Q2 | AI 建议回退到上一版本值（自相矛盾） | Prompt 禁止指令分散、LLM 未遵守；`_build_param_diff` 未做 key 映射，导致 diff 展示的 key 与 `params_hint` 不一致 |
+| Q3 | 布尔参数方向错误（文本说"开启"，卡片显示 `true→false`） | LLM 对布尔语义理解偏差，Prompt 中无明确 `true=开启/false=关闭` 语义锚点 |
+| Q4 | 建议值超出参数 min/max 范围 | Prompt 层无范围约束，纯依赖 LLM 知识 |
+| Q5 | WOE分箱参数设定（分箱配置）未显示 | `woe_binning_preview` 缺少 `binning_method/bin_num_limit/use_high_precision` 字段；前端 `binningMethodLabel` 缺 `"tree"` 映射 |
+| Q6 | 历史快照 `retry_reason` 仅显示"接受AI建议" | 前端硬编码字符串，未拼入具体参数变更 |
+
+### 11.2 修复方案：三层防护架构
+
+```
+Prompt 约束层（AI_analysis_prompts.py）
+  ├─ params_hint 末尾注入当前值 + 上一版本值禁止列表
+  ├─ 布尔参数语义注释（true=开启/false=关闭）
+  └─ _build_param_diff 应用 task_type 感知的 key 映射
+
+布尔校验层（chat_api.py: _validate_bool_params）
+  └─ 文本关键词匹配，搞反方向时自动翻转
+
+代码强制过滤层（chat_api.py: _filter_unchanged_params + _filter_out_of_range_params）
+  ├─ 过滤与当前值相同的建议（值比较，100% 可靠）
+  ├─ 过滤回退到上一版本的建议（防止来回摇摆）
+  └─ 过滤超出 meta min/max 范围的建议值
+```
+
+### 11.3 关键代码变更
+
+**`chat_api.py`（新增4个函数，迁移自 `sop_api.py`）**：
+- `_parse_suggested_params`：解析 SUGGESTED_PARAMS 块
+- `_validate_bool_params`：布尔参数方向校验与翻转
+- `_filter_unchanged_params(suggested, current_params, prev_params)`：过滤相同值/回退值
+- `_filter_out_of_range_params(suggested, stage_id, task_type)`：过滤越界值
+
+**`sop_api.py`（GET/POST 两个 analysis 接口）**：
+- 通过 `record_id → record.execution_id → ExecutionStore.get(execution_id)` 正确取到 stage context
+- GET/POST 均串联三层过滤：`_filter_unchanged_params` → `_filter_out_of_range_params`
+
+**`AI_analysis_prompts.py`**：
+- `_get_pipeline_to_meta_key(task_type)` — task_type 感知的 key 映射（rule_mining 返回空字典）
+- `_SCORECARD_PIPELINE_TO_META`：`bin_method→binning_method`，`max_bins→bin_num_limit`
+- `_get_stage_available_params_meta` — 返回完整 meta 元数据（含 type/label，供布尔语义注释使用）
+- `params_hint` 增加 `current_vals_note`（当前值）+ `prev_vals_note`（上一版本值）禁止列表
+- `_validate_bool_params` 的 `use_high_precision` 开启关键词移除单独的 `"高精度"`（避免误匹配"关闭高精度"）
+
+**`StageOutputPreview.tsx`**：
+- WOE分箱"分箱配置"块移至核心指标之后（与规则挖掘"生成参数"块对齐）
+- `binningMethodLabel` 补充 `tree→"决策树分箱"` 映射
+- `retry_reason` 由"接受AI建议"改为 `AI建议: ${changedParts.join(", ")}`
+
+**`scorecard_development.py`**：
+- `woe_binning_preview` 增加 `binning_method/bin_num_limit/use_high_precision` 三个字段
+
+### 11.4 架构说明
+
+过滤函数定义在 `chat_api.py`（AI 分析职责），调用点在 `sop_api.py` 接口函数体内通过 lazy import 使用，避免循环依赖（`sop_api` 需要 `ExecutionStore`，`chat_api` 不应反向依赖 `sop_api`）。
+
+rule_mining 任务 Pipeline/meta 参数名完全一致（无重命名），`_get_pipeline_to_meta_key("rule_mining")` 返回空字典，修复对两种任务类型均适用。

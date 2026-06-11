@@ -1945,6 +1945,168 @@ async def get_channels_health():
 
 
 # =============================================================================
+# AI 分析结果后处理：解析 / 校验 / 过滤（供 sop_api 调用）
+# =============================================================================
+
+def _parse_suggested_params(analysis_text: str) -> Optional[Dict[str, Any]]:
+    """
+    从 AI 分析文本中解析 SUGGESTED_PARAMS: {...} 块。
+
+    支持三种格式：
+      1. 独立行：...文本\nSUGGESTED_PARAMS: {"k": v}
+      2. 多行 JSON：SUGGESTED_PARAMS: {\n  "k": v\n}
+      3. 嵌入句末：...建议调整。SUGGESTED_PARAMS: {"k": v}
+
+    使用正则从全文中定位标记，不依赖行首位置。
+    """
+    if not analysis_text:
+        return None
+
+    import json as _json
+    import re as _re
+
+    marker = "SUGGESTED_PARAMS:"
+    idx = analysis_text.rfind(marker)
+    if idx == -1:
+        return None
+
+    after_marker = analysis_text[idx + len(marker):].strip()
+    if not after_marker:
+        return None
+
+    for candidate in [after_marker, after_marker.split("\n")[0].strip()]:
+        if not candidate:
+            continue
+        m = _re.match(r'(\{.*?\})', candidate, _re.DOTALL)
+        if m:
+            try:
+                params = _json.loads(m.group(1))
+                if isinstance(params, dict) and params:
+                    return _validate_bool_params(params, analysis_text)
+            except Exception:
+                pass
+        try:
+            params = _json.loads(candidate)
+            if isinstance(params, dict) and params:
+                return _validate_bool_params(params, analysis_text)
+        except Exception:
+            pass
+
+    logger.warning(f"[AI Analysis] Failed to parse SUGGESTED_PARAMS from: {after_marker[:100]!r}")
+    return None
+
+
+def _validate_bool_params(params: Dict[str, Any], analysis_text: str) -> Dict[str, Any]:
+    """
+    校验布尔参数的值是否与分析文本中的表述方向一致。
+    如果文本说"建议开启/启用 X"但参数值为 False，自动翻转为 True（反之亦然）。
+    防止 LLM 文本与 JSON 值方向相反的问题。
+    """
+    BOOL_PARAM_HINTS: Dict[str, tuple] = {
+        "use_high_precision": (
+            ["启用高精度", "开启高精度", "使用高精度", "更高精度", "high precision"],
+            ["关闭高精度", "禁用高精度", "不使用高精度", "无需高精度", "降低精度"],
+        ),
+        "use_stepwise": (
+            ["逐步回归", "stepwise", "启用逐步", "开启逐步"],
+            ["关闭逐步", "禁用逐步"],
+        ),
+        "allow_overlap": (
+            ["允许重叠", "overlap", "开启重叠"],
+            ["禁止重叠", "关闭重叠", "互斥"],
+        ),
+        "enable_oot_validation": (
+            ["启用OOT", "开启OOT", "OOT验证"],
+            ["关闭OOT", "禁用OOT"],
+        ),
+    }
+
+    result = dict(params)
+    text_lower = analysis_text.lower()
+
+    for key, val in params.items():
+        if key not in BOOL_PARAM_HINTS or not isinstance(val, bool):
+            continue
+        enable_hints, disable_hints = BOOL_PARAM_HINTS[key]
+        text_says_enable = any(h.lower() in text_lower for h in enable_hints)
+        text_says_disable = any(h.lower() in text_lower for h in disable_hints)
+
+        if text_says_enable and not text_says_disable and val is False:
+            logger.warning(f"[_validate_bool_params] Correcting {key}: False→True (text says enable)")
+            result[key] = True
+        elif text_says_disable and not text_says_enable and val is True:
+            logger.warning(f"[_validate_bool_params] Correcting {key}: True→False (text says disable)")
+            result[key] = False
+
+    return result
+
+
+def _filter_unchanged_params(
+    suggested: Dict[str, Any],
+    current_params: Dict[str, Any],
+    prev_params: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    过滤掉以下两类无效建议：
+    1. 建议值与当前执行参数值完全相同（LLM 没有给出新方向）
+    2. 建议值与上一版本参数值相同（LLM 建议回退到历史值）
+    current_params / prev_params 使用 Pipeline 内部 key，做 key 规范化后比较。
+    返回过滤后的字典；若全部过滤则返回 None。
+    """
+    _P2M = {"bin_method": "binning_method", "max_bins": "bin_num_limit"}
+    normalized_current = {_P2M.get(k, k): v for k, v in current_params.items()}
+    normalized_prev = {_P2M.get(k, k): v for k, v in (prev_params or {}).items()}
+
+    filtered = {}
+    for k, suggested_v in suggested.items():
+        current_v = normalized_current.get(k)
+        prev_v = normalized_prev.get(k)
+        if current_v is not None and str(suggested_v) == str(current_v):
+            logger.info(f"[_filter_unchanged_params] Dropping {k}={suggested_v!r} (same as current)")
+            continue
+        if prev_v is not None and str(suggested_v) == str(prev_v):
+            logger.info(f"[_filter_unchanged_params] Dropping {k}={suggested_v!r} (same as prev snapshot, would be a rollback)")
+            continue
+        filtered[k] = suggested_v
+
+    return filtered if filtered else None
+
+
+def _filter_out_of_range_params(
+    suggested: Dict[str, Any],
+    stage_id: str,
+    task_type: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    过滤掉建议值超出 meta 定义的 min/max 范围的参数项。
+    直接丢弃越界值，不做裁剪（裁剪后可能等于当前值，无意义）。
+    """
+    try:
+        from AI_analysis_prompts import _get_stage_available_params_meta
+        params_meta = _get_stage_available_params_meta(stage_id, task_type)
+        meta_map = {p["name"]: p for p in params_meta}
+    except Exception as _e:
+        logger.warning(f"[_filter_out_of_range_params] Failed to load meta: {_e}")
+        return suggested if suggested else None
+
+    filtered = {}
+    for k, v in (suggested or {}).items():
+        meta = meta_map.get(k)
+        if meta and isinstance(v, (int, float)):
+            min_val = meta.get("min")
+            max_val = meta.get("max")
+            if min_val is not None and v < min_val:
+                logger.info(f"[_filter_out_of_range_params] Dropping {k}={v!r} (below min={min_val})")
+                continue
+            if max_val is not None and v > max_val:
+                logger.info(f"[_filter_out_of_range_params] Dropping {k}={v!r} (above max={max_val})")
+                continue
+        filtered[k] = v
+
+    return filtered if filtered else None
+
+
+# =============================================================================
 # AI 分析 Prompt API（Phase 1: 后端抽离）
 # =============================================================================
 
