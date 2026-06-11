@@ -779,9 +779,12 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
     max_hit_rate_threshold_str = f"{max_hit_rate_threshold * 100:.1f}%" if isinstance(max_hit_rate_threshold, (int, float)) else "N/A"
     
     # ========== 2.6. 规则选择模式（贪婪/重叠）==========
-    rule_selection_data = _safe_get(stages, "rule_selection", "output_preview", default={}) or {}
-    allow_overlap = (rule_selection_data or {}).get("allow_overlap", False)
-    selection_mode_str = "允许重叠（独立选择）" if allow_overlap else "贪婪算法（不允许重叠）"
+    # selecting_rules 阶段的 output_preview 包含 selection_mode 字符串和 allow_overlap 布尔值
+    rule_selection_data = _safe_get(stages, "selecting_rules", "output_preview", default={}) or {}
+    # selection_mode 字段优先；fallback 到 rejected_rules_stats.selection_mode
+    _selection_mode_raw = (rule_selection_data or {}).get("selection_mode") or \
+        ((rule_selection_data or {}).get("rejected_rules_stats") or {}).get("selection_mode", "greedy")
+    selection_mode_str = "允许重叠（独立选择）" if _selection_mode_raw in ("overlap", "允许重叠") else "贪婪算法（不允许重叠）"
 
     # ========== 3. 筛选过程数据 ==========
     all_rules_raw = _unwrap_data(outputs.get("all_rules_with_status"))
@@ -790,8 +793,8 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
     rejected_rules = [r for r in all_rules_array if not r.get("is_optimal")]
     rejected_count = len(rejected_rules)
     
-    # 从 stages.rule_selection.output_preview.filter_summary 获取筛选统计
-    filter_summary = (rule_selection_data or {}).get("filter_summary") or {}
+    # filter_summary 在 rule_filtering 阶段的 output_preview 中
+    filter_summary = (rule_filtering_data or {}).get("filter_summary") or {}
     
     # 构建淘汰原因分布
     rejection_reasons: dict[str, int] = {}
