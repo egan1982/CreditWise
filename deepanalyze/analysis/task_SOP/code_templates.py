@@ -26,61 +26,63 @@ preprocessor = DataPreprocessor(
     missing_threshold={missing_threshold}
 )
 
-# 数据集划分（训练集/测试集/OOT）
+# 特殊值替换（-9999/-999/-99999 等替换为 NaN）
+df = preprocessor.replace_special_values(df)
+
+# 缺失率/同值率质量筛选（移除缺失率或同值率 ≥ 0.95 的特征）
+df, removed_features = preprocessor.var_filter(df, target_col="{target_col}")
+
+# 数据集划分（支持 sample_type_col 手动标注 / time_col 时间划分 / 随机划分）
 train_df, test_df, oot_df = preprocessor.split_data(
     df=df,
     target_col="{target_col}",
     sample_type_col="{sample_type_col}",
     test_ratio={test_ratio}
 )
+print(f"训练集: {{len(train_df)}}, 测试集: {{len(test_df)}}, OOT: {{len(oot_df) if oot_df is not None else 0}}")
 
 # 异常值检测
-outlier_info = preprocessor.detect_outliers(
-    df=train_df,
-    method='iqr',
-    threshold=1.5
-)
+outlier_info = preprocessor.detect_outliers(df=df, method='iqr', threshold=1.5)
 print(f"检测到异常值特征数: {{len(outlier_info)}}")
 ''',
 
     "woe_binning": '''# WOE分箱
-from deepanalyze.analysis.woe import WOECalculator
+from deepanalyze.analysis.woe import WOETransformer
 
-# 初始化WOE计算器
-woe_calculator = WOECalculator(
-    bin_method="{bin_method}",
-    max_bins={max_bins}
+# 初始化WOE分箱器
+woe_transformer = WOETransformer(
+    method="{bin_method}",          # tree / chimerge / quantile
+    bin_num_limit={bin_num_limit},  # 每个变量最大分箱数
+    use_scorecardpy={use_high_precision}  # True=高精度模式(scorecardpy)
 )
 
-# 执行WOE分箱
-df_woe, bins_result = woe_calculator.fit_transform(
+# 执行WOE分箱与转换
+df_woe, bins, iv_table = woe_transformer.fit_transform(
     df=train_df,
     target_col="{target_col}",
     feature_cols=feature_cols
 )
 
-# 获取IV表
-iv_table = woe_calculator.get_iv_table()
-print(f"特征数量: {{len(iv_table)}}")
-print(f"IV范围: {{iv_table['iv'].min():.4f}} - {{iv_table['iv'].max():.4f}}")
+# IV值分布（strong≥0.1 / medium 0.02-0.1 / weak<0.02）
+print(f"分箱特征数: {{len(iv_table)}}")
+print(f"IV范围: {{iv_table['total_iv'].min():.4f}} - {{iv_table['total_iv'].max():.4f}}")
 ''',
 
     "feature_selection": '''# 特征筛选
+# 注：逐步回归（stepwise）和系数方向验证在下一阶段（模型训练）中执行
 from deepanalyze.analysis.feature_selection import FeatureSelector
 
 # 初始化特征选择器
 selector = FeatureSelector(
-    iv_lower={iv_lower},
-    iv_upper={iv_upper},
-    corr_threshold={corr_threshold},
-    vif_threshold={vif_threshold}
+    iv_lower={iv_lower},        # IV 下限（低于此值剔除）
+    iv_upper={iv_upper},        # IV 上限（高于此值可能存在数据泄露）
+    corr_threshold={corr_threshold},  # 相关系数阈值（高相关特征对保留IV较高者）
+    vif_threshold={vif_threshold}     # VIF 阈值（多重共线性筛选）
 )
 
-# 执行特征筛选
+# 执行筛选：IV筛选 → 相关性筛选 → VIF筛选
 selected_features, selection_detail = selector.select_features(
-    df=df_woe,
-    iv_table=iv_table,
-    woe_cols=woe_cols
+    df=df_woe, iv_table=iv_table, woe_cols=woe_cols
 )
 
 print(f"筛选前特征数: {{len(woe_cols)}}")
@@ -446,7 +448,8 @@ def format_code_template(
         "test_ratio": 0.3,
         # WOE分箱
         "bin_method": "tree",
-        "max_bins": 5,
+        "bin_num_limit": 8,
+        "use_high_precision": True,
         # 特征选择
         "iv_lower": 0.02,
         "iv_upper": 0.5,
@@ -553,22 +556,25 @@ report = generate_report(
     SCORECARD_PSEUDO_CODE: Dict[str, str] = {
         "data_loading": '''# === 阶段 1: 数据加载 ===
 df = load_data("{file_path}")
+df = replace_special_values(df)  # -9999/-999 等 → NaN
+df = var_filter(df, target='{target_col}')  # 移除高缺失率/同值率特征
 train_df, test_df, oot_df = split_data(
     df,
     target='{target_col}',
     test_ratio={test_ratio}
 )''',
         "woe_binning": '''# === 阶段 2: WOE分箱 ===
-woe_calculator = WOECalculator(
+woe_transformer = WOETransformer(
     method='{bin_method}',
-    max_bins={max_bins}
+    bin_num_limit={bin_num_limit},
+    use_high_precision={use_high_precision}
 )
-df_woe, bins = woe_calculator.fit_transform(
+df_woe, bins, iv_table = woe_transformer.fit_transform(
     train_df,
     target='{target_col}'
-)
-iv_table = woe_calculator.get_iv_table()''',
+)''',
         "feature_selection": '''# === 阶段 3: 特征筛选 ===
+# 注：逐步回归在下一阶段（模型训练）中执行
 selected_features = select_features(
     df_woe,
     iv_table,
@@ -648,7 +654,8 @@ report = generate_scorecard_report(
             "max_hit_rate_select": 0.2,
             "allow_overlap": True,
             "test_ratio": 0.3,
-            "max_bins": 5,
+            "bin_num_limit": 8,
+            "use_high_precision": True,
             "iv_lower": 0.02,
             "iv_upper": 0.5,
             "corr_threshold": 0.7,
@@ -788,7 +795,8 @@ config = {{
     "target_col": "{params.get('target_col', 'target')}",
     "test_ratio": {params.get('test_ratio', 0.3)},
     "bin_method": "{params.get('bin_method', 'tree')}",
-    "max_bins": {params.get('max_bins', 5)},
+    "bin_num_limit": {params.get('bin_num_limit', 8)},
+    "use_high_precision": {params.get('use_high_precision', True)},
     "iv_lower": {params.get('iv_lower', 0.02)},
     "iv_upper": {params.get('iv_upper', 0.5)},
     "corr_threshold": {params.get('corr_threshold', 0.7)},
