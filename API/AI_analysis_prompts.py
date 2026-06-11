@@ -787,14 +787,22 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
     selection_mode_str = "允许重叠（独立选择）" if _selection_mode_raw in ("overlap", "允许重叠") else "贪婪算法（不允许重叠）"
 
     # ========== 3. 筛选过程数据 ==========
+    # 3a. 规则筛选阶段（rule_filtering）：Lift/命中率阈值过滤
+    rf_generated = (rule_filtering_data or {}).get("generated_count", 0)
+    rf_after = (rule_filtering_data or {}).get("after_count", 0)
+    rf_removed = rf_generated - rf_after if rf_generated and rf_after else \
+        (filter_summary.get("total_removed", 0))
+    rf_direction_removed = filter_summary.get("direction_removed", 0)
+    rf_bad_rate_zero = filter_summary.get("bad_rate_zero_removed", 0)
+    rf_lift_removed = filter_summary.get("lift_removed", 0)
+    rf_hit_rate_removed = filter_summary.get("hit_rate_removed", 0)
+
+    # 3b. 最优选择阶段（selecting_rules）：贪婪/重叠算法选出最优集
     all_rules_raw = _unwrap_data(outputs.get("all_rules_with_status"))
     all_rules_array = all_rules_raw if isinstance(all_rules_raw, list) else []
-    total_candidate_rules = len(all_rules_array)
+    total_candidate_rules = rf_after or len([r for r in all_rules_array if r.get("direction_valid") is not False])
     rejected_rules = [r for r in all_rules_array if not r.get("is_optimal")]
     rejected_count = len(rejected_rules)
-    
-    # filter_summary 在 rule_filtering 阶段的 output_preview 中
-    filter_summary = (rule_filtering_data or {}).get("filter_summary") or {}
     
     # 构建淘汰原因分布
     rejection_reasons: dict[str, int] = {}
@@ -912,11 +920,11 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
 - 坏样本率: {sample_bad_rate}
 - 筛选后特征数: {feature_count}个（用于规则生成）
 
-### 2. 规则挖掘结果（入选规则的统计指标）
-- 候选规则数: {total_candidate_rules}条
+### 2. 规则挖掘结果（入选最优集的统计指标）
 - 最终入选: {total_rules}条
 - 入选规则平均提升度: {avg_lift}（各入选规则Lift的算术平均值）
 - 入选规则平均坏账率: {avg_bad_rate}
+
 
 ### 3. 累计效果（规则集叠加后的整体效果）
 - 累计召回率: {cum_recall}（规则集命中的坏样本占总坏样本比例）
@@ -924,10 +932,17 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
 - 累计坏账率: {cum_bad_rate}（规则集命中样本中的坏样本比例）
 - 累计提升度: {cum_lift}（累计坏账率/总体坏账率，反映规则集整体区分能力）
 
-### 4. 规则筛选过程
-- 淘汰规则数: {rejected_count}条
-- 主要淘汰原因:
+### 4. 规则筛选过程（两阶段）
+
+**4.1 规则筛选阶段**（Lift/命中率阈值过滤）
+- 生成规则数: {rf_generated}条 → 有效规则: {rf_after}条（移除 {rf_removed} 条）
+- 移除明细：单调性校验 {rf_direction_removed} 条、坏账率为0 {rf_bad_rate_zero} 条、Lift不达标 {rf_lift_removed} 条、命中率超限 {rf_hit_rate_removed} 条
+
+**4.2 最优选择阶段**（{selection_mode_str}）
+- 候选规则: {total_candidate_rules}条 → 最终入选: {total_rules}条（未入选 {rejected_count} 条）
+- 主要未入选原因:
 {rejection_summary}
+
 
 ### 5. 质量验证
 - 质量评分: {quality_score_str}/100
