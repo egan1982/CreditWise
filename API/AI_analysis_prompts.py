@@ -788,6 +788,7 @@ def _build_rule_mining_overall_prompt(outputs: dict[str, Any], stages: dict[str,
 
     # ========== 3. 筛选过程数据 ==========
     # 3a. 规则筛选阶段（rule_filtering）：Lift/命中率阈值过滤
+    filter_summary = (rule_filtering_data or {}).get("filter_summary") or {}
     rf_generated = (rule_filtering_data or {}).get("generated_count", 0)
     rf_after = (rule_filtering_data or {}).get("after_count", 0)
     rf_removed = rf_generated - rf_after if rf_generated and rf_after else \
