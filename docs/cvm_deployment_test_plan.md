@@ -192,8 +192,29 @@ sudo bash scripts/deploy_linux.sh  # 选 [2] 内网多用户
 ### 验证通过标准
 
 - [ ] 测试 1：Docker 单用户模式 — 无认证可访问，端口自检通过
-- [ ] 测试 2：Docker 多用户 + service.sh — 401 保护，从 .env 读配置，6 用户正常
-- [ ] 测试 3：离线 Docker 部署 — 端口/磁盘自检通过，服务健康
-- [ ] 测试 4：非 Docker 手动部署 — Python/node 依赖检查，pip 安装，服务启动，401 保护
-- [ ] 全部模式：8200+8100 双端口正常监听
-- [ ] 全部模式：`curl /health` 返回 `{"status":"healthy"}`
+- [x] 测试 2：Docker 多用户 + service.sh — 401 保护，从 .env 读配置，6 用户正常
+- [x] 测试 3：离线 Docker 部署 — 端口/磁盘自检通过，服务健康（Docker Py3.12 wheels）
+- [x] 测试 4：非 Docker 手动部署 — Python/node 依赖检查，pip 安装，服务启动，401 保护
+- [x] 全部模式：8200+8100 双端口正常监听
+- [x] 全部模式：`curl /health` 返回 `{"status":"healthy"}`
+
+---
+
+## 五、实测结果记录
+
+> 测试日期：2026-06-12 | 代码版本：`0557956` | 测试人：AI via fjzheng
+
+| 测试 | 结果 | 耗时 | 关键发现 |
+|------|:--:|------|------|
+| 测试 1：Docker 单用户 | ✅ | ~2min | 环境自检（端口/磁盘/Docker）全部通过 |
+| 测试 2：Docker 多用户 + service.sh | ✅ | ~1min | `.env` 中 `ENABLE_AUTH=true` 被正确读取；401 保护生效 |
+| 测试 3：离线 Docker（清缓存） | ✅ | ~3min | 发现并修复：①Docker Compose v1→v2 ②Py3.11→3.12 wheel 版本匹配 |
+| 测试 4：非 Docker 手动部署 | ✅ | ~3min | Node.js 未安装时正确跳过前端构建；kaleido 系统库缺失警告正常 |
+
+### 测试中修复的问题
+
+| 问题 | 修复 | Commit |
+|------|------|--------|
+| CVM 上 `docker-compose` v1 命令不存在 | 3 个脚本 `docker-compose` → `docker compose` + 移除 compose.yml `version` 字段 | `df2ee15` |
+| `prepare_offline.sh` 用宿主 Python 3.11 下载 wheel，Docker 镜像 Python 3.12 不兼容 | 改用 `docker run python:3.12-slim pip download` | `0557956` |
+| Dockerfile `COPY || true` 语法无效 | 改用 `.offline_wheels/` 空目录 + `OFFLINE_MODE` build-arg | `d5d549b` → `e2942fe` |
