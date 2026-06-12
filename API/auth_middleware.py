@@ -20,6 +20,7 @@ Admin-only 路由（role=admin 才能访问）：
 """
 
 import base64
+import json
 import time
 import logging
 from collections import defaultdict
@@ -56,6 +57,10 @@ def _find_config_path() -> Path:
         "用户配置文件未找到！请创建 config/users.yaml\n"
         "参考：docs/online_multiuser_deployment_assessment.md 第 8 章"
     )
+
+def _get_state_path() -> Path:
+    """获取登录失败状态文件路径（与 users.yaml 同级）"""
+    return Path(__file__).parent.parent / "config" / "login_state.json"
 
 
 def load_users_config() -> dict:
@@ -189,12 +194,42 @@ class SimpleAuth:
         self._failure_tracker: dict = defaultdict(
             lambda: {"count": 0, "last_failure": 0.0}
         )
+        
+        # 从磁盘恢复登录失败状态（重启后锁定依然有效）
+        self._load_failures()
 
         logger.info(
             f"认证系统初始化完成：{len(self.users)} 个用户，"
             f"锁定阈值={self.max_failures}次，"
             f"锁定时长={self.lockout_duration // 60}分钟"
         )
+
+    def _load_failures(self) -> None:
+        """从磁盘加载登录失败状态"""
+        state_path = _get_state_path()
+        if not state_path.exists():
+            return
+        try:
+            with open(state_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for username, tracker in data.items():
+                self._failure_tracker[username] = {
+                    "count": int(tracker.get("count", 0)),
+                    "last_failure": float(tracker.get("last_failure", 0.0)),
+                }
+            if data:
+                logger.info(f"已从磁盘恢复登录失败状态 ({len(data)} 条记录)")
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"读取登录状态文件失败，将丢弃旧状态: {e}")
+
+    def _save_failures(self) -> None:
+        """将登录失败状态写入磁盘"""
+        state_path = _get_state_path()
+        try:
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(dict(self._failure_tracker), f, ensure_ascii=False)
+        except OSError as e:
+            logger.error(f"保存登录状态文件失败: {e}")
 
     def _is_locked(self, username: str) -> bool:
         """检查账户是否被锁定"""
@@ -207,16 +242,19 @@ class SimpleAuth:
                 return True
             # 锁定时间已过，重置
             self._failure_tracker[username] = {"count": 0, "last_failure": 0.0}
+            self._save_failures()
         return False
 
     def _record_failure(self, username: str) -> None:
         """记录登录失败"""
         self._failure_tracker[username]["count"] += 1
         self._failure_tracker[username]["last_failure"] = time.time()
+        self._save_failures()
 
     def _reset_failures(self, username: str) -> None:
         """登录成功后重置"""
         self._failure_tracker[username] = {"count": 0, "last_failure": 0.0}
+        self._save_failures()
 
     def verify(self, username: str, password: str) -> Optional[dict]:
         """

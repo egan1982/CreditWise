@@ -129,6 +129,11 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"[ERROR] 认证中间件初始化失败: {e}")
             print(f"[ERROR] 认证中间件初始化失败: {e}")
+    else:
+        logger.warning(
+            "[SECURITY] ENABLE_AUTH=false — 服务将在无认证模式下运行，"
+            "仅适用于单用户开发环境。"
+        )
 
     # 添加全局异常处理器，确保异常响应也包含CORS头
     from fastapi import Request
