@@ -150,8 +150,17 @@ done
 # =============================================================================
 echo -e "${GREEN}[4] 构建 Docker 镜像${NC}"
 cd "$PROJECT_ROOT/docker"
+
+# 离线模式：将 wheels 复制到 Docker 构建上下文
+if [ -d "$BUNDLE_DIR/wheels" ] && ls "$BUNDLE_DIR/wheels"/*.whl >/dev/null 2>&1; then
+    echo "  离线模式: 复制 wheels 到构建上下文..."
+    rm -rf .offline_wheels/*.whl 2>/dev/null
+    cp "$BUNDLE_DIR/wheels"/*.whl .offline_wheels/ 2>/dev/null || true
+    echo "  已复制 $(ls -1 .offline_wheels/*.whl 2>/dev/null | wc -l) 个 wheel 文件"
+fi
+
 echo "构建中..."
-ENABLE_AUTH=${ENABLE_AUTH} docker compose build
+ENABLE_AUTH=${ENABLE_AUTH} OFFLINE_MODE=true docker compose build
 
 echo ""
 echo -e "${GREEN}[5] 启动服务${NC}"

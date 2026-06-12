@@ -53,12 +53,14 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Python 依赖
-# 优先使用离线 wheel 包（deploy_offline.sh 场景），否则在线安装
+# 在线模式: pip install -r requirements.txt（从 PyPI）
+# 离线模式: deploy_offline.sh 会将 wheels 填充到 .offline_wheels/ 目录
+ARG OFFLINE_MODE=false
 COPY requirements.txt .
-COPY offline_bundle/wheels/ /tmp/offline_wheels/ 2>/dev/null || true
+COPY .offline_wheels/ /tmp/offline_wheels/
 RUN pip install --upgrade pip && \
-    if [ -d /tmp/offline_wheels ] && ls /tmp/offline_wheels/*.whl >/dev/null 2>&1; then \
-        echo "使用离线 wheel 安装..."; \
+    if [ "$OFFLINE_MODE" = "true" ] && ls /tmp/offline_wheels/*.whl >/dev/null 2>&1; then \
+        echo "==> 离线模式: 使用本地 wheels"; \
         pip install --no-index --find-links=/tmp/offline_wheels -r requirements.txt; \
     else \
         pip install -r requirements.txt; \
