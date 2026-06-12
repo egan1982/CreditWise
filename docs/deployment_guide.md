@@ -210,6 +210,8 @@ tail -f logs/server.log
 2. 生成密码哈希：`python scripts/hash_password.py <密码>`
 3. 编辑 `config/users.yaml` 填入哈希值
 
+> 📖 详细的用户管理说明（角色、有效期、账户锁定、运维命令）参见 `docs/intranet_deployment_guide.md` §3.3
+
 ---
 
 ## 六、端口说明
