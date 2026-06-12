@@ -61,15 +61,9 @@ if [ ! -f "$REQ_FILE" ]; then
     exit 1
 fi
 
-# 检查 pip 是否可用
-if ! command -v pip3 &> /dev/null && ! command -v pip &> /dev/null; then
-    echo -e "${RED}pip 未安装，请先安装 Python 和 pip${NC}"
-    exit 1
-fi
-PIP=$(command -v pip3 || command -v pip)
-
-echo "  下载 Python wheels..."
-$PIP download -r "$REQ_FILE" -d "$BUNDLE_DIR/wheels"
+echo "  下载 Python wheels（使用 Docker Python 3.12 确保版本匹配）..."
+# 用 Docker 内的 Python 3.12 下载 wheel，避免宿主 Python 版本与镜像不一致
+docker run --rm -v "$PROJECT_ROOT":/app -w /app python:3.12-slim pip download -r requirements.txt -d "$BUNDLE_DIR/wheels"
 WHEEL_COUNT=$(ls -1 "$BUNDLE_DIR/wheels"/*.whl 2>/dev/null | wc -l)
 echo -e "${GREEN}  ✅ Python wheels: ${WHEEL_COUNT} 个文件${NC}"
 
