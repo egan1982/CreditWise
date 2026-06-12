@@ -193,9 +193,19 @@ class ChannelClientFactory:
                 model_config = get_model_config_by_channel(db, config_id)
                 
                 # 确定使用的模型名
+                # 优先使用 Channel.models（LLM Manager UI 管理的模型列表），确保 UI 录入即为最终使用的模型
+                # model_config.model_name 仅作为兜底（当 Channel.models 为空时）
                 model_name = channel.models.split(',')[0].strip() if channel.models else ""
-                if model_config and model_config.model_name:
+                if not model_name and model_config and model_config.model_name:
                     model_name = model_config.model_name
+                elif model_name and model_config and model_config.model_name and model_name != model_config.model_name:
+                    # 数据不一致告警：UI 模型列表与 model_config 记录不匹配
+                    logger.warning(
+                        f"渠道 model 不一致: Channel.models[0]='{model_name}' != "
+                        f"ModelConfig.model_name='{model_config.model_name}', "
+                        f"使用 Channel.models（UI配置）: '{model_name}' "
+                        f"(channel_id={channel.id})"
+                    )
                 
                 # 构建渠道信息，包含模型配置参数
                 # 渠道级别配置：stream_output（默认True）

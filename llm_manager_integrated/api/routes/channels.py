@@ -735,12 +735,30 @@ def read_channel(channel_id: int, db: Session = Depends(get_db)):
 @router.put("/channels/{channel_id}")
 def update_channel(channel_id: int, channel_update: schemas.ChannelUpdate, db: Session = Depends(get_db)):
     """更新渠道"""
+    # 检查是否更新了 models 字段（用于后续同步 model_config.model_name）
+    update_data = channel_update.dict(exclude_unset=True)
+    models_updated = 'models' in update_data and update_data['models'] is not None
+    
     db_channel = crud.update_channel(db, channel_id=channel_id, channel_update=channel_update)
     if db_channel is None:
         raise HTTPException(
             status_code=404,
             detail=error_response(code=404, message="渠道未找到")
         )
+    
+    # Auto-sync: 当 channel.models 变更时，同步更新关联的 model_configs.model_name
+    # 确保 LLM Manager UI 中录入的模型名称即为该渠道配置最终使用的模型
+    if models_updated and db_channel.models:
+        new_first_model = db_channel.models.split(',')[0].strip()
+        if new_first_model:
+            db.query(orm.ModelConfig).filter(
+                orm.ModelConfig.channel_id == channel_id
+            ).update({"model_name": new_first_model})
+            db.commit()
+            logger.info(
+                f"渠道 models 已更新, 同步 model_config.model_name → '{new_first_model}' "
+                f"(channel_id={channel_id}, channel_name={db_channel.name})"
+            )
     
     _invalidate_models_cache()
     

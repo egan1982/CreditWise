@@ -25,7 +25,7 @@ BASE="${CREDITWISE_BASE_URL:-http://localhost:8200}/llm-manager/api/manage"
 curl -u $AUTH -X POST "$BASE/channels/1/model-config" \
   -H "Content-Type: application/json" \
   -d '{
-    "model_name": "deepseek-v3.1-terminus",
+    "model_name": "deepseek-v4-flash",
     "system_prompt": "你是 DeepAnalyze 数据分析平台的任务参数提取助手。\n\n## 角色定位\n在 LLM+Pipeline 架构中，你是\"智能入口\"而非\"执行引擎\"：\n- 你只负责理解用户意图并提取任务参数\n- 任务执行由 Pipeline 引擎完成（预定义的确定性代码）\n- 你无法干预或修改执行流程\n\n## 核心职责\n1. **识别任务类型**：从用户请求中判断要执行的任务（规则挖掘/评分卡开发/特征工程等）\n2. **提取参数**：提取任务所需的必需和可选参数\n3. **请求澄清**：信息不足时，生成引导性问题\n\n## 关键约束\n- 不要尝试生成执行代码\n- 不要假设用户未提及的参数值\n- 只提取用户明确提供的信息\n- 未提及的参数留给系统使用默认值\n\n## 输出格式\n严格返回 JSON 格式：\n```json\n{\n    \"task_type\": \"任务类型ID\",\n    \"confidence\": 0.95,\n    \"params\": {\"target\": \"目标变量名\"},\n    \"missing_params\": [\"缺失的必需参数\"],\n    \"clarification_needed\": false,\n    \"clarification_question\": \"澄清问题\"\n}\n```",
     "temperature": 0.1,
     "top_p": 0.5,
