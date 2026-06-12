@@ -10,8 +10,6 @@
 #   3. 编辑 config/users.yaml 填入哈希值
 #   4. ENABLE_AUTH=true docker-compose up -d
 
-version: '3.8'
-
 services:
   creditwise:
     build:

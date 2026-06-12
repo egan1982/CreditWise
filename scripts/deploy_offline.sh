@@ -151,11 +151,11 @@ done
 echo -e "${GREEN}[4] 构建 Docker 镜像${NC}"
 cd "$PROJECT_ROOT/docker"
 echo "构建中..."
-ENABLE_AUTH=${ENABLE_AUTH} docker-compose build
+ENABLE_AUTH=${ENABLE_AUTH} docker compose build
 
 echo ""
 echo -e "${GREEN}[5] 启动服务${NC}"
-ENABLE_AUTH=${ENABLE_AUTH} docker-compose up -d
+ENABLE_AUTH=${ENABLE_AUTH} docker compose up -d
 
 echo ""
 echo "等待服务启动..."

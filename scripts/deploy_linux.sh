@@ -109,8 +109,8 @@ else
     echo -e "${GREEN}Docker 已安装: $(docker --version)${NC}"
 fi
 
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-    echo -e "${RED}docker-compose 未安装，请手动安装${NC}"
+if ! command -v docker compose &> /dev/null && ! docker compose version &> /dev/null; then
+    echo -e "${RED}docker compose 未安装，请手动安装${NC}"
     exit 1
 fi
 
@@ -226,12 +226,12 @@ echo ""
 echo -e "${GREEN}[${STEP}] 构建 Docker 镜像${NC}"
 cd "$PROJECT_ROOT/docker"
 echo "构建中，首次可能需要 5-10 分钟..."
-docker-compose build
+docker compose build
 
 # Fernet 密钥补生成
 if [ "$NEED_REGEN_KEY" = "true" ]; then
     echo -e "${YELLOW}使用容器生成标准 Fernet 加密密钥...${NC}"
-    NEW_KEY=$(docker-compose run --rm creditwise python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 2>/dev/null | tail -1)
+    NEW_KEY=$(docker compose run --rm creditwise python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 2>/dev/null | tail -1)
     if [ -n "$NEW_KEY" ]; then
         if grep -q '^LLM_MANAGER_ENCRYPTION_KEY=' "$PROJECT_ROOT/.env" 2>/dev/null; then
             sed -i "s|^LLM_MANAGER_ENCRYPTION_KEY=.*|LLM_MANAGER_ENCRYPTION_KEY=${NEW_KEY}|" "$PROJECT_ROOT/.env"
@@ -248,7 +248,7 @@ STEP=$((STEP + 1))
 
 echo ""
 echo -e "${GREEN}[${STEP}] 启动服务${NC}"
-ENABLE_AUTH=${ENABLE_AUTH} docker-compose up -d
+ENABLE_AUTH=${ENABLE_AUTH} docker compose up -d
 
 STEP=$((STEP + 1))
 
@@ -263,7 +263,7 @@ for i in $(seq 1 6); do
         break
     fi
     if [ $i -eq 6 ]; then
-        echo -e "${RED}⚠️  服务可能未完全启动，请检查日志: docker-compose logs${NC}"
+        echo -e "${RED}⚠️  服务可能未完全启动，请检查日志: docker compose logs${NC}"
     fi
     echo "等待中... ($i/6)"
     sleep 5
@@ -283,14 +283,14 @@ echo " 健康检查:  http://${SERVER_IP}:8200/health"
 echo " API 文档:  http://${SERVER_IP}:8200/docs"
 echo ""
 echo " 管理命令:"
-echo "   查看日志:    cd docker && docker-compose logs -f"
-echo "   停止服务:    cd docker && docker-compose down"
+echo "   查看日志:    cd docker && docker compose logs -f"
+echo "   停止服务:    cd docker && docker compose down"
 if [ "$ENABLE_AUTH" = "true" ]; then
-    echo "   重启服务:    cd docker && ENABLE_AUTH=true docker-compose up -d"
+    echo "   重启服务:    cd docker && ENABLE_AUTH=true docker compose up -d"
 else
-    echo "   重启服务:    cd docker && docker-compose up -d"
+    echo "   重启服务:    cd docker && docker compose up -d"
 fi
-echo "   生成密码:    docker-compose run --rm creditwise python scripts/hash_password.py"
+echo "   生成密码:    docker compose run --rm creditwise python scripts/hash_password.py"
 echo ""
 if [ "$ENABLE_AUTH" = "true" ]; then
     echo " 认证信息:"

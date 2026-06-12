@@ -23,50 +23,50 @@ case "$1" in
         AUTH_VAL=$(grep -oP '^ENABLE_AUTH=\K.*' "$PROJECT_ROOT/.env" 2>/dev/null || echo "false")
         echo "启动 CreditWise（ENABLE_AUTH=${AUTH_VAL}）..."
         if [ "$AUTH_VAL" = "true" ]; then
-            ENABLE_AUTH=true docker-compose up -d
+            ENABLE_AUTH=true docker compose up -d
         else
-            docker-compose up -d
+            docker compose up -d
         fi
         echo "服务已启动，访问: http://$(hostname -I | awk '{print $1}'):8200"
         ;;
     stop)
         echo "停止服务..."
-        docker-compose down
+        docker compose down
         echo "服务已停止"
         ;;
     restart)
         # 从 .env 读取 ENABLE_AUTH，不再硬编码
         AUTH_VAL=$(grep -oP '^ENABLE_AUTH=\K.*' "$PROJECT_ROOT/.env" 2>/dev/null || echo "false")
         echo "重启服务（ENABLE_AUTH=${AUTH_VAL}）..."
-        docker-compose down
+        docker compose down
         if [ "$AUTH_VAL" = "true" ]; then
-            ENABLE_AUTH=true docker-compose up -d
+            ENABLE_AUTH=true docker compose up -d
         else
-            docker-compose up -d
+            docker compose up -d
         fi
         echo "服务已重启"
         ;;
     start-noauth)
         echo "启动 CreditWise（无认证模式）..."
-        docker-compose up -d
+        docker compose up -d
         echo "服务已启动（无认证），访问: http://$(hostname -I | awk '{print $1}'):8200"
         ;;
     status)
-        docker-compose ps
+        docker compose ps
         echo ""
         curl -sf http://localhost:8200/health && echo " ← API 健康" || echo "API 未响应"
         ;;
     logs)
-        docker-compose logs -f --tail=100
+        docker compose logs -f --tail=100
         ;;
     build)
         echo "重新构建镜像..."
-        docker-compose build --no-cache
+        docker compose build --no-cache
         echo "构建完成，使用 ./service.sh start 启动"
         ;;
     hash)
         shift
-        docker-compose run --rm creditwise python scripts/hash_password.py "$@"
+        docker compose run --rm creditwise python scripts/hash_password.py "$@"
         ;;
     *)
         echo "用法: $0 {start|start-noauth|stop|restart|status|logs|build|hash}"
