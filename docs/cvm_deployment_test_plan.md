@@ -79,73 +79,40 @@ git pull origin main
 
 ---
 
-### 测试 2：切换多用户 + 恢复加密密钥
+### 测试 3：离线 Docker 部署（`deploy_offline.sh`）
+
+**前置**：先在外网机器执行 `prepare_offline.sh` 生成离线包，或直接用已构建的镜像（测试 1 已生成了 `creditwise:latest`）。
 
 ```bash
-# ⚠️ 关键：新脚本生成的加密密钥与旧 llm_manager.db 不兼容
-# 必须恢复旧 .env 中的 LLM_MANAGER_ENCRYPTION_KEY
-cp /data/backup/.env .env
-cp /data/backup/config/users.yaml config/
+cd /data/CreditWise
+sudo docker compose -f docker/docker-compose.yml down
 
-# 切换为多用户模式
-sed -i 's/ENABLE_AUTH=.*/ENABLE_AUTH=true/' .env
-
-# 用新的 service.sh 启动（验证从 .env 读取 ENABLE_AUTH）
-./scripts/service.sh start
-```
-
-| 验证项 | 命令/方法 | 预期 |
-|--------|----------|------|
-| 登录弹窗 | 浏览器访问 | HTTP Basic Auth 弹窗 |
-| admin 登录 | admin 密码 | 登录成功，可访问 /llm-manager |
-| 普通用户登录 | sylarswwang 密码 | 登录成功，**不能**访问 /llm-manager（403） |
-| 过期账户（如有） | — | 登录被拒 |
-
----
-
-### 测试 3：多渠道配置验证
-
-```bash
-# 检查 LLM 渠道是否正常（API 密钥能否用旧加密密钥正确解密）
-curl -s -u admin:<密码> http://localhost:8200/llm-manager/api/manage/channels | python3 -m json.tool | head -20
-
-# 如果渠道不可用（解密失败），重新同步配置
-./scripts/sync_model_configs.sh admin:<密码>
+# 无离线包时，用已构建的本地镜像模拟离线部署
+./scripts/deploy_offline.sh
+# 选择 [2] 内网多用户
 ```
 
 | 验证项 | 预期 |
 |--------|------|
-| local_deepseek 渠道 | 存在且状态为 active，model_name=deepseek-v4-flash |
-| local_kimi 渠道 | 存在且状态为 active，model_name=kimi-k2.5 |
+| 离线包检测 | 如无 `offline_bundle/`，提示先准备离线包 |
+| 镜像加载 | 如离线包中有镜像，成功加载 |
+| Docker 环境检查 | ✓ |
+| 端口检查 | 8200+8100 可用 |
+| 磁盘检查 | ≥2GB |
+| 服务启动 | 健康检查通过 |
 
 ---
 
-### 测试 4：`service.sh` 运维命令
+### 测试 4：非 Docker 手动部署（`deploy_manual.sh`）
 
 ```bash
-./scripts/service.sh status     # 预期：显示容器运行中 + 健康检查通过
-./scripts/service.sh restart    # 预期：从 .env 读取 ENABLE_AUTH=true（非硬编码）
-./scripts/service.sh logs       # 预期：实时日志输出（Ctrl+C 退出）
-./scripts/service.sh stop       # 预期：容器停止，端口释放
-./scripts/service.sh start-noauth  # 预期：无认证模式启动
-```
+cd /data/CreditWise
 
-| 验证项 | 预期 |
-|--------|------|
-| restart 后 ENABLE_AUTH 正确 | 从 `.env` 读取，不硬编码 |
-| status 健康检查 | 输出容器状态 + API Health: 正常 |
-| stop 后端口 | 8200/8100 不再监听 |
+# 停止 Docker 容器释放端口
+sudo docker compose -f docker/docker-compose.yml down
 
----
-
-### 测试 5：非 Docker 手动部署（`deploy_manual.sh`）
-
-```bash
-# 确保 Docker 服务已停止
-sudo docker-compose -f docker/docker-compose.yml down
-
-# 安装系统依赖（如未安装）
-sudo apt-get install -y libgbm1 libnss3 libatk-bridge2.0-0 libxkbcommon0
+# 确保系统依赖已安装
+sudo apt-get install -y libgbm1 libnss3 libatk-bridge2.0-0 libxkbcommon0 2>/dev/null
 
 ./scripts/deploy_manual.sh
 # 选择 [2] 内网多用户
@@ -153,11 +120,46 @@ sudo apt-get install -y libgbm1 libnss3 libatk-bridge2.0-0 libxkbcommon0
 
 | 验证项 | 命令/方法 | 预期 |
 |--------|----------|------|
-| 依赖检查 | 看脚本输出 | Python ≥ 3.10 ✓、Node ≥ 18 ✓、系统库 ✓ |
+| Python 版本 | 看脚本输出 | ≥ 3.10 |
+| Node.js 版本 | 看脚本输出 | ≥ 18（如需前端构建） |
+| 系统库检查 | 看脚本输出 | kaleido/Chromium 依赖已安装 |
 | 端口检查 | 看脚本输出 | 8200+8100 可用 |
 | venv 创建 | `ls .venv/bin/python3` | 存在 |
-| 健康检查 | `curl -s http://localhost:8200/health` | `{"status":"healthy"}` |
-| 日志 | `tail -f logs/server.log` | 无 ERROR |
+| pip 依赖安装 | 看脚本输出 | 27 个包安装成功 |
+| 前端构建 | 看脚本输出 | Next.js build 成功（如有 Node） |
+| 密钥生成 | `grep LLM_MANAGER_ENCRYPTION_KEY .env` | 已生成 |
+| ENABLE_AUTH | `grep ENABLE_AUTH .env` | ENABLE_AUTH=true |
+| 服务启动 | `curl -s http://localhost:8200/health` | `{"status":"healthy"}` |
+| 认证生效 | `curl -s -o /dev/null -w '%{http_code}' http://localhost:8200/v1/chat/completions` | 401 |
+| 日志 | `tail logs/server.log` | 无 ERROR |
+
+**测试完成后恢复 Docker**：
+```bash
+kill $(cat .app_pids.txt) 2>/dev/null
+rm -f .app_pids.txt
+cp /data/backup_20260612/.env .env
+cp /data/backup_20260612/config/users.yaml config/
+echo "ENABLE_AUTH=true" >> .env
+sudo bash scripts/service.sh start
+```
+
+---
+
+## 三、测试 5：清理与恢复
+
+```bash
+cd /data/CreditWise
+sudo bash scripts/service.sh stop
+
+# 恢复备份配置
+cp /data/backup_20260612/.env .env
+cp /data/backup_20260612/config/users.yaml config/
+echo "ENABLE_AUTH=true" >> .env
+
+# 重新构建并启动（使用最新代码）
+git pull origin main
+sudo bash scripts/deploy_linux.sh  # 选 [2] 内网多用户
+```
 
 ---
 
@@ -189,9 +191,9 @@ sudo apt-get install -y libgbm1 libnss3 libatk-bridge2.0-0 libxkbcommon0
 
 ### 验证通过标准
 
-- [ ] 单用户模式：无认证直接访问
-- [ ] 多用户模式：Basic Auth 弹窗，正确用户可登录
-- [ ] admin 可访问 /llm-manager，普通用户不可（403）
-- [ ] LLM 渠道配置正常可用
-- [ ] service.sh 全套运维命令正常
-- [ ] 非 Docker 部署可正常启动并通过健康检查
+- [ ] 测试 1：Docker 单用户模式 — 无认证可访问，端口自检通过
+- [ ] 测试 2：Docker 多用户 + service.sh — 401 保护，从 .env 读配置，6 用户正常
+- [ ] 测试 3：离线 Docker 部署 — 端口/磁盘自检通过，服务健康
+- [ ] 测试 4：非 Docker 手动部署 — Python/node 依赖检查，pip 安装，服务启动，401 保护
+- [ ] 全部模式：8200+8100 双端口正常监听
+- [ ] 全部模式：`curl /health` 返回 `{"status":"healthy"}`
