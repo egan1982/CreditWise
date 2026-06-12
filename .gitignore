@@ -60,3 +60,7 @@ task_results/
 **/.claude/
 
 **/CLAUDE.md
+
+# 离线部署包（prepare_offline.sh 生成，不入 Git）
+offline_bundle/
+creditwise_offline_bundle.tar.gz
