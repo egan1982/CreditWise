@@ -39,3 +39,11 @@ ENV/
 models/
 checkpoints/
 
+# 非核心子项目（训练框架/实验代码，不参与生产部署）
+# SkyRL: 强化学习训练框架（含 pickle.loads RCE 漏洞）
+# ms-swift: 模型微调框架（含 torch.load/shell注入漏洞）
+# playground: 数据集基准测试实验
+deepanalyze/SkyRL/
+deepanalyze/ms-swift/
+playground/
+
