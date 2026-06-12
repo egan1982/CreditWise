@@ -303,7 +303,7 @@ def handle_chat_api_errors(func):
         except Exception as e:
             logger.exception(f"未处理的异常: {e}")
             error = ChatAPIError(
-                message=f"内部服务器错误: {str(e)}",
+                message="内部服务器错误",  # 不暴露 str(e)，详情仅记录在服务端日志
                 error_code="INTERNAL_ERROR",
                 status_code=500
             )

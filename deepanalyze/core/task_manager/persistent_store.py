@@ -56,6 +56,21 @@ class PersistentExecutionStore:
         os.makedirs(cls._state_dir, exist_ok=True)
         return cls._state_dir
     
+    @classmethod
+    def _validate_pickle_path(cls, file_path: str) -> bool:
+        """校验pickle文件路径是否在允许的state_dir内，防止路径遍历攻击
+        
+        Args:
+            file_path: 待加载的pickle文件路径
+            
+        Returns:
+            True 表示路径安全，False 表示越界
+        """
+        state_dir = os.path.realpath(cls.get_state_dir())
+        real_path = os.path.realpath(file_path)
+        # 确保 real_path 以 state_dir 为前缀（防止 ../ 绕过）
+        return real_path.startswith(state_dir + os.sep) or real_path == state_dir
+    
     # =========================================================================
     # ExecutionState CRUD
     # =========================================================================
@@ -562,6 +577,11 @@ class PersistentExecutionStore:
         if not os.path.exists(file_path):
             return None
         
+        # 安全校验：确保文件路径在 state_dir 内
+        if not cls._validate_pickle_path(file_path):
+            logger.warning(f"Security: blocked pickle load from path outside state_dir: {file_path}")
+            return None
+        
         try:
             with open(file_path, "rb") as f:
                 return pickle.load(f)
@@ -685,6 +705,11 @@ class PersistentExecutionStore:
         
         if not os.path.exists(state_file):
             logger.warning(f"State file not found: {state_file}")
+            return None
+        
+        # 安全校验：确保文件路径在 state_dir 内
+        if not cls._validate_pickle_path(state_file):
+            logger.warning(f"Security: blocked pickle load from path outside state_dir: {state_file}")
             return None
         
         try:

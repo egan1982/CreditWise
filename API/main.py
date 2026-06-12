@@ -39,7 +39,6 @@ except ImportError as e:
 # Import after environment variables are loaded
 try:
     from fastapi import FastAPI
-    from fastapi.middleware.cors import CORSMiddleware
     from fastapi.staticfiles import StaticFiles
     from fastapi.responses import FileResponse
     import uvicorn
@@ -108,16 +107,10 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application"""
     app = FastAPI(title=API_TITLE, version=API_VERSION)
 
-    # Add CORS middleware with configurable origins for better security
-    cors_origins = os.getenv("CORS_ORIGINS", "*").split(",") if os.getenv("CORS_ORIGINS") else ["*"]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["*"],  # 确保所有响应头对前端可见
-    )
+    # Add Dynamic CORS middleware — sets Origin dynamically per request
+    # Avoids the spec-invalid allow_origins=["*"] + allow_credentials=True combination
+    from cors_middleware import DynamicCORSMiddleware
+    app.add_middleware(DynamicCORSMiddleware)
 
     # Basic Auth 认证中间件（内网多用户版）
     # 通过环境变量 ENABLE_AUTH=true 启用，默认关闭以兼容现有部署
@@ -142,16 +135,20 @@ def create_app() -> FastAPI:
     from fastapi.responses import JSONResponse
     from starlette.exceptions import HTTPException as StarletteHTTPException
     
+    def _cors_headers_from_request(request: Request) -> dict:
+        """从请求中提取 Origin 构建 CORS 响应头，避免硬编码 '*' 与 credentials 冲突"""
+        origin = request.headers.get("origin", "")
+        return {
+            "Access-Control-Allow-Origin": origin or "*",
+            "Access-Control-Allow-Credentials": "true" if origin else "false",
+        }
+    
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
-            }
+            headers=_cors_headers_from_request(request),
         )
     
     @app.exception_handler(Exception)
@@ -160,11 +157,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"},
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
-            }
+            headers=_cors_headers_from_request(request),
         )
 
     # Include essential routers

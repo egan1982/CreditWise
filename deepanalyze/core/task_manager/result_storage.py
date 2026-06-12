@@ -50,9 +50,21 @@ class TaskResultStorage:
         Args:
             base_dir: 基础目录路径
         """
-        self.base_dir = Path(base_dir)
+        self.base_dir = Path(base_dir).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"TaskResultStorage initialized at: {self.base_dir}")
+    
+    def _validate_pickle_path(self, file_path: Path) -> bool:
+        """校验pickle文件路径是否在允许的base_dir内，防止路径遍历攻击
+        
+        Args:
+            file_path: 待加载的pickle文件路径
+            
+        Returns:
+            True 表示路径安全，False 表示越界
+        """
+        real_path = file_path.resolve()
+        return real_path.is_relative_to(self.base_dir)
     
     def save_result(
         self,
@@ -141,8 +153,12 @@ class TaskResultStorage:
         # 加载Pickle结果
         pickle_path = result_dir / "outputs.pkl"
         if pickle_path.exists():
-            with open(pickle_path, "rb") as f:
-                result.update(pickle.load(f))
+            # 安全校验：确保文件路径在 base_dir 内
+            if not self._validate_pickle_path(pickle_path):
+                logger.warning(f"Security: blocked pickle load from path outside base_dir: {pickle_path}")
+            else:
+                with open(pickle_path, "rb") as f:
+                    result.update(pickle.load(f))
         
         return result if result else None
     

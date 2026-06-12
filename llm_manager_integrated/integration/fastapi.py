@@ -62,17 +62,23 @@ def create_llm_manager_app(
 def configure_cors(
     app: FastAPI,
     allowed_origins: Union[str, list] = ["*"],
-    allow_credentials: bool = True,
+    allow_credentials: bool = False,  # Fixed: must be False when origins=["*"] per CORS spec
     allow_methods: Union[str, list] = ["*"],
     allow_headers: Union[str, list] = ["*"]
 ):
     """
     为FastAPI应用配置CORS
+
+    WARNING: allow_origins=["*"] 与 allow_credentials=True 是违反 CORS 规范的组合，
+    浏览器会拒绝此类请求。如需使用 credentials，请传入具体的 origin 列表。
+
+    推荐使用 DynamicCORSMiddleware (API/cors_middleware.py) 替代此函数，
+    它动态设置 Origin 且兼容 credentials。
     
     Args:
         app: FastAPI应用
         allowed_origins: 允许的源
-        allow_credentials: 是否允许凭证
+        allow_credentials: 是否允许凭证（默认False，与["*"]兼容）
         allow_methods: 允许的方法
         allow_headers: 允许的头部
         
