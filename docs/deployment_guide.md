@@ -149,6 +149,56 @@ python API/main.py
 
 ---
 
+## 五、生产环境运维（启停服务）
+
+### 5.1 Docker 部署
+
+```bash
+# 通用命令
+./scripts/service.sh start          # 启动（开启认证）
+./scripts/service.sh start-noauth   # 启动（关闭认证）
+./scripts/service.sh stop           # 停止
+./scripts/service.sh restart        # 重启
+./scripts/service.sh status         # 查看状态 + 健康检查
+./scripts/service.sh logs           # 实时日志（Ctrl+C 退出）
+```
+
+### 5.2 非 Docker 部署（Windows）
+
+```powershell
+.\scripts\start_prod.ps1   # 启动生产服务（DEV_MODE=false, 0.0.0.0:8200）
+.\scripts\stop_prod.ps1    # 停止服务
+
+# 查看日志
+Get-Content logs\server.log -Tail 50
+```
+
+### 5.3 非 Docker 部署（Linux/macOS）
+
+```bash
+# 启动（后台运行，日志写入 logs/server.log）
+nohup python API/main.py > logs/server.log 2>&1 &
+echo $! > .app_pids.txt
+
+# 停止
+kill $(cat .app_pids.txt) 2>/dev/null
+rm -f .app_pids.txt
+
+# 查看日志
+tail -f logs/server.log
+```
+
+### 5.4 访问地址
+
+| 模式 | 地址 |
+|------|------|
+| 生产（DEV_MODE=false） | `http://<服务器IP>:8200` |
+| LLM Manager 管理 | `http://<服务器IP>:8200/llm-manager` |
+| 健康检查 | `http://<服务器IP>:8200/health` |
+| API 文档 | `http://<服务器IP>:8200/docs` |
+
+---
+
 ## 五、部署模式切换
 
 通过在 `.env` 中设置 `ENABLE_AUTH`：

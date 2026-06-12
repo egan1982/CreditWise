@@ -19,14 +19,15 @@ cd "$DOCKER_DIR"
 
 case "$1" in
     start)
-        echo "启动 CreditWise（认证模式）..."
-        ENABLE_AUTH=true docker-compose up -d
+        # 从 .env 读取 ENABLE_AUTH
+        AUTH_VAL=$(grep -oP '^ENABLE_AUTH=\K.*' "$PROJECT_ROOT/.env" 2>/dev/null || echo "false")
+        echo "启动 CreditWise（ENABLE_AUTH=${AUTH_VAL}）..."
+        if [ "$AUTH_VAL" = "true" ]; then
+            ENABLE_AUTH=true docker-compose up -d
+        else
+            docker-compose up -d
+        fi
         echo "服务已启动，访问: http://$(hostname -I | awk '{print $1}'):8200"
-        ;;
-    start-noauth)
-        echo "启动 CreditWise（无认证模式）..."
-        docker-compose up -d
-        echo "服务已启动（无认证），访问: http://$(hostname -I | awk '{print $1}'):8200"
         ;;
     stop)
         echo "停止服务..."
@@ -34,10 +35,21 @@ case "$1" in
         echo "服务已停止"
         ;;
     restart)
-        echo "重启服务..."
+        # 从 .env 读取 ENABLE_AUTH，不再硬编码
+        AUTH_VAL=$(grep -oP '^ENABLE_AUTH=\K.*' "$PROJECT_ROOT/.env" 2>/dev/null || echo "false")
+        echo "重启服务（ENABLE_AUTH=${AUTH_VAL}）..."
         docker-compose down
-        ENABLE_AUTH=true docker-compose up -d
+        if [ "$AUTH_VAL" = "true" ]; then
+            ENABLE_AUTH=true docker-compose up -d
+        else
+            docker-compose up -d
+        fi
         echo "服务已重启"
+        ;;
+    start-noauth)
+        echo "启动 CreditWise（无认证模式）..."
+        docker-compose up -d
+        echo "服务已启动（无认证），访问: http://$(hostname -I | awk '{print $1}'):8200"
         ;;
     status)
         docker-compose ps
