@@ -57,7 +57,7 @@ RUN apt-get update && apt-get install -y \
 # 离线模式: deploy_offline.sh 会将 wheels 填充到 .offline_wheels/ 目录
 ARG OFFLINE_MODE=false
 COPY requirements.txt .
-COPY .offline_wheels/ /tmp/offline_wheels/
+COPY docker/.offline_wheels/ /tmp/offline_wheels/
 RUN pip install --upgrade pip && \
     if [ "$OFFLINE_MODE" = "true" ] && ls /tmp/offline_wheels/*.whl >/dev/null 2>&1; then \
         echo "==> 离线模式: 使用本地 wheels"; \
