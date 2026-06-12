@@ -1,79 +1,91 @@
-# Release v1.0.0-beta.1
+# Release v1.0.0-beta.2
 
-> 📅 发布日期：2026-03-11  
-> 🏷️ 版本类型：Beta（功能基本完成，持续测试优化中）
+> 📅 更新日期：2026-06-12  
+> 🏷️ 版本类型：Beta 2（持续迭代中）
 
 ---
 
 ## 🎉 概述
 
-CreditWise v1.0.0-beta.1 是首个公开测试版本。这是一个基于 AI 的信贷风控智能助手，专注于规则挖掘、评分卡建模和策略分析。
+CreditWise v1.0.0-beta.2 在首个测试版基础上，完成了大量功能增强和体验优化：
 
 ---
 
-## ✨ 核心功能
+## ✨ v1.0.0-beta.1 以来的关键更新（2026-03 ~ 2026-06）
 
-### 🤖 Agentic LLM 数据分析
-- 自主数据科学分析，最小化人工干预
-- 多 LLM 提供商支持：OpenAI、DeepSeek、Claude、Google AI 等
-- 系统提示词可配置，支持预设任务模板
+### 🧠 LLM + Pipeline 架构深化
 
-### 📊 Task SOP 系统
-- 结构化数据分析工作流（规则挖掘、评分卡开发等）
-- Pipeline 可视化与伪代码预览
-- 规则质量验证（覆盖率、冲突、冗余检测）
-- 规则稳定性检测（PSI）
-- 规则业务解读
+- **LLM 角色明确为"智能入口"**：LLM 仅负责理解意图和提取任务参数，不参与 Pipeline 执行
+- **System Prompt 架构重构**：消除关键词嗅探模式判定，改用显式 mode 参数分流（chat / extraction）
+- **OPT-1 首次/重试双 Prompt 机制**：重试场景自动注入上一版本对比分析，提高参数优化质量
 
-### 🔧 集成 LLM Manager
-- Web UI 渠道配置与监控
-- API 代理与负载均衡
-- 模型列表缓存（TTL 机制）
-- 完整的请求/响应日志
+### 📊 规则挖掘增强
 
-### 🏗️ 前后端架构
-| 组件 | 端口 | 技术栈 |
-|------|------|--------|
-| 主前端 | 3000 | Next.js |
-| LLM Manager 前端 | 3001 | Vite |
-| 后端 API | 8200 | FastAPI |
+- **先验规则输入增强**：支持 CSV 文件上传和两种格式解析（结构化 / 表达式），上传后即时列名校验
+- **金额维度分析**：在规则选择阶段新增金额召回率、金额 Lift 等指标
+- **二值特征方向优化**：自动识别 One-Hot 编码特征，使用 `==` 方向替代 `<=`/`>`
+- **特征衍生阶段性重构**：datetime/text 衍生从预处理阶段移至特征工程阶段，符合行业标准流程
+- **类别不平衡处理**：新增 none / auto / class_weight 三种策略，自动检测并加权
+
+### 📈 评分卡开发增强
+
+- **StatisticalLogisticRegression**：扩展 sklearn LR，自动计算标准误、p值、置信区间、AIC/BIC
+- **模型评估参数扩展**：新增 CSI（Characteristic Stability Index）指标
+- **WOE AI 建议与参数展示分离**：两者独立渲染，避免状态污染
+
+### 🎛️ 专家模式与 AI 建议
+
+- **专家模式**：每个 Pipeline 阶段完成后自动暂停，支持用户审核输出、调整参数后重试
+- **AI 建议卡片**：阶段完成后自动调用 LLM 分析，生成参数优化建议（SUGGESTED_PARAMS），支持"仅填入"或"填入并重试"
+- **版本快照机制**：每次重试自动保存历史版本，支持版本对比和回溯
+
+### 🔄 任务管理增强
+
+- **暂停/恢复/停止**：完整任务控制能力，支持阶段级暂停和跨重启恢复
+- **阶段重试**：从任意中间阶段重新执行，缓存已完成的阶段结果
+- **批量删除**：支持多选/全选任务记录，级联清理关联文件
+- **任务历史持久化**：执行状态、阶段结果、AI 分析结果持久化到数据库
+
+### 🛡️ 安全与部署
+
+- **认证中间件**：Basic Auth 支持，角色权限（管理员/普通用户）
+- **敏感信息预检**：上传数据双层检测（列名+值扫描），高危阻断
+- **账户有效期控制**：管理员可设置用户账户过期时间
+- **Docker 内网多用户部署**：一键部署脚本，支持离线和在线两种模式
+- **macOS/Linux 跨平台支持**：开发模式 `python run.py`，部署脚本完善
+
+### 🔧 LLM Manager 增强
+
+- **模型配置预设**：通用对话 / 参数推断 / 结果解释三种场景预设
+- **联网搜索和深度思考**：DeepSeek Web Search、Claude Extended Thinking 支持
+- **渠道测试增强**：通过代理测试连接，验证 API 密钥有效性
 
 ---
 
-## 📋 API 端点
+## 📋 完整变更
 
-| 功能 | 端点 |
-|------|------|
-| 聊天完成 | `POST /v1/chat/completions` |
-| SOP 任务管理 | `POST /sop/execute` |
-| 模型列表 | `GET /llm-manager/api/models` |
-| 渠道管理 | `GET/POST /llm-manager/api/manage/channels` |
-| API 文档 | `GET /docs` |
+详见 [CHANGELOG.md](./CHANGELOG.md) 和 [docs/document_audit_report_2026-06-12.md](./docs/document_audit_report_2026-06-12.md)
 
 ---
 
 ## 🚀 快速启动
 
-```powershell
-# 1. 初始化环境
-.\init_env.ps1
+```bash
+# macOS / Linux
+python run.py
 
-# 2. 启动完整服务
-.\start_all_api.ps1
+# Docker
+cd docker && docker-compose up -d
 ```
 
 ---
 
 ## ⚠️ Beta 说明
 
-此版本为测试版，以下内容仍在完善中：
-- 跨平台安装脚本（Mac/Linux）
-- 自动化测试覆盖
+以下内容仍在完善中：
+- 自动化测试覆盖扩充
 - CI/CD 流水线
-- 生产环境打包脚本
-- 安全性增强（访问控制、频率限制）
-
-欢迎测试反馈！
+- 更多 SOP 任务类型（策略诊断、贷后监控、客群分层等）
 
 ---
 
@@ -81,7 +93,6 @@ CreditWise v1.0.0-beta.1 是首个公开测试版本。这是一个基于 AI 的
 
 | 组件 | 版本 |
 |------|------|
-| deepanalyze | 1.0.0-beta.1 |
-| llm_manager_integrated | 1.0.0-beta.1 |
-| API | 1.0.0-beta.1 |
-| pyproject.toml | 1.0.0-beta.1
+| deepanalyze | 1.0.0-beta.2 |
+| llm_manager_integrated | 1.0.0-beta.2 |
+| API | 1.0.0-beta.2 |
