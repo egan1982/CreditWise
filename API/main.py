@@ -798,6 +798,18 @@ def create_app() -> FastAPI:
             # Mount the LLM_Manager app at /llm-manager
             # In dev mode: API only (frontend served by Vite at port 3001)
             # In prod mode: Both API and frontend
+            
+            # Serve static assets directly (StaticFiles mount fails inside sub-apps)
+            @app.get("/llm-manager/static/{file_path:path}", include_in_schema=False)
+            async def serve_llm_static(file_path: str):
+                from fastapi.responses import FileResponse
+                from fastapi import HTTPException as FastHTTPException
+                static_root = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
+                file = (static_root / file_path).resolve()
+                if not str(file).startswith(str(static_root.resolve())) or not file.is_file():
+                    raise FastHTTPException(status_code=404, detail="Not found")
+                return FileResponse(str(file))
+            
             app.mount("/llm-manager", llm_manager_app)
             
             if dev_mode:
