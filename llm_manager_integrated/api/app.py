@@ -220,16 +220,18 @@ def create_app(
             # 直接 mount 到 /static（不使用前缀，因为会在路由级别处理）
             static_dir_abs = os.path.abspath(static_dir)
             logger.info(f"[DEBUG] Setting up static files from: {static_dir_abs}")
-            app.mount("/static", StaticFiles(directory=static_dir_abs), name="static")
-            
-            # Workaround: Starlette StaticFiles mount 在子应用中不生效
-            # 因此直接将 tailwind.css 通过路由提供
-            @app.get("/static/tailwind.css", include_in_schema=False)
-            async def serve_tailwind_css():
-                css_path = static_dir / "tailwind.css"
-                if css_path.exists():
-                    return FileResponse(str(css_path), media_type="text/css")
-                raise HTTPException(status_code=404, detail="CSS not found")
+            # StaticFiles mount 在 FastAPI 子应用中不生效（已知 Starlette 缺陷）
+            # 改为通过显式路由提供静态文件
+            @app.get("/static/{file_path:path}", include_in_schema=False)
+            async def serve_static(file_path: str):
+                """提供静态文件（tailwind.css 等）"""
+                file = static_dir / file_path
+                if not file.exists() or not file.is_file():
+                    raise HTTPException(status_code=404, detail="File not found")
+                # 根据扩展名设置 MIME 类型
+                ext = file.suffix.lower()
+                media_map = {".css": "text/css", ".js": "application/javascript", ".woff2": "font/woff2"}
+                return FileResponse(str(file), media_type=media_map.get(ext, "application/octet-stream"))
             
             # 根路径 - 返回前端 HTML（优先级高于 SPA catch-all 路由）
             @app.get("/", tags=["前端"], include_in_schema=False)
