@@ -784,6 +784,7 @@ def create_app() -> FastAPI:
             # 前端页面
             @app.get("/llm-manager/", include_in_schema=False)
             async def llm_manager_html():
+                from fastapi.responses import HTMLResponse
                 idx = _llm_static / "index.html"
                 if not idx.exists():
                     raise HTTPException(status_code=404)
