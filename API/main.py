@@ -788,7 +788,6 @@ def create_app() -> FastAPI:
             llm_manager_app = llm_manager.create_app(
                 config={
                     "app_title": "LLM API Manager for DeepAnalyze",
-                    "cors_origins": cors_origins,
                 },
                 as_subapp=True,
                 enable_frontend=not dev_mode,  # Disable frontend in development mode
