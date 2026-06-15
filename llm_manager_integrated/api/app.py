@@ -222,6 +222,15 @@ def create_app(
             logger.info(f"[DEBUG] Setting up static files from: {static_dir_abs}")
             app.mount("/static", StaticFiles(directory=static_dir_abs), name="static")
             
+            # Workaround: Starlette StaticFiles mount 在子应用中不生效
+            # 因此直接将 tailwind.css 通过路由提供
+            @app.get("/static/tailwind.css", include_in_schema=False)
+            async def serve_tailwind_css():
+                css_path = static_dir / "tailwind.css"
+                if css_path.exists():
+                    return FileResponse(str(css_path), media_type="text/css")
+                raise HTTPException(status_code=404, detail="CSS not found")
+            
             # 根路径 - 返回前端 HTML（优先级高于 SPA catch-all 路由）
             @app.get("/", tags=["前端"], include_in_schema=False)
             async def serve_root():
