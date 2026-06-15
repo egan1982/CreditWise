@@ -772,41 +772,54 @@ def create_app() -> FastAPI:
                 from fastapi.responses import RedirectResponse
                 return RedirectResponse(url="http://localhost:3001", status_code=302)
 
-    # Integrate LLM_Manager - Backend Only in Development, Backend + Frontend in Production
+    # Integrate LLM_Manager — 直接从主 app 注册所有前端和 API 路由
+    # 不采用 sub-app mount，因为 Starlette mount 会拦截 /llm-manager/ 根路径
     if llm_manager.available and llm_manager.create_app is not None:
         try:
-            # Check if we're in development mode (Vite server is running)
             dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
             
-            # In development mode, only mount the backend API to avoid conflicts with Vite server
-            # In production mode, mount both backend and frontend
-            llm_manager_app = llm_manager.create_app(
-                config={
-                    "app_title": "LLM API Manager for DeepAnalyze",
-                    "cors_origins": cors_origins,
-                },
-                as_subapp=True,
-                enable_frontend=not dev_mode,  # Disable frontend in development mode
-                prefix="/llm-manager"
-            )
+            # LLM Manager frontend and static files
+            _llm_static = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
             
-            # Mount the LLM_Manager app at /llm-manager
-            # In dev mode: API only (frontend served by Vite at port 3001)
-            # In prod mode: Both API and frontend
-            
-            # LLM Manager 静态文件（tailwind.css 等）
-            # 子应用的 StaticFiles mount 不工作，由主 app 直接提供
-            _llm_static_root = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
-            @app.get("/llm-manager-static/{file_path:path}", include_in_schema=False)
-            async def serve_llm_manager_static(file_path: str):
-                file = _llm_static_root / file_path
-                if not file.is_file():
+            # 前端页面
+            @app.get("/llm-manager/", include_in_schema=False)
+            async def llm_manager_html():
+                idx = _llm_static / "index.html"
+                if not idx.exists():
                     raise HTTPException(status_code=404)
-                ext = file.suffix.lower()
-                mime = {".css": "text/css", ".js": "application/javascript"}
-                return FileResponse(str(file), media_type=mime.get(ext, "application/octet-stream"))
+                return HTMLResponse(content=idx.read_text(encoding="utf-8"))
             
-            app.mount("/llm-manager", llm_manager_app)
+            # 静态文件（tailwind.css 等）
+            @app.get("/llm-manager/static/{f:path}", include_in_schema=False)
+            async def llm_manager_static(f: str):
+                file = (_llm_static / f).resolve()
+                if not str(file).startswith(str(_llm_static.resolve())) or not file.is_file():
+                    raise HTTPException(status_code=404)
+                return FileResponse(str(file))
+            
+            # API 路由 — 直接从 sub-app 提取 routers 注入主 app
+            from llm_manager_integrated.api.routes import channels, logs, proxy as proxy_module, models as models_module, monitoring
+            app.include_router(channels.router, prefix="/llm-manager/api/manage", tags=["LLM渠道管理"])
+            app.include_router(logs.router, prefix="/llm-manager/api", tags=["LLM日志管理"])
+            app.include_router(proxy_module.router, prefix="/llm-manager/api/proxy", tags=["LLM API代理"])
+            app.include_router(models_module.router, prefix="/llm-manager/api", tags=["LLM模型管理"])
+            app.include_router(monitoring.router, prefix="/llm-manager/api/monitoring", tags=["LLM系统监控"])
+            
+            # LLM Manager health
+            llm_static_root = _llm_static
+            @app.get("/llm-manager/health", include_in_schema=False)
+            async def llm_manager_health():
+                return {"status": "healthy"}
+
+            # LLM Manager config endpoint
+            @app.get("/llm-manager/api/config", include_in_schema=False)
+            async def llm_manager_config():
+                from llm_manager_integrated.api.app import success_response
+                return success_response(data={
+                    "app_title": "LLM API Manager for DeepAnalyze",
+                    "version": "2.0.0",
+                    "api_base_url": "/llm-manager/api",
+                })
             
             if dev_mode:
                 print("[OK] LLM_Manager backend integrated (Development Mode)")
