@@ -255,17 +255,7 @@ def create_app(
                         content=error_response(code=404, message="API 端点不存在")
                     )
                 
-                # 静态文件：直接返回（StaticFiles mount 在子应用中不生效）
-                if full_path.startswith("static/"):
-                    file = static_dir / full_path[len("static/"):]
-                    if file.is_file():
-                        ext = file.suffix.lower()
-                        mime = {".css":"text/css",".js":"application/javascript",".woff2":"font/woff2"}
-                        return FileResponse(str(file), media_type=mime.get(ext,"application/octet-stream"))
-                    return JSONResponse(
-                        status_code=404,
-                        content=error_response(code=404, message="静态文件不存在")
-                    )
+                # 静态文件由主 app 的 /llm-manager-static/ 路由提供
                 
                 # 返回 index.html（前端 SPA 路由处理）
                 index_file = static_dir / "index.html"

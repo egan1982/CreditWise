@@ -798,6 +798,19 @@ def create_app() -> FastAPI:
             # Mount the LLM_Manager app at /llm-manager
             # In dev mode: API only (frontend served by Vite at port 3001)
             # In prod mode: Both API and frontend
+            
+            # LLM Manager 静态文件（tailwind.css 等）
+            # 子应用的 StaticFiles mount 不工作，由主 app 直接提供
+            _llm_static_root = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
+            @app.get("/llm-manager-static/{file_path:path}", include_in_schema=False)
+            async def serve_llm_manager_static(file_path: str):
+                file = _llm_static_root / file_path
+                if not file.is_file():
+                    raise HTTPException(status_code=404)
+                ext = file.suffix.lower()
+                mime = {".css": "text/css", ".js": "application/javascript"}
+                return FileResponse(str(file), media_type=mime.get(ext, "application/octet-stream"))
+            
             app.mount("/llm-manager", llm_manager_app)
             
             if dev_mode:
