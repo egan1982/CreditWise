@@ -798,11 +798,12 @@ def create_app() -> FastAPI:
                 return FileResponse(str(file))
             
             # API 路由 — 直接从 sub-app 提取 routers 注入主 app
-            from llm_manager_integrated.api.routes import channels, logs, proxy as proxy_module, models as models_module, monitoring
+            from llm_manager_integrated.api.routes import channels, logs, proxy as proxy_module, monitoring
+            from llm_manager_integrated.api.routes.proxy import models_router
             app.include_router(channels.router, prefix="/llm-manager/api/manage", tags=["LLM渠道管理"])
             app.include_router(logs.router, prefix="/llm-manager/api", tags=["LLM日志管理"])
             app.include_router(proxy_module.router, prefix="/llm-manager/api/proxy", tags=["LLM API代理"])
-            app.include_router(models_module.router, prefix="/llm-manager/api", tags=["LLM模型管理"])
+            app.include_router(models_router, prefix="/llm-manager/api", tags=["LLM模型管理"])
             app.include_router(monitoring.router, prefix="/llm-manager/api/monitoring", tags=["LLM系统监控"])
             
             # LLM Manager health
