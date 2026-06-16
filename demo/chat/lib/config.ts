@@ -157,20 +157,11 @@ async function promptLogin(): Promise<string | null> {
 export const authFetch = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
   let auth = getStoredAuth();
 
-  // 如果没有保存的凭证，弹出登录对话框
-  if (!auth) {
-    auth = await promptLogin();
-    if (!auth) {
-      return new Response(JSON.stringify({ detail: 'Login cancelled' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  }
-
-  // 注入 Authorization header
+  // 注入 Authorization header（如有缓存凭证）
   const headers = new Headers(init?.headers);
-  headers.set('Authorization', `Basic ${auth}`);
+  if (auth) {
+    headers.set('Authorization', `Basic ${auth}`);
+  }
 
   const response = await fetch(url, { ...init, headers });
 
