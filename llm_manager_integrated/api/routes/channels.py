@@ -2,6 +2,9 @@
 渠道管理路由
 """
 import logging
+
+logger = logging.getLogger(__name__)
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -735,6 +738,7 @@ def read_channel(channel_id: int, db: Session = Depends(get_db)):
 @router.put("/channels/{channel_id}")
 def update_channel(channel_id: int, channel_update: schemas.ChannelUpdate, db: Session = Depends(get_db)):
     """更新渠道"""
+    logger = logging.getLogger(__name__)
     # 检查是否更新了 models 字段（用于后续同步 model_config.model_name）
     update_data = channel_update.dict(exclude_unset=True)
     models_updated = 'models' in update_data and update_data['models'] is not None
