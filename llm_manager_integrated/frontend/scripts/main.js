@@ -517,7 +517,8 @@ async function testChannel(channelId) {
                 console.log('使用字符串格式错误响应:', { errorCode, errorMessage });
             } else {
                 // 其他格式的错误响应 - 尝试从各个字段中提取信息
-                errorMessage = result.message || result.detail || '配置连接失败，请检查配置信息是否正确';
+                let rawMsg = result.message || result.detail || result.data?.detail || result.data?.message;
+                errorMessage = (typeof rawMsg === 'object') ? JSON.stringify(rawMsg) : (rawMsg || '配置连接失败，请检查配置信息是否正确');
                 
                 // 尝试从result.data中获取错误代码
                 if (result.data) {
@@ -734,7 +735,8 @@ async function submitEditChannelForm(event) {
             closeEditChannelModal();
             loadChannels();
         } else {
-            showAlertEdit('error', '更新失败: ' + result.message);
+            const msg = result.message || result.detail || result.data?.detail || '未知错误';
+            showAlertEdit('error', '更新失败: ' + msg);
         }
     } catch (error) {
         showAlertEdit('error', '更新异常: ' + error.message);
