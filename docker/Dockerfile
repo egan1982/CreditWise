@@ -29,7 +29,7 @@ RUN chmod +x node_modules/.bin/vite node_modules/.bin/tailwindcss 2>/dev/null ||
         -i ./styles/main.css \
         -o /static/assets/main.css \
         --minify \
-        --content /static/assets/index.html \
+        --content ./index.html \
         --content "./scripts/**/*.js" \
         --content "./shared/**/*.js" && \
     sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' /static/assets/index.html && \

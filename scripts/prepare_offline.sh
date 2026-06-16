@@ -114,7 +114,7 @@ if [ -f "$LLM_FRONTEND_DIR/package.json" ]; then
     npm run build
     echo "  Tailwind CSS 编译..."
     npx tailwindcss -i ./styles/main.css -o "$LLM_STATIC_DIR/assets/main.css" --minify \
-        --content "$LLM_STATIC_DIR/assets/index.html" \
+        --content "./index.html" \
         --content "./scripts/**/*.js" \
         --content "./shared/**/*.js" \
         2>&1 | tail -1

@@ -134,7 +134,7 @@ if [ "$HAS_NODE" = true ]; then
         npm install
         npm run build 2>/dev/null || echo -e "${YELLOW}  ⚠️ Vite 构建失败${NC}"
         npx tailwindcss -i ./styles/main.css -o "$PROJECT_ROOT/llm_manager_integrated/static/assets/main.css" --minify \
-            --content "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html" \
+            --content "./index.html" \
             --content "./scripts/**/*.js" \
             --content "./shared/**/*.js" 2>/dev/null
         sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
