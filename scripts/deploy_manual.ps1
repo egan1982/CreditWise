@@ -144,17 +144,30 @@ Write-Host ""
 # [3] 前端构建
 Write-Host "[3] 构建前端"
 if ($hasNode) {
+    # 主前端 (Next.js)
     if (Test-Path "demo\chat\package.json") {
-        Write-Host "  npm install ..."
+        Write-Host "  构建主前端 (Next.js)..."
         Push-Location "demo\chat"
         & $npmCmd install
-        Write-Host "  npm run build ..."
         & $npmCmd run build
         Pop-Location
         if (Test-Path "demo\chat\dist\index.html") {
-            Write-Host "  前端构建成功" -ForegroundColor Green
+            Write-Host "  主前端构建成功" -ForegroundColor Green
         } else {
-            Write-Host "  WARNING: 构建产物未找到" -ForegroundColor Yellow
+            Write-Host "  WARNING: 主前端构建产物未找到" -ForegroundColor Yellow
+        }
+    }
+    # LLM Manager 前端 (Vite)
+    if (Test-Path "llm_manager_integrated\frontend\package.json") {
+        Write-Host "  构建 LLM Manager 前端 (Vite)..."
+        Push-Location "llm_manager_integrated\frontend"
+        & $npmCmd install
+        & $npmCmd run build
+        Pop-Location
+        if (Test-Path "llm_manager_integrated\static\assets\index.html") {
+            Write-Host "  LLM Manager 前端构建成功" -ForegroundColor Green
+        } else {
+            Write-Host "  WARNING: LLM Manager 前端构建产物未找到" -ForegroundColor Yellow
         }
     }
 } else {
