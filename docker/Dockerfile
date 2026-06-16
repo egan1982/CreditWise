@@ -20,9 +20,21 @@ WORKDIR /build-llm
 COPY llm_manager_integrated/frontend/package.json llm_manager_integrated/frontend/package-lock.json* /build-llm/
 RUN npm install --production=false
 COPY llm_manager_integrated/frontend/ /build-llm/
-RUN npm run build && \
-    cp -r scripts ../static/ 2>/dev/null || : && \
-    cp -r shared ../static/ 2>/dev/null || :
+# 注意：/build-llm/../static = /static (Vite outDir 的实际落点)
+# 用 node 直接执行 vite，绕过 node_modules/.bin/vite 权限 0644 问题
+RUN node node_modules/vite/bin/vite.js build --mode production && \
+    node node_modules/.bin/tailwindcss \
+        -i ./styles/main.css \
+        -o /static/assets/main.css \
+        --minify \
+        --content /static/index.html \
+        --content "./scripts/**/*.js" \
+        --content "./shared/**/*.js" && \
+    sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' /static/index.html && \
+    sed -i 's| https://cdn.tailwindcss.com||g' /static/index.html && \
+    sed -i '/@apply/d' /static/index.html && \
+    cp -r scripts /static/ && \
+    cp -r shared /static/
 
 # Stage 2: 运行时
 FROM python:3.12-slim

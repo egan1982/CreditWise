@@ -149,11 +149,15 @@ done
 # [4] 构建并启动
 # =============================================================================
 
-# 恢复 LLM Manager 编译产物
-LLM_STATIC="$PROJECT_ROOT/llm_manager_integrated/static/assets"
+# 恢复 LLM Manager 编译产物（assets/ + 已替换CDN的index.html）
+LLM_STATIC="$PROJECT_ROOT/llm_manager_integrated/static"
 if [ -d "$BUNDLE_DIR/llm-manager-static/assets" ]; then
     echo -e "${GREEN}  恢复 LLM Manager 编译前端...${NC}"
-    cp -r "$BUNDLE_DIR/llm-manager-static/assets"/* "$LLM_STATIC/" 2>/dev/null || true
+    mkdir -p "$LLM_STATIC/assets"
+    cp -r "$BUNDLE_DIR/llm-manager-static/assets"/* "$LLM_STATIC/assets/" 2>/dev/null || true
+    # 恢复已替换CDN的index.html
+    [ -f "$BUNDLE_DIR/llm-manager-static/index.html" ] && \
+        cp "$BUNDLE_DIR/llm-manager-static/index.html" "$LLM_STATIC/index.html"
 fi
 
 echo -e "${GREEN}[4] 构建 Docker 镜像${NC}"
