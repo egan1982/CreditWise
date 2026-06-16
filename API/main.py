@@ -786,11 +786,12 @@ def create_app() -> FastAPI:
                 print(f"   - Frontend: Running on Vite server at http://localhost:3001")
             else:
                 # Prod: register API routers directly on main app
-                from llm_manager_integrated.api.routes import channels, logs, proxy as proxy_module, monitoring
-                from llm_manager_integrated.api.routes.proxy import models_router
+                from llm_manager_integrated.api.routes import channels, logs, monitoring
+                from llm_manager_integrated.api.routes.proxy.proxy import router as proxy_router
+                from llm_manager_integrated.api.routes.proxy.models_proxy import router as models_router
                 app.include_router(channels.router, prefix="/llm-manager/api/manage")
                 app.include_router(logs.router, prefix="/llm-manager/api")
-                app.include_router(proxy_module.router, prefix="/llm-manager/api/proxy")
+                app.include_router(proxy_router, prefix="/llm-manager/api/proxy")
                 app.include_router(models_router, prefix="/llm-manager/api")
                 app.include_router(monitoring.router, prefix="/llm-manager/api/monitoring")
                 
@@ -826,6 +827,7 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.error(f"Failed to integrate LLM_Manager: {e}")
             print(f"[WARN] Failed to integrate LLM_Manager: {e}")
+            import traceback
             traceback.print_exc()
     
     # Note: API/static backup removed as we now rely on Vite-built frontend for LLM Manager
