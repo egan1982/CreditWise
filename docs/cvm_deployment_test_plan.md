@@ -290,18 +290,39 @@ git pull origin main
 | 主界面 | 浏览器 `http://localhost:8200` | 可访问 |
 | LLM Manager UI | 浏览器 `http://localhost:8200/llm-manager` | 可访问，样式正常 |
 
-**实测结果**：
+**实测结果**（共 12 轮迭代，最终通过）：
 
-| 测试时间 | 结果 | 发现的问题 |
-|----------|:--:|------|
-| 2026-06-16 第1轮 | ❌ ParserError | Python 三元表达式 `exit(0 if ...)` 在 PS 双引号字符串中误解析 |
-| 2026-06-16 第2轮 | ❌ ParserError | `$key`（Fernet 密钥含 `=`）在 `-replace` 双引号参数中被截断 |
-| 2026-06-16 第3轮 | ⏳ 待执行 | 修复：逐行读写 `.env`，零正则，零字符串插值 |
+| 轮次 | 结果 | 发现问题 |
+|:--:|:--:|------|
+| 1 | ❌ | Python `exit(0 if ...)` 三元式被 PS 误解析 |
+| 2 | ❌ | Fernet 密钥 `=` 在 `-replace` 中被截断 |
+| 3 | ❌ | `-match` 正则中单引号在 git clone 后编码损坏 |
+| 4 | ❌ | 中文乱码（`write_to_file` 无 UTF-8 BOM） |
+| 5 | ❌ | PS 5.1 不兼容 `?.` `??` 运算符 |
+| 6 | ❌ | Microsoft Store Python 假入口 → 脚本终止 |
+| 7 | ❌ | `venv` 不可用（精简版 Python）→ 无回退 |
+| 8 | ❌ | `f-string` 双引号转义链损坏 |
+| 9 | ❌ | 端口占用直接退出，无清理选项 |
+| 10 | ❌ | 前端 `authFetch` 无条件弹登录框（Bug） |
+| 11 | ❌ | LLM Manager 前端未构建 → `/llm-manager` 404 |
+| 12 | ✅ | 全部通过：单机部署 + SOP 任务执行成功 |
 
-**修复记录**：
+**验证通过项**：主界面 ✅ | LLM Manager ✅ | 渠道激活 ✅ | SOP 任务执行 ✅ | 端口/磁盘自检 ✅
+
+**修复记录**（共 10 个 commit）：
 
 | 问题 | 根因 | 修复 Commit |
 |------|------|--------|
-| Python 版本检测 ParserError | `exit(0 if ... else 1)` 在 PS 双引号内被当 PS 语法 | `0cf8992`: 改为 `print(major*100+minor)` 数字比较 |
-| 硬编码 `portable-dev-env` 路径 | 脚本依赖本机特定路径，不通用 | `0cf8992` → `b67a479`: 改为纯 PATH 检测 + 安装提示 |
-| 加密密钥 `-replace` ParserError | Fernet 密钥含 `=` 号，`"KEY=$key"` 展开后被截断 | `b67a479`: 改为逐行读写 `.env`，完全避免正则和字符串插值 |
+| Python 检测 ParserError | `exit(0 if ...)` PS 误解析 | `0cf8992`: 数字比较 |
+| 硬编码路径 | `portable-dev-env` 不通用 | `b67a479`: 纯 PATH 检测 |
+| 加密密钥 `-replace` | `=` 号截断 | `b67a479`: 逐行读写 |
+| `-match` 正则解析失败 | 单引号编码损坏 | `39e34b3`: `StartsWith()` |
+| PS 5.1 兼容 | `?.` `??` 语法 | `b67a479`: `if/else` |
+| MS Store 假入口 | `Python.exe` 占位符 | `b67a479`: 跳过 WindowsApps |
+| `venv` 不可用 | 精简版 Python | `e3c39ab`: `virtualenv` 回退 |
+| f-string 引号损坏 | PS 转义链出错 | `e3c39ab`: `str()` 拼接 |
+| 端口占用 | 无清理 | `e3c39ab`: 交互式 kill |
+| `$env:ENABLE_AUTH` 未设置 | 终端残留覆盖 `.env` | `ba7581c`: 显式设置 |
+| `authFetch` 无条件弹窗 | 无凭证即弹登录 | `cf606f8`: 仅 401 触发 |
+| LLM Manager 未构建 | 部署脚本漏写 | `918d8f2`: 补充 Vite 构建 |
+| LF 换行 PS 5.1 不兼容 | `write_to_file` 写 LF | 文档：要求 `pwsh 7+` |
