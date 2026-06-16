@@ -21,11 +21,6 @@ COPY llm_manager_integrated/frontend/package.json llm_manager_integrated/fronten
 RUN npm install --production=false
 COPY llm_manager_integrated/frontend/ /build-llm/
 RUN npm run build && \
-    ./node_modules/.bin/tailwindcss -i ./styles/main.css -o ../static/assets/main.css --minify \
-        --content "../static/index.html" --content "./scripts/**/*.js" && \
-    sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' ../static/index.html && \
-    sed -i 's|https://cdn.tailwindcss.com;||g' ../static/index.html && \
-    sed -i '/@apply/d' ../static/index.html && \
     cp -r scripts ../static/ 2>/dev/null || : && \
     cp -r shared ../static/ 2>/dev/null || :
 
