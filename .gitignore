@@ -64,3 +64,14 @@ task_results/
 # 离线部署包（prepare_offline.sh 生成，不入 Git）
 offline_bundle/
 creditwise_offline_bundle.tar.gz
+
+# LLM Manager 前端构建产物（Vite 输出到 static/，源文件在 frontend/）
+llm_manager_integrated/static/assets/
+llm_manager_integrated/static/dist/
+llm_manager_integrated/static/node_modules/
+llm_manager_integrated/static/package.json
+llm_manager_integrated/static/package-lock.json
+llm_manager_integrated/static/vite.config.js
+llm_manager_integrated/static/tailwind.config.js
+llm_manager_integrated/static/postcss.config.js
+llm_manager_integrated/static/.env

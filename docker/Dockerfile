@@ -25,9 +25,6 @@ RUN npm run build && \
         --content "../static/index.html" --content "./scripts/**/*.js" && \
     sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' ../static/index.html && \
     sed -i 's|https://cdn.tailwindcss.com;||g' ../static/index.html && \
-    sed -i 's|src="/static/scripts/main.js">|src="/llm-manager/scripts/main.js">|g' ../static/index.html && \
-    sed -i 's|href="/static/shared/|href="/llm-manager/shared/|g' ../static/index.html && \
-    sed -i 's|src="/static/shared/|src="/llm-manager/shared/|g' ../static/index.html && \
     sed -i '/@apply/d' ../static/index.html && \
     cp -r scripts ../static/ 2>/dev/null || : && \
     cp -r shared ../static/ 2>/dev/null || :
@@ -92,7 +89,7 @@ COPY deepanalyze.py .
 
 # 复制前端构建产物（Next.js + LLM Manager）
 COPY --from=frontend-builder /build/dist ./demo/chat/dist
-COPY --from=frontend-builder /build-llm/static/ ./llm_manager_integrated/static/
+COPY --from=frontend-builder /static/ ./llm_manager_integrated/static/
 
 # 创建必要的目录
 RUN mkdir -p workspace execution_states task_results logs config

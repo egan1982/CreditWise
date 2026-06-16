@@ -3,14 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data:; connect-src 'self' http://localhost:8200 ws:; font-src 'self' data:;">
-    <title>LLM Manager - API管理界面</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com; img-src 'self' data:; connect-src 'self' http://localhost:8200 ws:; font-src 'self' data:;">
+    <link rel="icon" href="./favicon.ico" type="image/x-icon" />
+    <title>CreditWise - LLM Manager</title>
     <!-- 解决__DEFINES__未定义错误 -->
     <script>
         window.__DEFINES__ = {};
         window.DEFINE = {};
     </script>
-    <link rel="stylesheet" href="/llm-manager/static/tailwind.css">
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio,line-clamp"></script>
     <style>
         /* 自定义样式 */
         .btn {
@@ -199,7 +200,7 @@
     <div class="container mx-auto px-4 max-w-7xl">
         <header class="py-6">
             <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-bold text-gray-900">LLM Manager</h1>
+                <h1 class="text-3xl font-bold text-gray-900">CreditWise - LLM Manager</h1>
                 <div class="header-actions">
                 </div>
             </div>
@@ -417,13 +418,13 @@
     </div>
 
     <!-- 模型配置样式 -->
-    <link rel="stylesheet" href="/static/shared/css/model-config.css">
+    <link rel="stylesheet" href="./shared/css/model-config.css">
     
     <!-- 主脚本 -->
-    <script src="/static/scripts/main.js"></script>
+    <script src="./scripts/main.js"></script>
     
     <!-- 模型配置相关脚本 -->
-    <script src="/static/shared/js/model_task_presets.js"></script>
-    <script src="/static/shared/js/model-config.js"></script>
+    <script src="./shared/js/model_task_presets.js"></script>
+    <script src="./shared/js/model-config.js"></script>
 </body>
 </html>
