@@ -136,7 +136,7 @@ $envLines = [System.IO.File]::ReadAllLines((Resolve-Path ".env").Path, [System.T
 # 生成加密密钥（如果尚未设置）
 $needKey = $true
 foreach ($line in $envLines) {
-    if ($line -match '^LLM_MANAGER_ENCRYPTION_KEY=.+') { $needKey = $false; break }
+    if ($line.Trim().StartsWith('LLM_MANAGER_ENCRYPTION_KEY=') -and $line.Trim().Length -gt 'LLM_MANAGER_ENCRYPTION_KEY='.Length) { $needKey = $false; break }
 }
 $newKey = $null
 if ($needKey) {
@@ -150,10 +150,11 @@ $newLines = [System.Collections.Generic.List[string]]::new()
 $authSet = $false
 $keySet = $false
 foreach ($line in $envLines) {
-    if ($line -match '^ENABLE_AUTH=') {
+    $trimLine = $line.Trim()
+    if ($trimLine.StartsWith('ENABLE_AUTH=')) {
         $newLines.Add("ENABLE_AUTH=$ENABLE_AUTH")
         $authSet = $true
-    } elseif ($line -match '^LLM_MANAGER_ENCRYPTION_KEY=' -and $newKey) {
+    } elseif ($trimLine.StartsWith('LLM_MANAGER_ENCRYPTION_KEY=') -and $newKey) {
         $newLines.Add("LLM_MANAGER_ENCRYPTION_KEY=$newKey")
         $keySet = $true
     } else {
