@@ -599,7 +599,6 @@ def create_channel(channel: schemas.ChannelCreate, db: Session = Depends(get_db)
                 })
                 load_balancer.add_channel(lb_channel)
         except Exception as lb_error:
-            import logging
             logger = logging.getLogger(__name__)
             logger.warning(f"渠道已创建但添加到负载均衡器失败: {lb_error}")
         
@@ -786,18 +785,15 @@ def update_channel(channel_id: int, channel_update: schemas.ChannelUpdate, db: S
                 load_balancer.remove_channel(channel_id_str)
             load_balancer.add_channel(lb_channel)
             
-            import logging
             logger = logging.getLogger(__name__)
             logger.info(f"渠道 {db_channel.name} 已添加到负载均衡器")
         else:
             if channel_id_str in load_balancer.channels:
                 load_balancer.remove_channel(channel_id_str)
                 
-            import logging
             logger = logging.getLogger(__name__)
             logger.info(f"渠道 {db_channel.name} 已从负载均衡器中移除")
     except Exception as lb_error:
-        import logging
         logger = logging.getLogger(__name__)
         logger.warning(f"渠道已更新但负载均衡器同步失败: {lb_error}")
     
@@ -828,7 +824,6 @@ def delete_channel(channel_id: int, db: Session = Depends(get_db)):
 @router.post("/test-model-response")
 async def test_model_response(test_data: dict, db: Session = Depends(get_db)):
     """测试模型响应"""
-    import logging
     logger = logging.getLogger(__name__)
     logger.info(f"收到模型测试请求: {test_data}")
     
@@ -1019,7 +1014,6 @@ async def test_model_response(test_data: dict, db: Session = Depends(get_db)):
 @router.post("/channels/{channel_id}/test")
 async def test_channel(channel_id: int, db: Session = Depends(get_db)):
     """测试渠道连接"""
-    import logging
     logger = logging.getLogger(__name__)
     logger.info(f"开始测试渠道连接，渠道ID: {channel_id}")
     
@@ -1458,7 +1452,6 @@ async def test_channel_via_proxy(channel_id: int, db: Session = Depends(get_db))
     """
     通过LLM Manager代理测试渠道连接
     """
-    import logging
     logger = logging.getLogger(__name__)
     
     logger.info(f"开始通过代理测试渠道连接，渠道ID: {channel_id}")
