@@ -5,17 +5,30 @@
 #   - 内网多用户（ENABLE_AUTH=true）
 # ============================================
 
-# Stage 1: 构建前端
+# Stage 1: 构建前端 (Next.js + LLM Manager)
 FROM node:18-slim AS frontend-builder
 
+# --- Next.js 主前端 ---
 WORKDIR /build
-
-# 复制前端代码
 COPY demo/chat/package.json demo/chat/package-lock.json* ./
 RUN npm install --production=false
-
 COPY demo/chat/ ./
 RUN npm run build
+
+# --- LLM Manager 前端 (Vite + Tailwind CSS) ---
+# OFFLINE_MODE=true 时使用 pre-compiled 产物，跳过 npm
+ARG OFFLINE_MODE=false
+RUN mkdir -p /build-llm/frontend /build-llm/static
+COPY llm_manager_integrated/frontend/package.json llm_manager_integrated/frontend/package-lock.json* /build-llm/frontend/
+WORKDIR /build-llm/frontend
+RUN if [ "$OFFLINE_MODE" != "true" ]; then \
+        npm install --production=false && \
+        npm run build && \
+        npx tailwindcss -i ./styles/main.css -o ../static/assets/main.css --minify \
+            --content "../static/assets/**/*.html" --content "./scripts/**/*.js"; \
+    else \
+        echo "Offline mode: using pre-compiled LLM Manager frontend"; \
+    fi
 
 # Stage 2: 运行时
 FROM python:3.12-slim
@@ -75,9 +88,10 @@ COPY config/users.yaml.example ./config/users.yaml.example
 COPY run.py .
 COPY deepanalyze.py .
 
-# 复制前端构建产物（Next.js static export 模式，输出到 dist/）
+# 复制前端构建产物（Next.js static export + LLM Manager Vite 编译）
 # 生产模式下 FastAPI 直接提供静态文件
 COPY --from=frontend-builder /build/dist ./demo/chat/dist
+COPY --from=frontend-builder /build-llm/static/assets/ ./llm_manager_integrated/static/assets/
 
 # 创建必要的目录
 RUN mkdir -p workspace execution_states task_results logs config
