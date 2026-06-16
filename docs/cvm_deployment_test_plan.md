@@ -255,3 +255,53 @@ ENABLE_AUTH=true docker compose -f docker/docker-compose.yml up -d
 # 或使用 service.sh（从 .env 读取后传给 docker compose）
 sudo bash scripts/service.sh start
 ```
+
+---
+
+### 第三轮测试（2026-06-16 | 代码版本 `b67a479`）
+
+> 测试目标：Windows 非 Docker 一键部署脚本 `deploy_manual.ps1` 端到端测试  
+> **注意**：前两轮 CVM 测试仅覆盖了 Linux Docker 和 `deploy_manual.sh`（Linux），`deploy_manual.ps1`（Windows）从未被实际执行过，导致3个语法 Bug 在生产前未被发现。
+
+#### 测试 5：Windows deploy_manual.ps1（单用户模式）
+
+**环境**：Windows 11 + PowerShell Core，项目路径 `C:\Users\fjzheng\portable-dev-env\workspace\CreditWise`
+
+```powershell
+cd "C:\Users\fjzheng\portable-dev-env\workspace\CreditWise"
+git pull origin main
+.\scripts\deploy_manual.ps1
+# 选择 [1] 单用户模式
+```
+
+| 验证项 | 验证方法 | 预期 |
+|--------|----------|------|
+| 脚本语法检查 | PowerShell 解析无错误 | 无 ParserError |
+| Python 版本检测 | 脚本输出 | Python 3.10+ 检出成功 |
+| Node.js 版本检测 | 脚本输出 | Node.js 18+ 检出成功 |
+| 端口占用检查 | 脚本输出 | 8200, 8100 可用 |
+| 磁盘空间检查 | 脚本输出 | ≥2GB |
+| venv 创建 | `Test-Path .venv\Scripts\python.exe` | 存在 |
+| pip 依赖安装 | 脚本输出 | 全部安装成功 |
+| 前端构建 | `Test-Path demo\chat\dist\index.html` | 存在 |
+| .env 生成 | `Test-Path .env` + 含 `LLM_MANAGER_ENCRYPTION_KEY` | 存在且密钥已设置 |
+| ENABLE_AUTH 值 | `Select-String 'ENABLE_AUTH' .env` | `ENABLE_AUTH=false` |
+| 服务启动 | `curl http://localhost:8200/health` | 200 OK |
+| 主界面 | 浏览器 `http://localhost:8200` | 可访问 |
+| LLM Manager UI | 浏览器 `http://localhost:8200/llm-manager` | 可访问，样式正常 |
+
+**实测结果**：
+
+| 测试时间 | 结果 | 发现的问题 |
+|----------|:--:|------|
+| 2026-06-16 第1轮 | ❌ ParserError | Python 三元表达式 `exit(0 if ...)` 在 PS 双引号字符串中误解析 |
+| 2026-06-16 第2轮 | ❌ ParserError | `$key`（Fernet 密钥含 `=`）在 `-replace` 双引号参数中被截断 |
+| 2026-06-16 第3轮 | ⏳ 待执行 | 修复：逐行读写 `.env`，零正则，零字符串插值 |
+
+**修复记录**：
+
+| 问题 | 根因 | 修复 Commit |
+|------|------|--------|
+| Python 版本检测 ParserError | `exit(0 if ... else 1)` 在 PS 双引号内被当 PS 语法 | `0cf8992`: 改为 `print(major*100+minor)` 数字比较 |
+| 硬编码 `portable-dev-env` 路径 | 脚本依赖本机特定路径，不通用 | `0cf8992` → `b67a479`: 改为纯 PATH 检测 + 安装提示 |
+| 加密密钥 `-replace` ParserError | Fernet 密钥含 `=` 号，`"KEY=$key"` 展开后被截断 | `b67a479`: 改为逐行读写 `.env`，完全避免正则和字符串插值 |
