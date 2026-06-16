@@ -228,6 +228,7 @@ $apiDir = Join-Path $projectRoot "API"
 $env:DEV_MODE = "false"
 $env:API_HOST = "0.0.0.0"
 $env:API_PORT = "8200"
+$env:ENABLE_AUTH = $ENABLE_AUTH
 $env:PYTHONPATH = "$projectRoot;$apiDir"
 $env:PYTHONUNBUFFERED = "1"
 
