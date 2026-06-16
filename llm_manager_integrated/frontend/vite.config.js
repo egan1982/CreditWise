@@ -31,8 +31,9 @@ export default defineConfig(({ mode }) => {
         }
       }
     },
-    // 添加静态文件处理
-    publicDir: '.',
+    // Dev mode: 需要 publicDir 提供 scripts/ shared/ 静态文件
+    // Build mode: publicDir 会覆盖已编译的 index.html，需要禁用
+    publicDir: mode === 'production' ? false : '.',
     // 确保静态资源能被正确访问
     assetsInclude: ['**/*.html'],
     css: {
