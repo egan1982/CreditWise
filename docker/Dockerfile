@@ -19,13 +19,12 @@ RUN npm run build
 WORKDIR /build-llm
 COPY llm_manager_integrated/frontend/package.json llm_manager_integrated/frontend/package-lock.json* /build-llm/
 RUN npm install --production=false
-# node_modules/.bin/* 在某些宿主机 volume 挂载后权限变为 0644，需显式修复
-RUN chmod +x node_modules/.bin/vite node_modules/.bin/tailwindcss 2>/dev/null || true
 COPY llm_manager_integrated/frontend/ /build-llm/
-# Vite 构建: 产物输出到 /static/ (outDir: '../static' 相对 WORKDIR /build-llm)
-# Tailwind: 扫描 /static/index.html（源 HTML）+ scripts/**/*.js，输出离线 CSS
-# sed: 替换 static/index.html 中的 CDN 引用为本地路径，删除 @apply 行
-RUN npm run build && \
+# chmod + build 必须在同一 RUN 层，chmod 对 symlink 无效需要修改真实 bin 文件
+# Vite 产物 outDir: '../static' -> /static/
+# Tailwind 扫描 /static/index.html（源 HTML）输出离线 CSS
+RUN chmod +x node_modules/.bin/vite node_modules/.bin/tailwindcss 2>/dev/null || true && \
+    npm run build && \
     ./node_modules/.bin/tailwindcss \
         -i ./styles/main.css \
         -o /static/assets/main.css \
