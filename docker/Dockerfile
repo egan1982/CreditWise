@@ -92,8 +92,6 @@ COPY deepanalyze/ ./deepanalyze/
 COPY llm_manager_integrated/ ./llm_manager_integrated/
 COPY scripts/ ./scripts/
 COPY config/users.yaml.example ./config/users.yaml.example
-COPY run.py .
-COPY deepanalyze.py .
 
 # 复制前端构建产物（Next.js + LLM Manager）
 COPY --from=frontend-builder /build/dist ./demo/chat/dist

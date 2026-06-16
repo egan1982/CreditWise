@@ -10,6 +10,9 @@
 
 **管理员篇**
 - [一、部署与初始化](#一部署与初始化)
+  - [1.1 Docker 部署（推荐，Linux/CVM）](#11-docker-部署推荐linuxcvm)
+  - [1.2 非 Docker 部署（Windows 生产环境）](#12-非-docker-部署windows-生产环境)
+  - [1.3 开发模式启动（本地调试）](#13-开发模式启动本地调试)
 - [二、LLM 渠道配置管理](#二llm-渠道配置管理)
 - [三、用户与安全管理](#三用户与安全管理)
 
@@ -29,18 +32,26 @@
 
 ## 一、部署与初始化
 
-### 1.1 Docker 部署（推荐）
+### 1.1 Docker 部署（推荐，Linux/CVM）
 
 **前置条件**：已安装 Docker 和 Docker Compose。
 
-**单用户模式**（默认，无需认证）：
+**推荐方式：使用 `scripts/service.sh` 服务管理脚本**
 
 ```bash
-cd docker
-docker-compose up -d
+# 启动（自动读取 .env 中的 ENABLE_AUTH 配置）
+./scripts/service.sh start
+
+# 其他常用命令
+./scripts/service.sh stop        # 停止服务
+./scripts/service.sh restart     # 重启服务
+./scripts/service.sh status      # 查看运行状态 + 健康检查
+./scripts/service.sh logs        # 实时跟踪日志（Ctrl+C 退出）
+./scripts/service.sh build       # 重新构建镜像（代码更新后执行）
+./scripts/service.sh hash <密码>  # 生成用户密码哈希
 ```
 
-> 📸 *[截图占位：终端执行 docker-compose up -d 的输出结果]*
+> 💡 `service.sh` 会自动从项目根目录的 `.env` 文件读取 `ENABLE_AUTH` 配置，无需每次手动传参。
 
 **内网多用户模式**（启用 Basic Auth 认证）：
 
@@ -49,35 +60,79 @@ docker-compose up -d
 cp config/users.yaml.example config/users.yaml
 
 # 2. 生成密码哈希
-docker-compose run --rm creditwise python scripts/hash_password.py <你的密码>
+./scripts/service.sh hash <你的密码>
 
 # 3. 编辑 config/users.yaml，填入生成的哈希值和用户信息
 
-# 4. 启用认证启动
-ENABLE_AUTH=true docker-compose up -d
+# 4. 在 .env 中启用认证
+echo "ENABLE_AUTH=true" >> .env
+
+# 5. 启动
+./scripts/service.sh start
 ```
 
 > 📸 *[截图占位：config/users.yaml 文件内容示例]*
+
+**直接使用 docker-compose**（低级操作，适合调试）：
+
+```bash
+# 单用户模式
+cd docker && docker-compose up -d
+
+# 多用户模式（手动传入环境变量）
+ENABLE_AUTH=true docker-compose up -d
+```
 
 启动后访问 `http://<服务器IP>:8200` 即可使用。如果启用了认证，浏览器会自动弹出登录框。
 
 > 📸 *[截图占位：浏览器 Basic Auth 登录弹窗]*
 
-### 1.2 开发模式启动（macOS / Linux）
+### 1.2 非 Docker 部署（Windows 生产环境）
+
+使用 `scripts/start_prod.ps1` 启动生产服务：
+
+```powershell
+# 默认端口 8200，监听 0.0.0.0（允许内网访问）
+.\scripts\start_prod.ps1
+
+# 自定义端口
+.\scripts\start_prod.ps1 -Port 9000
+
+# 停止服务
+.\scripts\stop_prod.ps1
+```
+
+脚本会自动完成：端口占用检查 → 虚拟环境检测 → 设置 `DEV_MODE=false` → 启动后端 → 10 次健康检查。
+
+日志写入 `logs/server.log`，可通过以下命令实时查看：
+
+```powershell
+Get-Content logs\server.log -Tail 50 -Wait
+```
+
+> ⚠️ **注意**：生产模式下（`DEV_MODE=false`），后端直接提供前端静态文件（`demo/chat/dist/`），**无需单独启动前端**。请确保在部署前已执行前端构建（`npm run build`）。
+
+### 1.3 开发模式启动（本地调试）
 
 ```bash
 # 安装依赖（首次）
 pip install -r requirements.txt
 
-# 启动
-python run.py
+# 启动后端（DEV_MODE=true，默认值）
+python API/main.py
 ```
 
-默认端口 `8200`。API 文档自动生成在 `http://localhost:8200/docs`。
+开发模式下前端由独立的 dev server 提供（端口 3001），需另行启动：
 
-> 📸 *[截图占位：python run.py 启动后的日志输出]*
+```bash
+cd demo/chat
+npm install  # 首次
+npm run dev  # 启动前端 dev server（:3001）
+```
 
-### 1.3 部署验证
+> 📸 *[截图占位：python API/main.py 启动后的日志输出]*
+
+### 1.4 部署验证
 
 访问以下地址确认服务正常：
 
@@ -90,7 +145,7 @@ python run.py
 
 > 📸 *[截图占位：API 文档页面（/docs）]*
 
-### 1.4 持久化数据说明
+### 1.5 持久化数据说明
 
 以下目录通过 Docker volume 挂载，容器重启不丢失：
 

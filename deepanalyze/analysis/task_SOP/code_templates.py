@@ -183,10 +183,10 @@ if overfit_ratio > 1.05:
 ''',
 
     "report_generation": '''# 报告生成
-from deepanalyze.analysis.report import ReportGenerator
+from deepanalyze.analysis.excel_report import ExcelReportGenerator
 
 # 初始化报告生成器
-report_gen = ReportGenerator()
+report_gen = ExcelReportGenerator()
 
 # 生成评分卡报告
 report = report_gen.generate_scorecard_report(
@@ -371,10 +371,10 @@ print(f"组合提升度: {{combined_metrics['lift']:.2f}}")
 ''',
 
     "report_generation": '''# 报告生成
-from deepanalyze.analysis.report import ReportGenerator
+from deepanalyze.analysis.excel_report import ExcelReportGenerator
 
 # 初始化报告生成器
-report_gen = ReportGenerator()
+report_gen = ExcelReportGenerator()
 
 # 生成规则挖掘报告
 report = report_gen.generate_rule_mining_report(

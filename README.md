@@ -74,7 +74,7 @@ $env:DEEPSEEK_API_KEY = "your-api-key-here"
 
 ```bash
 # macOS / Linux — 开发模式（推荐）
-python run.py
+python API/main.py
 
 # Docker 部署
 cd docker && docker-compose up -d

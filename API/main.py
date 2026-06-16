@@ -136,10 +136,11 @@ def create_app() -> FastAPI:
         )
 
     # 添加全局异常处理器，确保异常响应也包含CORS头
+    # 同时处理 SPA fallback（生产模式下对非 API 路径的 404 返回 index.html）
     from fastapi import Request
     from fastapi.responses import JSONResponse
     from starlette.exceptions import HTTPException as StarletteHTTPException
-    
+
     def _cors_headers_from_request(request: Request) -> dict:
         """从请求中提取 Origin 构建 CORS 响应头，避免硬编码 '*' 与 credentials 冲突"""
         origin = request.headers.get("origin", "")
@@ -147,9 +148,33 @@ def create_app() -> FastAPI:
             "Access-Control-Allow-Origin": origin or "*",
             "Access-Control-Allow-Credentials": "true" if origin else "false",
         }
-    
+
+    # 已知的 API 路径前缀（生产模式 SPA fallback 时不应重定向到前端）
+    _api_prefixes = (
+        "/v1/", "/sop/", "/workspace/", "/health", "/docs",
+        "/openapi", "/llm-manager/", "/download/", "/execute/",
+        "/export/", "/chat/",
+    )
+
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        # 生产模式下，对非 API 路径的 404 尝试 SPA fallback
+        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        if not dev_mode and exc.status_code == 404:
+            path = request.url.path
+            if not path.startswith(_api_prefixes):
+                frontend_dist = Path(__file__).parent.parent / "demo" / "chat" / "dist"
+                if frontend_dist.exists():
+                    # 优先返回实际静态文件（图片、favicon 等）
+                    static_file = frontend_dist / path.lstrip("/")
+                    if static_file.is_file():
+                        from fastapi.responses import FileResponse
+                        return FileResponse(str(static_file))
+                    # SPA fallback：返回 index.html
+                    index_file = frontend_dist / "index.html"
+                    if index_file.exists():
+                        from fastapi.responses import FileResponse
+                        return FileResponse(str(index_file))
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
@@ -855,6 +880,7 @@ def create_app() -> FastAPI:
 
     # 生产模式下挂载 Next.js 静态导出的前端文件
     # 开发模式下前端由 Next.js dev server (:3000) 提供
+    # SPA fallback（404 → index.html）已统一处理在上方的 http_exception_handler 中
     dev_mode_global = os.getenv("DEV_MODE", "true").lower() == "true"
     if not dev_mode_global:
         frontend_dist = Path(__file__).parent.parent / "demo" / "chat" / "dist"
@@ -863,41 +889,6 @@ def create_app() -> FastAPI:
             _next_dir = frontend_dist / "_next"
             if _next_dir.exists():
                 app.mount("/_next", StaticFiles(directory=str(_next_dir)), name="nextjs-assets")
-
-            # 已知的 API 路径前缀（这些不应 fallback 到前端）
-            _api_prefixes = (
-                "/v1/", "/sop/", "/workspace/", "/health", "/docs",
-                "/openapi", "/llm-manager/", "/download/", "/execute/",
-                "/export/", "/chat/",
-            )
-
-            from starlette.exceptions import HTTPException as StarletteHTTPException
-
-            @app.exception_handler(StarletteHTTPException)
-            async def spa_fallback(request, exc):
-                """
-                非 API 路径的 404:
-                - 先看 dist/ 下有没有对应的静态文件（图片、favicon 等）
-                - 没有则返回 index.html（SPA 路由支持）
-                API 路径的错误正常返回 JSON
-                """
-                path = request.url.path
-                if exc.status_code == 404 and not path.startswith(_api_prefixes):
-                    # 尝试在 dist/ 下找到对应的静态文件
-                    static_file = frontend_dist / path.lstrip("/")
-                    if static_file.is_file():
-                        return FileResponse(str(static_file))
-                    # SPA fallback: 返回 index.html
-                    index_file = frontend_dist / "index.html"
-                    if index_file.exists():
-                        return FileResponse(str(index_file))
-                # API 路径或非 404 错误，正常返回 JSON
-                from fastapi.responses import JSONResponse
-                return JSONResponse(
-                    status_code=exc.status_code,
-                    content={"detail": exc.detail or "Not found"},
-                )
-
             logger.info(f"[OK] Frontend static files mounted from {frontend_dist}")
         else:
             logger.warning(f"[WARN] Frontend dist not found at {frontend_dist}, skipping frontend mount")

@@ -5,6 +5,7 @@
 // 任务配置组件 - 统一使用TaskConfigPanel
 export { TaskSelector } from "./TaskSelector";
 export { TaskConfigPanel } from "./TaskConfigPanel";
+export { TaskGuideDialog } from "./TaskGuideDialog";
 export { TaskConfirmCard } from "./TaskConfirmCard";
 export type { CardStatus } from "./TaskConfirmCard";
 export { DynamicParamRenderer, ParamGroupRenderer, shouldShowParam } from "./DynamicParamRenderer";
@@ -24,15 +25,10 @@ export { TaskProgress } from "./TaskProgress";
 export { SopStageController, PipelineStageCards } from "./SopStageController";
 export { ExecutionLogPanel, useExecutionLogs, createLogEntry } from "./ExecutionLogPanel";
 export type { LogEntry, LogLevel } from "./ExecutionLogPanel";
-export { StageCodePreview } from "./StageCodePreview";
 export { StageOutputPreview } from "./StageOutputPreview";
 export type { StageEditableData } from "./StageOutputPreview";
 // 注意：buildOverallAnalysisPrompt 已迁移至后端 API/AI_analysis_prompts.py
 // 前端通过 /v1/chat/analysis/prompt API 获取分析提示词
-
-// Pipeline 代码展示组件（LLM+Pipeline 新架构）
-export { PipelineCodePanel, usePipelineCodeBlocks } from "./PipelineCodePanel";
-export type { CodeBlock, CodeBlockType, CodeBlockStatus, PipelineCodePanelProps } from "./PipelineCodePanel";
 
 // 代码与参数编辑器组件（复用原项目Monaco Editor能力）
 export { StageCodeEditor } from "./StageCodeEditor";
@@ -48,12 +44,14 @@ export { ScorecardResults } from "./ScorecardResults";
 
 // 新增组件 (升级计划)
 export { ModelStatisticsPanel } from "./ModelStatisticsPanel";
-export { ScoreConverter } from "./ScoreConverter";
 export { AmountAnalysisPanel } from "./AmountAnalysisPanel";
 export { PriorRulesInput } from "./PriorRulesInput";
 
+// 个保法合规 - 敏感信息预检弹窗
+export { SensitiveCheckDialog } from "./SensitiveCheckDialog";
+export type { SensitiveCheckResult } from "./SensitiveCheckDialog";
+
 // 任务历史组件
-export { TaskHistoryList } from "./TaskHistoryList";
 export { TaskHistoryCompact } from "./TaskHistoryCompact";
 export type { TaskHistoryCompactRef } from "./TaskHistoryCompact";
 
@@ -62,3 +60,4 @@ export { SuggestedParamsCard } from "./SuggestedParamsCard";
 export type { SuggestedParamsCardProps } from "./SuggestedParamsCard";
 export { StageVersionSelector } from "./StageVersionSelector";
 export type { StageVersionSelectorProps, StageSnapshotMeta } from "./StageVersionSelector";
+
