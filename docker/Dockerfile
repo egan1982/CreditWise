@@ -76,10 +76,9 @@ COPY config/users.yaml.example ./config/users.yaml.example
 COPY run.py .
 COPY deepanalyze.py .
 
-# 复制前端构建产物（Next.js static export + LLM Manager Vite 编译）
-# 生产模式下 FastAPI 直接提供静态文件
+# 复制前端构建产物（Next.js static export）
+# LLM Manager 前端已在 deploy_*.sh 中提前编译，产物位于 llm_manager_integrated/static/
 COPY --from=frontend-builder /build/dist ./demo/chat/dist
-COPY --from=frontend-builder /build-llm/static/ ./llm_manager_integrated/static/
 
 # 创建必要的目录
 RUN mkdir -p workspace execution_states task_results logs config
