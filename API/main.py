@@ -796,12 +796,13 @@ def create_app() -> FastAPI:
                 app.include_router(monitoring.router, prefix="/llm-manager/api/monitoring")
                 
                 # Serve pre-built LLM Manager frontend (Vite + Tailwind, offline-ready)
-                _llm_assets = Path(__file__).parent.parent / "llm_manager_integrated" / "static" / "assets"
+                _llm_static = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
+                _llm_assets = _llm_static / "assets"
                 
                 @app.get("/llm-manager/", include_in_schema=False)
                 async def llm_manager_prod_index():
                     from fastapi.responses import HTMLResponse
-                    idx = _llm_assets / "index.html"
+                    idx = _llm_static / "index.html"
                     if not idx.exists():
                         raise HTTPException(status_code=404, detail="LLM Manager frontend not built")
                     return HTMLResponse(content=idx.read_text(encoding="utf-8"))
@@ -811,15 +812,15 @@ def create_app() -> FastAPI:
                     from fastapi.responses import RedirectResponse
                     return RedirectResponse(url="/llm-manager/", status_code=302)
                 
-                if _llm_assets.exists():
-                    @app.get("/llm-manager/assets/{f:path}", include_in_schema=False)
-                    async def llm_manager_asset(f: str):
-                        file = (_llm_assets / f).resolve()
-                        if not str(file).startswith(str(_llm_assets.resolve())) or not file.is_file():
-                            raise HTTPException(status_code=404)
-                        ext = file.suffix.lower()
-                        mime = {".css":"text/css",".js":"application/javascript",".woff2":"font/woff2"}
-                        return FileResponse(str(file), media_type=mime.get(ext,"application/octet-stream"))
+                # Serve Vite build output (assets, scripts, shared, favicon)
+                @app.get("/llm-manager/{r:path}", include_in_schema=False)
+                async def llm_manager_static_files(r: str):
+                    file = (_llm_static / r).resolve()
+                    if not str(file).startswith(str(_llm_static.resolve())) or not file.is_file():
+                        raise HTTPException(status_code=404)
+                    ext = file.suffix.lower()
+                    mime_map = {".css":"text/css",".js":"application/javascript",".html":"text/html",".ico":"image/x-icon",".woff2":"font/woff2"}
+                    return FileResponse(str(file), media_type=mime_map.get(ext,"application/octet-stream"))
                 
                 print("[OK] LLM_Manager integrated (Production Mode)")
                 print(f"   - UI: http://{API_HOST}:{API_PORT}/llm-manager")
