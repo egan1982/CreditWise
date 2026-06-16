@@ -19,6 +19,200 @@
   }
 }
 
+/* ===== 从 index.html <style> 块迁移的组件样式 ===== */
+@layer components {
+  /* 导航 Tab */
+  .nav-tabs {
+    @apply flex border-b border-gray-200 mb-6;
+  }
+
+  .nav-item {
+    @apply px-4 py-2 cursor-pointer border-b-2 border-transparent hover:border-gray-300 transition-colors;
+  }
+
+  .nav-item.active {
+    @apply border-blue-500 text-blue-600;
+  }
+
+  /* Tab 内容区 */
+  .tab-content {
+    @apply hidden;
+  }
+
+  .tab-content.active {
+    @apply block;
+  }
+
+  .tab-header {
+    @apply flex items-center justify-between mb-4;
+  }
+
+  .tab-actions {
+    @apply flex gap-2;
+  }
+
+  /* 卡片 */
+  .card {
+    @apply bg-white rounded-lg shadow-md p-6 mb-5;
+  }
+
+  /* 按钮 */
+  .btn {
+    @apply px-4 py-2 rounded-md font-medium text-sm cursor-pointer transition-all duration-300 inline-flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-500;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+
+  .btn-success {
+    @apply bg-green-600 text-white hover:bg-green-700 focus:ring-green-500;
+  }
+
+  .btn:disabled {
+    @apply opacity-60 cursor-not-allowed;
+  }
+
+  /* 模态框 */
+  .modal {
+    @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden;
+  }
+
+  .modal.active {
+    @apply flex;
+  }
+
+  .modal-content {
+    @apply bg-white rounded-lg shadow-xl max-w-md w-full mx-4;
+  }
+
+  .modal-header {
+    @apply flex items-center justify-between p-6 border-b border-gray-200;
+  }
+
+  .modal-body {
+    @apply p-6;
+  }
+
+  .modal-close {
+    @apply text-gray-500 hover:text-gray-700 text-2xl leading-none;
+  }
+
+  /* 表单 */
+  .form-group {
+    @apply mb-4;
+  }
+
+  .form-group label {
+    @apply block text-sm font-medium text-gray-700 mb-1;
+  }
+
+  .form-group input, .form-group select {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500;
+  }
+
+  .form-actions {
+    @apply flex justify-end gap-2 mt-6;
+  }
+
+  /* 表格 */
+  .table {
+    @apply w-full border-collapse border border-gray-200;
+  }
+
+  .table th, .table td {
+    @apply border border-gray-200 px-4 py-2 text-left;
+  }
+
+  .table th {
+    @apply bg-gray-50 font-medium text-gray-700;
+  }
+
+  /* 状态 */
+  .loading {
+    @apply text-center py-8 text-gray-500;
+  }
+
+  .empty-state {
+    @apply text-center py-8 text-gray-500;
+  }
+
+  .status-badge {
+    @apply px-2 py-1 text-xs rounded-full;
+  }
+
+  .status-badge.success {
+    @apply bg-green-100 text-green-800;
+  }
+
+  .status-badge.error {
+    @apply bg-red-100 text-red-800;
+  }
+
+  /* 提示 */
+  .alert {
+    @apply p-3 rounded-md mb-4;
+  }
+
+  .alert.success {
+    @apply bg-green-100 text-green-700 border border-green-200;
+  }
+
+  .alert.error {
+    @apply bg-red-100 text-red-700 border border-red-200;
+  }
+
+  /* 旋转加载 */
+  .spinner {
+    @apply inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin;
+  }
+}
+
+/* 非 @apply 的原生 CSS 样式（Tailwind 无对应 utility） */
+.capability-icon-list {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  padding: 1px 4px;
+  margin-left: 3px;
+  border-radius: 3px;
+  cursor: help;
+}
+
+.capability-icon-list.web-search {
+  background-color: #dbeafe;
+  color: #2563eb;
+}
+
+.capability-icon-list.deep-thinking {
+  background-color: #f3e8ff;
+  color: #9333ea;
+}
+
+.model-config-display {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.model-config-display .model-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @layer components {
   .btn {
     @apply px-4 py-2 rounded-md font-medium text-sm cursor-pointer transition-all duration-300 inline-flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-offset-2;
