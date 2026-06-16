@@ -30,10 +30,7 @@ RUN chmod +x node_modules/.bin/vite node_modules/.bin/tailwindcss 2>/dev/null ||
     ./node_modules/.bin/tailwindcss \
         -i ./styles/main.css \
         -o /static/assets/main.css \
-        --minify \
-        --content ./index.html \
-        --content "./scripts/**/*.js" \
-        --content "./shared/**/*.js" && \
+        --minify && \
     echo "=== main.css size ===" && wc -c /static/assets/main.css && \
     sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' /static/assets/index.html && \
     sed -i 's| https://cdn.tailwindcss.com||g' /static/assets/index.html && \
