@@ -762,57 +762,70 @@ def create_app() -> FastAPI:
             logger.error(f"Proxy fetch failed: {e}", exc_info=True)
             raise HTTPException(status_code=502, detail="Proxy fetch failed")
     
-    # LLM Manager direct access (without trailing slash) - 开发模式重定向到Vite服务器
-    if llm_manager.available and llm_manager.create_app is not None:
-        @app.get("/llm-manager", include_in_schema=False)
-        async def llm_manager_direct():  # pyright: ignore[reportUnusedFunction]
-            """直接访问LLM Manager - 开发模式重定向到Vite，生产模式由子应用处理"""
-            from fastapi.responses import RedirectResponse
-            
-            # 开发模式下重定向到Vite服务器
-            dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
-            if dev_mode:
-                return RedirectResponse(url="http://localhost:3001", status_code=302)
-            
-            # 生产模式下重定向到子应用根路径（带斜杠）
-            return RedirectResponse(url="/llm-manager/", status_code=302)
-
-    # Integrate LLM_Manager - Backend Only in Development, Backend + Frontend in Production
+    # Integrate LLM_Manager
+    # - Dev: sub-app mount API only, Vite dev server at :3001 for frontend
+    # - Prod: main app serves pre-built frontend (offline Tailwind CSS + Vite JS)
+    #         + registers API routers directly (avoids Starlette mount redirect loops)
     if llm_manager.available and llm_manager.create_app is not None:
         try:
-            # Check if we're in development mode (Vite server is running)
             dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
             
-            # In development mode, only mount the backend API to avoid conflicts with Vite server
-            # In production mode, mount both backend and frontend
-            llm_manager_app = llm_manager.create_app(
-                config={
-                    "app_title": "LLM API Manager for DeepAnalyze",
-                },
-                as_subapp=True,
-                enable_frontend=not dev_mode,  # Disable frontend in development mode
-                prefix="/llm-manager"
-            )
-            
-            # Mount the LLM_Manager app at /llm-manager
-            # In dev mode: API only (frontend served by Vite at port 3001)
-            # In prod mode: Both API and frontend
-            app.mount("/llm-manager", llm_manager_app)
-            
             if dev_mode:
+                llm_manager_app = llm_manager.create_app(
+                    config={"app_title": "LLM API Manager for DeepAnalyze"},
+                    as_subapp=True, enable_frontend=False, prefix="/llm-manager")
+                app.mount("/llm-manager", llm_manager_app)
+                
+                @app.get("/llm-manager", include_in_schema=False)
+                async def llm_manager_dev_redirect():
+                    from fastapi.responses import RedirectResponse
+                    return RedirectResponse(url="http://localhost:3001", status_code=302)
+                
                 print("[OK] LLM_Manager backend integrated (Development Mode)")
                 print(f"   - API: http://{API_HOST}:{API_PORT}/llm-manager/api")
-                print(f"   - Docs: http://{API_HOST}:{API_PORT}/llm-manager/docs")
                 print(f"   - Frontend: Running on Vite server at http://localhost:3001")
             else:
+                # Prod: register API routers directly on main app
+                from llm_manager_integrated.api.routes import channels, logs, proxy as proxy_module, monitoring
+                from llm_manager_integrated.api.routes.proxy import models_router
+                app.include_router(channels.router, prefix="/llm-manager/api/manage")
+                app.include_router(logs.router, prefix="/llm-manager/api")
+                app.include_router(proxy_module.router, prefix="/llm-manager/api/proxy")
+                app.include_router(models_router, prefix="/llm-manager/api")
+                app.include_router(monitoring.router, prefix="/llm-manager/api/monitoring")
+                
+                # Serve pre-built LLM Manager frontend (Vite + Tailwind, offline-ready)
+                _llm_assets = Path(__file__).parent.parent / "llm_manager_integrated" / "static" / "assets"
+                
+                @app.get("/llm-manager/", include_in_schema=False)
+                async def llm_manager_prod_index():
+                    from fastapi.responses import HTMLResponse
+                    idx = _llm_assets / "index.html"
+                    if not idx.exists():
+                        raise HTTPException(status_code=404, detail="LLM Manager frontend not built")
+                    return HTMLResponse(content=idx.read_text(encoding="utf-8"))
+                
+                @app.get("/llm-manager", include_in_schema=False)
+                async def llm_manager_prod_redirect():
+                    from fastapi.responses import RedirectResponse
+                    return RedirectResponse(url="/llm-manager/", status_code=302)
+                
+                if _llm_assets.exists():
+                    @app.get("/llm-manager/assets/{f:path}", include_in_schema=False)
+                    async def llm_manager_asset(f: str):
+                        file = (_llm_assets / f).resolve()
+                        if not str(file).startswith(str(_llm_assets.resolve())) or not file.is_file():
+                            raise HTTPException(status_code=404)
+                        ext = file.suffix.lower()
+                        mime = {".css":"text/css",".js":"application/javascript",".woff2":"font/woff2"}
+                        return FileResponse(str(file), media_type=mime.get(ext,"application/octet-stream"))
+                
                 print("[OK] LLM_Manager integrated (Production Mode)")
                 print(f"   - UI: http://{API_HOST}:{API_PORT}/llm-manager")
                 print(f"   - API: http://{API_HOST}:{API_PORT}/llm-manager/api")
-                print(f"   - Docs: http://{API_HOST}:{API_PORT}/llm-manager/docs")
         except Exception as e:
             logger.error(f"Failed to integrate LLM_Manager: {e}")
             print(f"[WARN] Failed to integrate LLM_Manager: {e}")
-            import traceback
             traceback.print_exc()
     
     # Note: API/static backup removed as we now rely on Vite-built frontend for LLM Manager
