@@ -801,6 +801,7 @@ def create_app() -> FastAPI:
                 
                 @app.get("/llm-manager/", include_in_schema=False)
                 async def llm_manager_prod_index():
+                    from fastapi import HTTPException
                     from fastapi.responses import HTMLResponse
                     idx = _llm_static / "index.html"
                     if not idx.exists():
@@ -815,6 +816,7 @@ def create_app() -> FastAPI:
                 # Serve Vite build output (assets, scripts, shared, favicon)
                 @app.get("/llm-manager/{r:path}", include_in_schema=False)
                 async def llm_manager_static_files(r: str):
+                    from fastapi import HTTPException
                     file = (_llm_static / r).resolve()
                     if not str(file).startswith(str(_llm_static.resolve())) or not file.is_file():
                         raise HTTPException(status_code=404)
