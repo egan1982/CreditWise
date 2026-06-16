@@ -25,6 +25,8 @@ COPY llm_manager_integrated/frontend/ /build-llm/
 # Tailwind 扫描 /static/index.html（源 HTML）输出离线 CSS
 RUN chmod +x node_modules/.bin/vite node_modules/.bin/tailwindcss 2>/dev/null || true && \
     npm run build && \
+    echo "=== scripts/main.js class count ===" && \
+    grep -c 'class=' ./scripts/main.js 2>/dev/null || echo "NO scripts/main.js" && \
     ./node_modules/.bin/tailwindcss \
         -i ./styles/main.css \
         -o /static/assets/main.css \
@@ -32,6 +34,7 @@ RUN chmod +x node_modules/.bin/vite node_modules/.bin/tailwindcss 2>/dev/null ||
         --content ./index.html \
         --content "./scripts/**/*.js" \
         --content "./shared/**/*.js" && \
+    echo "=== main.css size ===" && wc -c /static/assets/main.css && \
     sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' /static/assets/index.html && \
     sed -i 's| https://cdn.tailwindcss.com||g' /static/assets/index.html && \
     sed -i 's|http://localhost:8200 ||g' /static/assets/index.html && \
