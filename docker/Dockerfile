@@ -34,6 +34,7 @@ RUN chmod +x node_modules/.bin/vite node_modules/.bin/tailwindcss 2>/dev/null ||
         --content "./shared/**/*.js" && \
     sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' /static/assets/index.html && \
     sed -i 's| https://cdn.tailwindcss.com||g' /static/assets/index.html && \
+    sed -i 's|http://localhost:8200 ||g' /static/assets/index.html && \
     sed -i '/<style>/,/<\/style>/d' /static/assets/index.html && \
     cp -r scripts /static/ && \
     cp -r shared /static/

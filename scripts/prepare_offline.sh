@@ -121,6 +121,7 @@ if [ -f "$LLM_FRONTEND_DIR/package.json" ]; then
     # 替换 CDN → 本地 CSS（目标是 assets/index.html，Vite build 的真实产物）
     sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$LLM_STATIC_DIR/assets/index.html"
     sed -i 's| https://cdn.tailwindcss.com||g' "$LLM_STATIC_DIR/assets/index.html"
+    sed -i 's|http://localhost:8200 ||g' "$LLM_STATIC_DIR/assets/index.html"
     sed -i '/<style>/,/<\/style>/d' "$LLM_STATIC_DIR/assets/index.html"
     cd "$PROJECT_ROOT"
 fi

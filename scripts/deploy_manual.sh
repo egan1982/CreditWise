@@ -139,6 +139,7 @@ if [ "$HAS_NODE" = true ]; then
             --content "./shared/**/*.js" 2>/dev/null
         sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
         sed -i 's| https://cdn.tailwindcss.com||g' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
+        sed -i 's|http://localhost:8200 ||g' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
         sed -i '/<style>/,/<\/style>/d' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
         cd "$PROJECT_ROOT"
     fi
