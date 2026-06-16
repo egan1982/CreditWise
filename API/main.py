@@ -820,7 +820,8 @@ def create_app() -> FastAPI:
                 async def llm_manager_prod_index():
                     from fastapi import HTTPException
                     from fastapi.responses import HTMLResponse
-                    idx = _llm_static / "index.html"
+                    # Vite build 产物：assets/index.html（frontend/index.html 经过 Tailwind + sed 处理）
+                    idx = _llm_assets / "index.html"
                     if not idx.exists():
                         raise HTTPException(status_code=404, detail="LLM Manager frontend not built")
                     return HTMLResponse(content=idx.read_text(encoding="utf-8"))

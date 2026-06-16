@@ -114,21 +114,20 @@ if [ -f "$LLM_FRONTEND_DIR/package.json" ]; then
     npm run build
     echo "  Tailwind CSS 编译..."
     npx tailwindcss -i ./styles/main.css -o "$LLM_STATIC_DIR/assets/main.css" --minify \
-        --content "$LLM_STATIC_DIR/index.html" \
+        --content "$LLM_STATIC_DIR/assets/index.html" \
         --content "./scripts/**/*.js" \
         --content "./shared/**/*.js" \
         2>&1 | tail -1
-    # 替换 CDN → 本地 CSS（目标是 static/index.html，不是 assets/index.html）
-    sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$LLM_STATIC_DIR/index.html"
-    sed -i 's| https://cdn.tailwindcss.com||g' "$LLM_STATIC_DIR/index.html"
-    sed -i '/@apply/d' "$LLM_STATIC_DIR/index.html"
+    # 替换 CDN → 本地 CSS（目标是 assets/index.html，Vite build 的真实产物）
+    sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$LLM_STATIC_DIR/assets/index.html"
+    sed -i 's| https://cdn.tailwindcss.com||g' "$LLM_STATIC_DIR/assets/index.html"
+    sed -i '/@apply/d' "$LLM_STATIC_DIR/assets/index.html"
     cd "$PROJECT_ROOT"
 fi
 
-# 保存编译产物到离线包（assets/ + 已替换CDN的index.html）
+# 保存编译产物到离线包（assets/ 已含 index.html + main.css）
 mkdir -p "$BUNDLE_DIR/llm-manager-static/assets"
 cp -r "$LLM_STATIC_DIR/assets"/* "$BUNDLE_DIR/llm-manager-static/assets/" 2>/dev/null || true
-cp "$LLM_STATIC_DIR/index.html" "$BUNDLE_DIR/llm-manager-static/index.html" 2>/dev/null || true
 echo -e "${GREEN}  ✅ LLM Manager 前端编译完成（离线可用）${NC}"
 
 # =============================================================================
