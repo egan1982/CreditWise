@@ -794,6 +794,23 @@ def create_app() -> FastAPI:
                 app.include_router(proxy_router, prefix="/llm-manager/api/proxy")
                 app.include_router(models_router, prefix="/llm-manager/api")
                 app.include_router(monitoring.router, prefix="/llm-manager/api/monitoring")
+
+                # 生产模式：初始化 LLM Manager 依赖（api/dependencies.py 从 app.state 取 db_manager）
+                # 必须在 startup 事件中挂载，此时 app.state 才可写
+                @app.on_event("startup")
+                async def llm_manager_startup():
+                    try:
+                        from llm_manager_integrated.models.database import DatabaseManager
+                        from llm_manager_integrated.core.config import settings as llm_settings
+                        from llm_manager_integrated.core.startup import app_startup_handler
+                        db_manager = DatabaseManager(llm_settings.database_url)
+                        db_manager.create_tables()
+                        app.state.db_manager = db_manager
+                        app.state.config = llm_settings
+                        await app_startup_handler(app)
+                        logger.info("[OK] LLM_Manager db_manager initialized on main app.state")
+                    except Exception as e:
+                        logger.warning(f"[WARN] LLM_Manager startup init failed: {e}")
                 
                 # Serve pre-built LLM Manager frontend (Vite + Tailwind, offline-ready)
                 _llm_static = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
