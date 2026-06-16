@@ -224,16 +224,37 @@ STEP=$((STEP + 1))
 
 echo ""
 echo -e "${GREEN}[${STEP}] 编译 LLM Manager 前端${NC}"
+LLM_STATIC="$PROJECT_ROOT/llm_manager_integrated/static"
 LLM_FRONTEND="$PROJECT_ROOT/llm_manager_integrated/frontend"
-if [ -f "$LLM_FRONTEND/package.json" ] && command -v node &>/dev/null; then
+if command -v node &>/dev/null; then
+    echo "  使用宿主 Node.js 编译..."
     cd "$LLM_FRONTEND"
-    npm install --production=false 2>/dev/null && npm run build
-    npx tailwindcss -i ./styles/main.css -o "$PROJECT_ROOT/llm_manager_integrated/static/assets/main.css" --minify \
-        --content "$PROJECT_ROOT/llm_manager_integrated/static/assets/**/*.html" \
-        --content ./scripts/**/*.js 2>/dev/null
-    sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
-    sed -i 's|https://cdn.tailwindcss.com;||g' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
-    cd "$PROJECT_ROOT"
+    npm install --production=false && npm run build
+    VITE_BUILT=true
+elif command -v docker &>/dev/null; then
+    echo "  使用 Docker 容器编译 (Node.js 不可用)..."
+    docker run --rm -v "$PROJECT_ROOT:/app" -w /app/llm_manager_integrated/frontend node:18-slim \
+        bash -c 'npm install --production=false && npm run build' 2>/dev/null
+    VITE_BUILT=true
+else
+    echo -e "${YELLOW}  警告: Node.js 和 Docker 均不可用，跳过 LLM Manager 前端编译${NC}"
+    VITE_BUILT=false
+fi
+if [ "$VITE_BUILT" = "true" ]; then
+    echo "  Tailwind CSS 编译..."
+    # 使用 Docker 容器执行 tailwindcss
+    docker run --rm -v "$PROJECT_ROOT:/app" -w /app/llm_manager_integrated/frontend node:18-slim \
+        bash -c "npx tailwindcss -i ./styles/main.css -o $LLM_STATIC/assets/main.css --minify --content \"../static/index.html\" --content \"./scripts/**/*.js\"" 2>/dev/null
+    # 修复 HTML 路径
+    sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$LLM_STATIC/index.html"
+    sed -i 's|https://cdn.tailwindcss.com;||g' "$LLM_STATIC/index.html"
+    sed -i 's|src="/static/scripts/main.js">|src="/llm-manager/scripts/main.js">|g' "$LLM_STATIC/index.html"
+    sed -i 's|href="/static/shared/|href="/llm-manager/shared/|g' "$LLM_STATIC/index.html"
+    sed -i 's|src="/static/shared/|src="/llm-manager/shared/|g' "$LLM_STATIC/index.html"
+    sed -i '/@apply/d' "$LLM_STATIC/index.html"
+    # 复制 shared 和 scripts
+    cp -r "$LLM_FRONTEND/shared" "$LLM_STATIC/" 2>/dev/null || true
+    cp -r "$LLM_FRONTEND/scripts" "$LLM_STATIC/" 2>/dev/null || true
 fi
 
 STEP=$((STEP + 1))

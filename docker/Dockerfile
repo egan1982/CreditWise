@@ -15,33 +15,8 @@ RUN npm install --production=false
 COPY demo/chat/ ./
 RUN npm run build
 
-# --- LLM Manager 前端完整构建 (Vite + Tailwind CSS) ---
-# OFFLINE_MODE=true 时使用 pre-compiled 产物（prepare_offline.sh），跳过 npm
-ARG OFFLINE_MODE=false
-RUN mkdir -p /build-llm/frontend /build-llm/static
-COPY llm_manager_integrated/frontend/package.json llm_manager_integrated/frontend/package-lock.json* /build-llm/frontend/
-WORKDIR /build-llm/frontend
-RUN if [ "$OFFLINE_MODE" != "true" ]; then \
-        npm install --production=false; fi
-COPY llm_manager_integrated/frontend/ /build-llm/frontend/
-RUN if [ "$OFFLINE_MODE" != "true" ]; then npm run build; fi
-RUN if [ "$OFFLINE_MODE" != "true" ]; then \
-        cp -r ../../shared ../static/ 2>/dev/null || true; \
-        cp -r ./shared ../static/ 2>/dev/null || true; \
-        cp -r ./scripts ../static/ 2>/dev/null || true; \
-    fi
-RUN if [ "$OFFLINE_MODE" != "true" ]; then \
-        ./node_modules/.bin/tailwindcss -i ./styles/main.css -o ../static/assets/main.css --minify \
-            --content "../static/index.html" --content "./scripts/**/*.js"; \
-    fi
-RUN if [ "$OFFLINE_MODE" != "true" ]; then \
-        sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' ../static/index.html; \
-        sed -i 's|https://cdn.tailwindcss.com;||g' ../static/index.html; \
-        sed -i 's|src="/static/scripts/main.js">|src="/llm-manager/scripts/main.js">|g' ../static/index.html; \
-        sed -i 's|href="/static/shared/|href="/llm-manager/shared/|g' ../static/index.html; \
-        sed -i 's|src="/static/shared/|src="/llm-manager/shared/|g' ../static/index.html; \
-        sed -i '/@apply/d' ../static/index.html; \
-    fi
+# LLM Manager 前端在 deploy_*.sh 中提前编译，产物已存在于 llm_manager_integrated/static/ 中
+# Dockerfile 仅负责 COPY（不执行 npm 构建，避免 CVM npm 网络问题）
 
 # Stage 2: 运行时
 FROM python:3.12-slim
