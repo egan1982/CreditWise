@@ -30,19 +30,21 @@ chmod +x scripts/deploy_linux.sh
 
 脚本会交互式引导：
 1. 选择部署模式（单用户 / 内网多用户）
-2. 自动检查端口占用和磁盘空间
+2. 自动检查端口占用和磁盘空间（≥2GB）
 3. 自动安装 Docker（如未安装）
 4. 配置环境变量和加密密钥
-5. 构建镜像并启动服务
+5. 构建镜像并启动服务（包含 LLM Manager 前端 Tailwind CSS 离线编译）
 
 ### 手动 Docker 启动
 
-```bash
-# 单用户模式
-cd docker && docker-compose up -d
+> ⚠️ `ENABLE_AUTH` 需通过 shell 环境变量传入，仅写 `.env` 不会被 `docker compose` 读取。
 
-# 内网多用户模式
-cd docker && ENABLE_AUTH=true docker-compose up -d
+```bash
+# 单用户模式（无认证）
+cd docker && docker compose up -d
+
+# 内网多用户模式（Basic Auth）
+cd docker && ENABLE_AUTH=true docker compose up -d
 ```
 
 ---
@@ -60,9 +62,9 @@ chmod +x scripts/prepare_offline.sh
 
 包含：
 - `images/` — python:3.12-slim + node:18-slim Docker 镜像
-- `wheels/` — 全部 Python 依赖的 wheel 文件
-- `npm-cache/` — 前端 Node.js 依赖
-- `tailwind/` — LLM Manager UI 静态资源
+- `wheels/` — 全部 Python 依赖的 wheel 文件（Python 3.12）
+- `npm-cache/` — 前端 Node.js 依赖缓存
+- `llm-manager-static/` — LLM Manager UI 静态资源（Tailwind CSS 已编译，CDN 引用已替换）
 
 ### 2.2 传输到内网服务器
 
@@ -83,18 +85,29 @@ chmod +x scripts/deploy_offline.sh
 
 ## 三、Docker 服务管理
 
+推荐使用 `service.sh` 统一管理，它会自动从 `.env` 读取 `ENABLE_AUTH` 等配置：
+
+```bash
+./scripts/service.sh start          # 启动（读取 .env 中的 ENABLE_AUTH）
+./scripts/service.sh start-noauth   # 强制无认证模式启动
+./scripts/service.sh stop           # 停止
+./scripts/service.sh restart        # 重启
+./scripts/service.sh status         # 查看状态 + 健康检查
+./scripts/service.sh logs           # 实时日志（Ctrl+C 退出）
+./scripts/service.sh hash <密码>    # 生成 bcrypt 密码哈希（多用户模式添加用户用）
+```
+
+也可以直接使用 `docker compose`（注意 `ENABLE_AUTH` 需显式传入）：
+
 ```bash
 # 查看日志
-cd docker && docker-compose logs -f
+cd docker && docker compose logs -f
 
 # 停止服务
-cd docker && docker-compose down
+cd docker && docker compose down
 
-# 重启服务（单用户）
-cd docker && docker-compose up -d
-
-# 重启服务（多用户）
-cd docker && ENABLE_AUTH=true docker-compose up -d
+# 重启服务（读取 .env 中 ENABLE_AUTH 变量）
+cd docker && ENABLE_AUTH=true docker compose up -d
 ```
 
 ---
@@ -119,6 +132,8 @@ sudo apt-get install -y \
 
 # macOS（无需额外依赖，Chromium 已内置）
 ```
+
+> 注意：Node.js 未安装时，脚本会自动跳过 LLM Manager 前端构建，使用已有的预编译产物（如有）。如需完整 UI，需提前安装 Node.js 18+。
 
 ### 4.2 Windows
 
@@ -155,7 +170,7 @@ python API/main.py
 
 ```bash
 # 通用命令
-./scripts/service.sh start          # 启动（开启认证）
+./scripts/service.sh start          # 启动（开启认证，读取 .env）
 ./scripts/service.sh start-noauth   # 启动（关闭认证）
 ./scripts/service.sh stop           # 停止
 ./scripts/service.sh restart        # 重启
@@ -199,22 +214,37 @@ tail -f logs/server.log
 
 ---
 
-## 五、部署模式切换
+## 六、部署模式切换
 
-通过在 `.env` 中设置 `ENABLE_AUTH`：
-- `ENABLE_AUTH=false`（或不设置）：单用户模式，无需登录
-- `ENABLE_AUTH=true`：内网多用户模式，Basic Auth 认证
+### ENABLE_AUTH 说明
 
-多用户模式需额外配置 `config/users.yaml`：
-1. 复制模板：`cp config/users.yaml.example config/users.yaml`
-2. 生成密码哈希：`python scripts/hash_password.py <密码>`
-3. 编辑 `config/users.yaml` 填入哈希值
+> ⚠️ **重要**：Docker 部署时，`ENABLE_AUTH` 需要在执行 `docker compose up` 时作为 shell 环境变量传入，`.env` 文件中的值**不会**被 `docker-compose.yml` 的 `${ENABLE_AUTH:-false}` 语法自动读取。
+>
+> 推荐使用 `./scripts/service.sh start` —— 该脚本会自动从 `.env` 读取并正确传递。
+
+| `ENABLE_AUTH` | 模式 | 说明 |
+|:---:|------|------|
+| `false`（默认） | 单用户 | 无需登录，适合个人使用 |
+| `true` | 内网多用户 | Basic Auth 认证，适合团队 |
+
+### 多用户模式配置 users.yaml
+
+```bash
+# 1. 复制模板
+cp config/users.yaml.example config/users.yaml
+
+# 2. 生成密码哈希
+./scripts/service.sh hash <密码>
+# 或：python scripts/hash_password.py <密码>
+
+# 3. 编辑 config/users.yaml 填入哈希值
+```
 
 > 📖 详细的用户管理说明（角色、有效期、账户锁定、运维命令）参见 `docs/intranet_deployment_guide.md` §3.3
 
 ---
 
-## 六、端口说明
+## 七、端口说明
 
 | 端口 | 服务 | 说明 |
 |:----:|------|------|
@@ -223,29 +253,49 @@ tail -f logs/server.log
 
 ---
 
-## 七、持久化数据
+## 八、持久化数据
 
-| 目录/文件 | 说明 |
-|-----------|------|
-| `workspace/` | 用户上传数据和分析结果 |
-| `execution_states/` | SOP 任务执行状态 |
-| `task_results/` | 任务结果缓存 |
-| `logs/` | 运行日志 |
-| `llm_manager.db` | LLM 渠道配置数据库 |
-| `task_manager.db` | 任务历史数据库 |
-| `config/users.yaml` | 用户账号配置（多用户模式） |
-| `config/login_state.json` | 登录失败状态（重启保留） |
+以下目录/文件在容器重启或重新部署后**需手动保留**：
+
+| 目录/文件 | 说明 | Docker volume |
+|-----------|------|:--:|
+| `workspace/` | 用户上传数据和分析结果 | ✅ |
+| `execution_states/` | SOP 任务执行状态 | ✅ |
+| `task_results/` | 任务结果缓存 | ✅ |
+| `logs/` | 运行日志 | ✅ |
+| `llm_manager.db` | LLM 渠道配置数据库 | ✅ |
+| `task_manager.db` | 任务历史数据库 | ✅ |
+| `config/users.yaml` | 用户账号配置（多用户模式） | ✅ |
+| `.env` | 加密密钥（⚠️ 丢失则 llm_manager.db 中的 API 密钥不可解密） | ✅ |
+
+> ⚠️ **加密密钥警告**：`.env` 中的 `LLM_MANAGER_ENCRYPTION_KEY` 是 LLM 渠道 API 密钥的加密密钥。重新部署时若更换密钥，已存储的 API 密钥将无法解密，需重新配置所有渠道。
 
 ---
 
-## 八、环境变量参考
+## 九、环境变量参考
 
 | 变量 | 必需 | 默认值 | 说明 |
 |------|:--:|--------|------|
-| `ENABLE_AUTH` | 否 | `false` | 是否启用 Basic Auth |
-| `LLM_MANAGER_ENCRYPTION_KEY` | 是 | — | Fernet 密钥，自动生成 |
+| `ENABLE_AUTH` | 否 | `false` | 是否启用 Basic Auth（见第六节） |
+| `LLM_MANAGER_ENCRYPTION_KEY` | 是 | 自动生成 | Fernet 密钥，加密渠道 API Key |
 | `API_HOST` | 否 | `0.0.0.0` | 监听地址 |
 | `API_PORT` | 否 | `8200` | API 端口 |
-| `CORS_ORIGINS` | 否 | — | CORS 允许的源 |
-| `DEV_MODE` | 否 | `false` | 开发模式 |
+| `DEV_MODE` | 否 | `false` | 开发模式（Docker 默认 false） |
+| `CORS_ORIGINS` | 否 | — | CORS 允许的源（生产模式同源无需配置） |
 | `LOG_LEVEL` | 否 | `INFO` | 日志级别 |
+
+---
+
+## 十、LLM Manager 前端说明
+
+LLM Manager（`/llm-manager`）的前端在不同模式下行为不同：
+
+| 模式 | 说明 |
+|------|------|
+| 开发模式（`DEV_MODE=true`） | 前端由 Vite Dev Server（`:3001`）提供，热更新。需在 `llm_manager_integrated/frontend/` 运行 `npm run dev` |
+| 生产模式（`DEV_MODE=false`，默认） | 前端静态文件在 Docker 构建阶段由 Tailwind CSS 离线编译，完全不依赖 CDN，内网可用 |
+
+Docker 构建阶段的前端处理流程：
+1. `npm run build` — Vite 构建，输出到 `static/assets/`
+2. `tailwindcss` — 编译 `styles/main.css`，输出 `static/assets/main.css`（离线 CSS）
+3. `sed` — 替换 CDN 引用为本地路径，删除内联 `<style>` 块，修正 CSP
