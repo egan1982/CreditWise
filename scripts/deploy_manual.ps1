@@ -157,18 +157,36 @@ if ($hasNode) {
             Write-Host "  WARNING: 主前端构建产物未找到" -ForegroundColor Yellow
         }
     }
-    # LLM Manager 前端 (Vite)
+    # LLM Manager 前端 (Vite + Tailwind CSS)
     if (Test-Path "llm_manager_integrated\frontend\package.json") {
         Write-Host "  构建 LLM Manager 前端 (Vite)..."
         Push-Location "llm_manager_integrated\frontend"
         & $npmCmd install
         & $npmCmd run build
-        Pop-Location
-        if (Test-Path "llm_manager_integrated\static\assets\index.html") {
-            Write-Host "  LLM Manager 前端构建成功" -ForegroundColor Green
+        # Tailwind CSS 离线编译（替代 CDN）
+        Write-Host "  编译 Tailwind CSS..."
+        $tailwindOut = Join-Path (Get-Location) "..\static\assets\main.css"
+        & $npmCmd exec tailwindcss -i ".\styles\main.css" -o $tailwindOut --minify 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            # 替换 CDN → 本地 CSS
+            $htmlFile = Join-Path (Get-Location) "..\static\assets\index.html"
+            if (Test-Path $htmlFile) {
+                $html = [System.IO.File]::ReadAllText($htmlFile, [System.Text.Encoding]::UTF8)
+                $html = $html -replace '<script src="https://cdn.tailwindcss.com[^"]*"></script>', '<link rel="stylesheet" href="/llm-manager/assets/main.css">'
+                $html = $html -replace ' https://cdn.tailwindcss.com', ''
+                $html = $html -replace 'http://localhost:8200 ', ''
+                # 删除内联 <style> 块（样式已由 main.css 提供）
+                $html = $html -replace '<style>[\s\S]*?</style>', ''
+                [System.IO.File]::WriteAllText($htmlFile, $html, [System.Text.Encoding]::UTF8)
+            }
+            # 复制 scripts 和 shared 到静态目录
+            Copy-Item "scripts" -Destination "..\static\" -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item "shared" -Destination "..\static\" -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "  LLM Manager 前端构建完成" -ForegroundColor Green
         } else {
-            Write-Host "  WARNING: LLM Manager 前端构建产物未找到" -ForegroundColor Yellow
+            Write-Host "  WARNING: Tailwind CSS 编译失败，LLM Manager 页面可能无样式" -ForegroundColor Yellow
         }
+        Pop-Location
     }
 } else {
     Write-Host "  跳过前端构建（Node.js 不可用）" -ForegroundColor Yellow
