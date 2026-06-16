@@ -34,8 +34,8 @@ $pyExe = $null
 foreach ($cmd in @("python", "python3")) {
     $found = Get-Command $cmd -ErrorAction SilentlyContinue
     if ($found) {
-        $ver = & $found.Source -c "import sys; v=sys.version_info; exit(0 if v.major==3 and v.minor>=10 else 1)" 2>$null
-        if ($LASTEXITCODE -eq 0) {
+        $verCheck = & $found.Source -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and [int]$verCheck -ge 310) {
             $pyExe = $found.Source
             break
         }
@@ -140,8 +140,9 @@ if ($envContent -match 'ENABLE_AUTH=') {
 if (-not ($envContent -match 'LLM_MANAGER_ENCRYPTION_KEY=.+')) {
     Write-Host "  自动生成加密密钥..." -ForegroundColor Yellow
     $key = & $venvPython -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    $envContent = $envContent -replace 'LLM_MANAGER_ENCRYPTION_KEY=\s*$', "LLM_MANAGER_ENCRYPTION_KEY=$key"
-    if (-not ($envContent -match "LLM_MANAGER_ENCRYPTION_KEY=$key")) {
+    if ($envContent -match 'LLM_MANAGER_ENCRYPTION_KEY=') {
+        $envContent = $envContent -replace 'LLM_MANAGER_ENCRYPTION_KEY=.*', "LLM_MANAGER_ENCRYPTION_KEY=$key"
+    } else {
         $envContent += "`nLLM_MANAGER_ENCRYPTION_KEY=$key"
     }
     Write-Host "  ⚠️  加密密钥已写入 .env，重新部署时请保留此文件，否则已存储的 API 密钥将无法解密" -ForegroundColor Yellow
