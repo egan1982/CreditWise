@@ -24,22 +24,22 @@ WORKDIR /build-llm/frontend
 RUN if [ "$OFFLINE_MODE" != "true" ]; then \
         npm install --production=false; fi
 COPY llm_manager_integrated/frontend/ /build-llm/frontend/
+RUN if [ "$OFFLINE_MODE" != "true" ]; then npm run build; fi
 RUN if [ "$OFFLINE_MODE" != "true" ]; then \
-        npm run build && \
-        # Vite build 输出了编译后的 JS 到 ../static/assets/
-        # publicDir 已禁用，手动复制 shared/ 和 scripts/ 到输出目录
-        cp -r ../../shared ../static/ 2>/dev/null || true && \
-        cp -r ./shared ../static/ 2>/dev/null || true && \
-        cp -r ./scripts ../static/ 2>/dev/null || true && \
-        npx tailwindcss -i ./styles/main.css -o ../static/assets/main.css --minify \
-            --content "../static/index.html" --content "./scripts/**/*.js" && \
-        # 修复 HTML 中的路径和 CDN 引用
-        sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' ../static/index.html && \
-        sed -i 's|https://cdn.tailwindcss.com;||g' ../static/index.html && \
-        sed -i 's|src="/static/scripts/main.js">|src="/llm-manager/scripts/main.js">|g' ../static/index.html && \
-        sed -i 's|href="/static/shared/|href="/llm-manager/shared/|g' ../static/index.html && \
-        sed -i 's|src="/static/shared/|src="/llm-manager/shared/|g' ../static/index.html && \
-        # 移除内联 @apply 样式（已在 styles/main.css 中由 Tailwind CLI 编译）
+        cp -r ../../shared ../static/ 2>/dev/null || true; \
+        cp -r ./shared ../static/ 2>/dev/null || true; \
+        cp -r ./scripts ../static/ 2>/dev/null || true; \
+    fi
+RUN if [ "$OFFLINE_MODE" != "true" ]; then \
+        ./node_modules/.bin/tailwindcss -i ./styles/main.css -o ../static/assets/main.css --minify \
+            --content "../static/index.html" --content "./scripts/**/*.js"; \
+    fi
+RUN if [ "$OFFLINE_MODE" != "true" ]; then \
+        sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' ../static/index.html; \
+        sed -i 's|https://cdn.tailwindcss.com;||g' ../static/index.html; \
+        sed -i 's|src="/static/scripts/main.js">|src="/llm-manager/scripts/main.js">|g' ../static/index.html; \
+        sed -i 's|href="/static/shared/|href="/llm-manager/shared/|g' ../static/index.html; \
+        sed -i 's|src="/static/shared/|src="/llm-manager/shared/|g' ../static/index.html; \
         sed -i '/@apply/d' ../static/index.html; \
     fi
 
