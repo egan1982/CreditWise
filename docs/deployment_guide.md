@@ -36,6 +36,7 @@
 | **Docker Compose** | 2.0+（Compose V2）| 使用 `docker compose`（无连字符）语法 |
 | **Python** | 3.10 – 3.12 | 非 Docker 部署时需手动安装；Docker 镜像内置 3.12 |
 | **Node.js** | 18+ | 仅开发模式或手动重新构建前端时需要；Docker 构建阶段已包含 |
+| **PowerShell** | 7.0+ (pwsh) | Windows 非 Docker 部署必需；系统自带的 Windows PowerShell 5.1 **无法运行部署脚本**（Git 仓库文件为 LF 换行，5.1 不兼容） |
 | **开放端口** | 8200、8100 | 8200 主服务，8100 文件下载服务；需在云服务器安全组中放行 |
 
 ### CPU 架构

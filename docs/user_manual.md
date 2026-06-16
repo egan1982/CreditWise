@@ -89,6 +89,8 @@ ENABLE_AUTH=true docker-compose up -d
 
 ### 1.2 非 Docker 部署（Windows 生产环境）
 
+> ⚠️ **前置要求**：需安装 [PowerShell 7+ (pwsh)](https://github.com/PowerShell/PowerShell)。系统自带的 Windows PowerShell 5.1 **无法运行部署脚本**，因为 Git 仓库中的脚本文件使用 LF 换行，5.1 无法解析。
+
 使用 `scripts/start_prod.ps1` 启动生产服务：
 
 ```powershell

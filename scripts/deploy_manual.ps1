@@ -1,11 +1,6 @@
 # =============================================================================
-# CreditWise 非 Docker 部署脚本（Windows）
-#
-# 用法：.\scripts\deploy_manual.ps1
-#
-# 前置条件（需提前安装并加入 PATH）：
-#   - Python ≥ 3.10
-#   - Node.js ≥ 18（如需构建前端；未安装则跳过，但主界面将不可用）
+# CreditWise Windows 一键部署
+# 用法: .\scripts\deploy_manual.ps1
 # =============================================================================
 
 $ErrorActionPreference = "Stop"
@@ -29,60 +24,83 @@ Write-Host ""
 # [1] 依赖检查
 Write-Host "[1] 依赖检查"
 
-# --- Python ---
+# Python (所有 Python 内联代码用变量存储，避免单引号)
+$PY_CHK = "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)"
+$PY_VER_CODE = "import sys; v=sys.version_info; print(str(v.major)+'.'+str(v.minor)+'.'+str(v.micro))"
 $pyExe = $null
 foreach ($cmd in @("python", "python3")) {
     $found = Get-Command $cmd -ErrorAction SilentlyContinue
-    if ($found) {
-        $verCheck = & $found.Source -c "import sys; print(sys.version_info.major * 100 + sys.version_info.minor)" 2>$null
+    if (-not $found) { continue }
+    # 跳过 Microsoft Store 占位符（实际没有安装 Python 的假入口）
+    if ($found.Source -match "WindowsApps") { continue }
+    try {
+        $verCheck = & $found.Source -c $PY_CHK 2>$null
         if ($LASTEXITCODE -eq 0 -and [int]$verCheck -ge 310) {
             $pyExe = $found.Source
             break
         }
-    }
+    } catch {}
 }
 if (-not $pyExe) {
     Write-Host "ERROR: 未找到 Python 3.10+。请安装 Python 并确保其已加入系统 PATH。" -ForegroundColor Red
     Write-Host "       下载地址: https://www.python.org/downloads/" -ForegroundColor Gray
     exit 1
 }
-$pyVer = & $pyExe -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
+$pyVer = & $pyExe -c $PY_VER_CODE
 Write-Host "  Python $pyVer  ($pyExe)" -ForegroundColor Green
 
-# --- Node.js ---
+# Node.js
 $hasNode = $false
 $npmCmd = $null
 $nodeFound = Get-Command node -ErrorAction SilentlyContinue
 if ($nodeFound) {
     $nodeVer = & node -v
-    $nodeMajor = [int]($nodeVer -replace 'v','' -split '\.')[0]
+    $nodeMajor = [int]($nodeVer -replace "v","" -split "\.")[0]
     if ($nodeMajor -ge 18) {
         $hasNode = $true
-        $npmCmd = (Get-Command npm -ErrorAction SilentlyContinue)?.Source ?? "npm"
+        $npmExe = Get-Command npm -ErrorAction SilentlyContinue
+        if ($npmExe) { $npmCmd = $npmExe.Source } else { $npmCmd = "npm" }
         Write-Host "  Node.js $nodeVer" -ForegroundColor Green
     } else {
-        Write-Host "  WARNING: Node.js $nodeVer 版本过低（需要 >=18），将跳过前端构建" -ForegroundColor Yellow
-        Write-Host "           主界面将不可用，如需完整功能请升级 Node.js: https://nodejs.org/" -ForegroundColor Gray
+        Write-Host "  WARNING: Node.js $nodeVer 版本过低(需要>=18), 将跳过前端构建" -ForegroundColor Yellow
     }
 } else {
-    Write-Host "  WARNING: 未在 PATH 中找到 Node.js，将跳过前端构建" -ForegroundColor Yellow
-    Write-Host "           主界面将不可用，如需完整功能请安装 Node.js 18+: https://nodejs.org/" -ForegroundColor Gray
+    Write-Host "  WARNING: 未在 PATH 中找到 Node.js, 将跳过前端构建" -ForegroundColor Yellow
 }
 
-# --- 端口检查 ---
+# 端口检查
+$portBlocked = $false
 foreach ($port in @(8200, 8100)) {
     $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if ($conn) {
-        Write-Host "ERROR: 端口 $port 已被 PID $($conn.OwningProcess) 占用，请先释放该端口" -ForegroundColor Red
+        $blockPid = $conn.OwningProcess
+        Write-Host "  端口 $port 已被 PID $blockPid 占用" -ForegroundColor Yellow
+        $portBlocked = $true
+    }
+}
+if ($portBlocked) {
+    $choice = Read-Host "  是否强制结束占用进程? [y/N]"
+    if ($choice -eq "y" -or $choice -eq "Y") {
+        foreach ($port in @(8200, 8100)) {
+            $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+            if ($conn) {
+                Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+                Write-Host "  已终止 PID $($conn.OwningProcess) (端口 $port)" -ForegroundColor Green
+            }
+        }
+        Start-Sleep 1
+    } else {
+        Write-Host "  请手动释放端口后重试" -ForegroundColor Red
         exit 1
     }
 }
 Write-Host "  端口 8200, 8100 可用" -ForegroundColor Green
 
-# --- 磁盘空间 ---
+# 磁盘
 $disk = Get-PSDrive -Name (Get-Location).Drive.Name
 if ($disk.Free -lt 2GB) {
-    Write-Host "ERROR: 磁盘可用空间不足 2GB（当前 $([math]::Round($disk.Free/1GB,1)) GB）" -ForegroundColor Red
+    $freeGB = [math]::Round($disk.Free / 1GB, 1)
+    Write-Host "ERROR: 磁盘可用空间不足 2GB（当前 ${freeGB} GB）" -ForegroundColor Red
     exit 1
 }
 Write-Host ""
@@ -93,7 +111,29 @@ $projectRoot = (Get-Location).Path
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
     Write-Host "  创建 .venv ..."
-    & $pyExe -m venv .venv
+    # 尝试 venv (Python 3.3+)，失败则回退到 virtualenv
+    $venvOk = $false
+    try {
+        & $pyExe -m venv .venv 2>$null
+        if ($LASTEXITCODE -eq 0) { $venvOk = $true }
+    } catch {}
+    if (-not $venvOk) {
+        Write-Host "  venv 不可用，尝试 virtualenv ..."
+        try {
+            & $pyExe -m pip install virtualenv -q 2>$null
+            & $pyExe -m virtualenv .venv 2>$null
+            if ($LASTEXITCODE -eq 0) { $venvOk = $true }
+        } catch {}
+    }
+    if (-not $venvOk) {
+        Write-Host "ERROR: 无法创建虚拟环境 (venv/virtualenv 均失败)" -ForegroundColor Red
+        Write-Host "       请确保 Python 安装完整或手动创建 .venv" -ForegroundColor Red
+        exit 1
+    }
+    if (-not (Test-Path $venvPython)) {
+        Write-Host "ERROR: .venv 创建后未找到 python.exe" -ForegroundColor Red
+        exit 1
+    }
 }
 Write-Host "  安装 Python 依赖（首次约需 3-5 分钟）..."
 & $venvPython -m pip install --upgrade pip -q
@@ -104,22 +144,21 @@ Write-Host ""
 # [3] 前端构建
 Write-Host "[3] 构建前端"
 if ($hasNode) {
-    if (Test-Path "demo/chat/package.json") {
+    if (Test-Path "demo\chat\package.json") {
         Write-Host "  npm install ..."
-        Push-Location "demo/chat"
+        Push-Location "demo\chat"
         & $npmCmd install
         Write-Host "  npm run build ..."
         & $npmCmd run build
         Pop-Location
-        if (Test-Path "demo/chat/dist/index.html") {
+        if (Test-Path "demo\chat\dist\index.html") {
             Write-Host "  前端构建成功" -ForegroundColor Green
         } else {
-            Write-Host "  WARNING: 构建产物未找到，请检查上方构建日志" -ForegroundColor Yellow
+            Write-Host "  WARNING: 构建产物未找到" -ForegroundColor Yellow
         }
     }
 } else {
     Write-Host "  跳过前端构建（Node.js 不可用）" -ForegroundColor Yellow
-    Write-Host "  ⚠️  生产模式主界面需要前端构建产物，服务启动后 http://localhost:8200 将无法访问" -ForegroundColor Yellow
 }
 Write-Host ""
 
@@ -130,47 +169,51 @@ if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
 }
 
-# 逐行读写 .env，避免 PowerShell 正则替换与特殊字符（=、+、/）冲突
-$envLines = [System.IO.File]::ReadAllLines((Resolve-Path ".env").Path, [System.Text.Encoding]::UTF8)
+# 逐行读写 .env — 不用任何单引号字符串，全用双引号变量规避编码问题
+$envPath = (Resolve-Path ".env").Path
+$envLines = [System.IO.File]::ReadAllLines($envPath, [System.Text.Encoding]::UTF8)
+$CK_AUTH = "ENABLE_AUTH="
+$CK_ENCR = "LLM_MANAGER_ENCRYPTION_KEY="
 
-# 生成加密密钥（如果尚未设置）
 $needKey = $true
 foreach ($line in $envLines) {
-    if ($line.Trim().StartsWith('LLM_MANAGER_ENCRYPTION_KEY=') -and $line.Trim().Length -gt 'LLM_MANAGER_ENCRYPTION_KEY='.Length) { $needKey = $false; break }
+    $t = $line.Trim()
+    if ($t.StartsWith($CK_ENCR) -and $t.Length -gt $CK_ENCR.Length) {
+        $needKey = $false
+        break
+    }
 }
 $newKey = $null
 if ($needKey) {
     Write-Host "  自动生成加密密钥..." -ForegroundColor Yellow
-    $newKey = & $venvPython -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    Write-Host "  ⚠️  加密密钥已写入 .env，重新部署时请保留此文件，否则已存储的 API 密钥将无法解密" -ForegroundColor Yellow
+    $FK_CODE = "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    $newKey = & $venvPython -c $FK_CODE
+    Write-Host "  [注意] 加密密钥已写入 .env，重新部署时请保留此文件" -ForegroundColor Yellow
 }
 
-# 重写 .env 逐行替换目标 key
 $newLines = [System.Collections.Generic.List[string]]::new()
 $authSet = $false
 $keySet = $false
 foreach ($line in $envLines) {
-    $trimLine = $line.Trim()
-    if ($trimLine.StartsWith('ENABLE_AUTH=')) {
-        $newLines.Add("ENABLE_AUTH=$ENABLE_AUTH")
+    $t = $line.Trim()
+    if ($t.StartsWith($CK_AUTH)) {
+        $newLines.Add($CK_AUTH + $ENABLE_AUTH)
         $authSet = $true
-    } elseif ($trimLine.StartsWith('LLM_MANAGER_ENCRYPTION_KEY=') -and $newKey) {
-        $newLines.Add("LLM_MANAGER_ENCRYPTION_KEY=$newKey")
+    } elseif ($t.StartsWith($CK_ENCR) -and $newKey) {
+        $newLines.Add($CK_ENCR + $newKey)
         $keySet = $true
     } else {
         $newLines.Add($line)
     }
 }
-if (-not $authSet) { $newLines.Add("ENABLE_AUTH=$ENABLE_AUTH") }
-if ($newKey -and -not $keySet) { $newLines.Add("LLM_MANAGER_ENCRYPTION_KEY=$newKey") }
+if (-not $authSet) { $newLines.Add($CK_AUTH + $ENABLE_AUTH) }
+if ($newKey -and -not $keySet) { $newLines.Add($CK_ENCR + $newKey) }
 
-[System.IO.File]::WriteAllLines((Resolve-Path ".env").Path, $newLines, [System.Text.Encoding]::UTF8)
-
-
+[System.IO.File]::WriteAllLines($envPath, $newLines, [System.Text.Encoding]::UTF8)
 
 if ($ENABLE_AUTH -eq "true") {
-    if (-not (Test-Path "config/users.yaml")) {
-        Copy-Item "config/users.yaml.example" "config/users.yaml"
+    if (-not (Test-Path "config\users.yaml")) {
+        Copy-Item "config\users.yaml.example" "config\users.yaml"
         Write-Host "  已创建 config/users.yaml，请编辑并添加用户账号" -ForegroundColor Yellow
     }
 }
@@ -188,8 +231,7 @@ $env:API_PORT = "8200"
 $env:PYTHONPATH = "$projectRoot;$apiDir"
 $env:PYTHONUNBUFFERED = "1"
 
-Start-Process -FilePath $venvPython -ArgumentList (Join-Path $projectRoot "API\main.py") `
-    -NoNewWindow -WorkingDirectory $projectRoot
+Start-Process -FilePath $venvPython -ArgumentList (Join-Path $projectRoot "API\main.py") -NoNewWindow -WorkingDirectory $projectRoot
 
 Write-Host "  等待服务就绪..."
 $ok = $false
@@ -221,5 +263,3 @@ Write-Host " 查看日志:    Get-Content logs\server.log -Tail 50 -Wait"
 Write-Host ""
 Write-Host " 首次使用请先在 LLM Manager 中添加并激活一个 LLM 渠道。"
 Write-Host ""
-
-
