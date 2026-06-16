@@ -123,31 +123,49 @@ if ($hasNode) {
 }
 Write-Host ""
 
+
 # [4] 环境配置
 Write-Host "[4] 配置环境"
 if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
 }
 
-$envContent = [System.IO.File]::ReadAllText((Resolve-Path ".env").Path, [System.Text.Encoding]::UTF8)
+# 逐行读写 .env，避免 PowerShell 正则替换与特殊字符（=、+、/）冲突
+$envLines = [System.IO.File]::ReadAllLines((Resolve-Path ".env").Path, [System.Text.Encoding]::UTF8)
 
-if ($envContent -match 'ENABLE_AUTH=') {
-    $envContent = $envContent -replace 'ENABLE_AUTH=.*', "ENABLE_AUTH=$ENABLE_AUTH"
-} else {
-    $envContent += "`nENABLE_AUTH=$ENABLE_AUTH"
+# 生成加密密钥（如果尚未设置）
+$needKey = $true
+foreach ($line in $envLines) {
+    if ($line -match '^LLM_MANAGER_ENCRYPTION_KEY=.+') { $needKey = $false; break }
 }
-
-if (-not ($envContent -match 'LLM_MANAGER_ENCRYPTION_KEY=.+')) {
+$newKey = $null
+if ($needKey) {
     Write-Host "  自动生成加密密钥..." -ForegroundColor Yellow
-    $key = & $venvPython -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    if ($envContent -match 'LLM_MANAGER_ENCRYPTION_KEY=') {
-        $envContent = $envContent -replace 'LLM_MANAGER_ENCRYPTION_KEY=.*', "LLM_MANAGER_ENCRYPTION_KEY=$key"
-    } else {
-        $envContent += "`nLLM_MANAGER_ENCRYPTION_KEY=$key"
-    }
+    $newKey = & $venvPython -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     Write-Host "  ⚠️  加密密钥已写入 .env，重新部署时请保留此文件，否则已存储的 API 密钥将无法解密" -ForegroundColor Yellow
 }
-[System.IO.File]::WriteAllText((Resolve-Path ".env").Path, $envContent, [System.Text.Encoding]::UTF8)
+
+# 重写 .env 逐行替换目标 key
+$newLines = [System.Collections.Generic.List[string]]::new()
+$authSet = $false
+$keySet = $false
+foreach ($line in $envLines) {
+    if ($line -match '^ENABLE_AUTH=') {
+        $newLines.Add("ENABLE_AUTH=$ENABLE_AUTH")
+        $authSet = $true
+    } elseif ($line -match '^LLM_MANAGER_ENCRYPTION_KEY=' -and $newKey) {
+        $newLines.Add("LLM_MANAGER_ENCRYPTION_KEY=$newKey")
+        $keySet = $true
+    } else {
+        $newLines.Add($line)
+    }
+}
+if (-not $authSet) { $newLines.Add("ENABLE_AUTH=$ENABLE_AUTH") }
+if ($newKey -and -not $keySet) { $newLines.Add("LLM_MANAGER_ENCRYPTION_KEY=$newKey") }
+
+[System.IO.File]::WriteAllLines((Resolve-Path ".env").Path, $newLines, [System.Text.Encoding]::UTF8)
+
+
 
 if ($ENABLE_AUTH -eq "true") {
     if (-not (Test-Path "config/users.yaml")) {
