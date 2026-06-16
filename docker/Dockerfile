@@ -24,6 +24,8 @@ COPY llm_manager_integrated/frontend/ /build-llm/
 # Vite 产物 outDir: '../static' -> /static/
 # Tailwind 扫描 /static/index.html（源 HTML）输出离线 CSS
 RUN chmod +x node_modules/.bin/vite node_modules/.bin/tailwindcss 2>/dev/null || true && \
+    echo "=== Files in WORKDIR ===" && ls -la && \
+    echo "=== scripts/ dir ===" && ls scripts/ 2>/dev/null || echo "NO scripts/ dir" && \
     npm run build && \
     echo "=== scripts/main.js class count ===" && \
     grep -c 'class=' ./scripts/main.js 2>/dev/null || echo "NO scripts/main.js" && \
