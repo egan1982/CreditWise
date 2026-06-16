@@ -191,18 +191,19 @@ sudo bash scripts/deploy_linux.sh  # 选 [2] 内网多用户
 
 ### 验证通过标准
 
-- [ ] 测试 1：Docker 单用户模式 — 无认证可访问，端口自检通过
+- [x] 测试 1：Docker 单用户模式 — 无认证可访问，端口自检通过
 - [x] 测试 2：Docker 多用户 + service.sh — 401 保护，从 .env 读配置，6 用户正常
 - [x] 测试 3：离线 Docker 部署 — 端口/磁盘自检通过，服务健康（Docker Py3.12 wheels）
 - [x] 测试 4：非 Docker 手动部署 — Python/node 依赖检查，pip 安装，服务启动，401 保护
 - [x] 全部模式：8200+8100 双端口正常监听
 - [x] 全部模式：`curl /health` 返回 `{"status":"healthy"}`
+- [x] LLM Manager UI：样式正常，Tab 横向，数据自动加载，模型配置面板可用（第二轮 6/16）
 
 ---
 
 ## 五、实测结果记录
 
-> 测试日期：2026-06-12 | 代码版本：`0557956` | 测试人：AI via fjzheng
+### 第一轮测试（2026-06-12 | 代码版本 `0557956`）
 
 | 测试 | 结果 | 耗时 | 关键发现 |
 |------|:--:|------|------|
@@ -211,10 +212,46 @@ sudo bash scripts/deploy_linux.sh  # 选 [2] 内网多用户
 | 测试 3：离线 Docker（清缓存） | ✅ | ~3min | 发现并修复：①Docker Compose v1→v2 ②Py3.11→3.12 wheel 版本匹配 |
 | 测试 4：非 Docker 手动部署 | ✅ | ~3min | Node.js 未安装时正确跳过前端构建；kaleido 系统库缺失警告正常 |
 
-### 测试中修复的问题
+### 第一轮测试中修复的问题
 
 | 问题 | 修复 | Commit |
 |------|------|--------|
 | CVM 上 `docker-compose` v1 命令不存在 | 3 个脚本 `docker-compose` → `docker compose` + 移除 compose.yml `version` 字段 | `df2ee15` |
 | `prepare_offline.sh` 用宿主 Python 3.11 下载 wheel，Docker 镜像 Python 3.12 不兼容 | 改用 `docker run python:3.12-slim pip download` | `0557956` |
-| Dockerfile `COPY || true` 语法无效 | 改用 `.offline_wheels/` 空目录 + `OFFLINE_MODE` build-arg | `d5d549b` → `e2942fe` |
+| Dockerfile `COPY \|\| true` 语法无效 | 改用 `.offline_wheels/` 空目录 + `OFFLINE_MODE` build-arg | `d5d549b` → `e2942fe` |
+
+---
+
+### 第二轮测试（2026-06-16 | 代码版本 `cc89b0e`）
+
+> 重新测试背景：LLM Manager 部署修复（含 Tailwind 离线编译、API 500、UI 三问题）
+
+| 测试 | 结果 | 验证方法 | 关键发现 |
+|------|:--:|------|------|
+| **测试1：Docker 多用户模式** | ✅ | `curl /health` → 200；`POST /v1/chat` 无认证 → 401；`/llm-manager/` → 200；`/llm-manager/api/manage/channels` → 200 | `ENABLE_AUTH` 需通过 `ENABLE_AUTH=true docker compose up` 传入，而非仅写 `.env` |
+| **测试3：离线 Docker 逻辑验证** | ✅ | 检查 `deploy_offline.sh` 无 `llm-manager-static/` 时的处理逻辑 | 正确跳过并依赖 Dockerfile Stage1 编译；需重新执行 `prepare_offline.sh` 更新离线包 |
+| **测试4：非 Docker 前端编译验证** | ✅ | CVM 无系统级 Node.js，`deploy_manual.sh` `HAS_NODE=false` 正确跳过 | 与预期一致 |
+| **LLM Manager UI 验证** | ✅ | 浏览器访问 `fjzheng.devcloud.woa.com:8200/llm-manager/` | 样式正常；Tab 横向排列；数据自动加载；模型配置面板可打开 |
+
+### 第二轮测试发现的问题与修复
+
+| 问题 | 根因 | 修复 Commit |
+|------|------|--------|
+| LLM Manager 页面 404 | `cors_origins` 残留引用导致 `create_app()` 崩溃 | `089ccc8` |
+| API 请求 500 | 生产模式跳过子应用 startup，`app.state.db_manager` 未初始化 | `e3c21bc` |
+| 页面无样式（完全裸布局） | `<style>` 空规则块覆盖 `main.css` 组件定义 | `67c3d1a` |
+| Tab 纵向排列 | `nav-tabs` 等样式未迁移到 `styles/main.css` | `cc89b0e` |
+| 配置管理不自动加载 | 脚本路径 `../shared/` 在 `/llm-manager/` 路径下 404 | `cc89b0e` |
+| 模型配置面板失效 | 同上，`model-config.js` 未加载 | `cc89b0e` |
+| 离线编译 CSS 不完整 | `--content` CLI 参数覆盖 `tailwind.config.js`；Windows node_modules 在 Linux 损坏 | `6985942` + `0282342` |
+
+### ⚠️ 第二轮测试补充发现
+
+**`ENABLE_AUTH` 传入方式**：`docker-compose.yml` 中 `ENABLE_AUTH=${ENABLE_AUTH:-false}` 要求在执行 `docker compose up` 时通过 shell 环境变量传入，`.env` 文件中的值不会被 docker compose 的 `${VAR:-default}` 语法读取。
+
+正确用法：
+```bash
+ENABLE_AUTH=true docker compose -f docker/docker-compose.yml up -d
+# 或使用 service.sh（从 .env 读取后传给 docker compose）
+sudo bash scripts/service.sh start
+```
