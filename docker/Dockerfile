@@ -22,10 +22,14 @@ RUN mkdir -p /build-llm/frontend /build-llm/static
 COPY llm_manager_integrated/frontend/package.json llm_manager_integrated/frontend/package-lock.json* /build-llm/frontend/
 WORKDIR /build-llm/frontend
 RUN if [ "$OFFLINE_MODE" != "true" ]; then \
-        npm install --production=false && \
+        npm install --production=false; fi
+COPY llm_manager_integrated/frontend/ /build-llm/frontend/
+RUN if [ "$OFFLINE_MODE" != "true" ]; then \
         npm run build && \
         npx tailwindcss -i ./styles/main.css -o ../static/assets/main.css --minify \
             --content "../static/assets/**/*.html" --content "./scripts/**/*.js"; \
+        sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' ../static/assets/index.html; \
+        sed -i 's|https://cdn.tailwindcss.com;||g' ../static/assets/index.html; \
     else \
         echo "Offline mode: using pre-compiled LLM Manager frontend"; \
     fi
