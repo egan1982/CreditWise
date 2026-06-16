@@ -15,23 +15,23 @@ RUN npm install --production=false
 COPY demo/chat/ ./
 RUN npm run build
 
-# --- LLM Manager 前端 (Vite + Tailwind CSS) ---
-# OFFLINE_MODE=true 时使用 pre-compiled 产物，跳过 npm
+# --- LLM Manager 前端 Tailwind CSS 编译 (离线就绪) ---
+# Vite JS 编译已在 prepare_offline.sh / deploy_*.sh 中完成，此处仅编译 Tailwind CSS
+# 使得 Docker 镜像自带离线可用的完整 CSS（main.css 由 Tailwind CLI 生成）
 ARG OFFLINE_MODE=false
-RUN mkdir -p /build-llm/frontend /build-llm/static
+RUN mkdir -p /build-llm/frontend /build-llm/static-assets
 COPY llm_manager_integrated/frontend/package.json llm_manager_integrated/frontend/package-lock.json* /build-llm/frontend/
+COPY llm_manager_integrated/frontend/styles/ /build-llm/frontend/styles/
+COPY llm_manager_integrated/frontend/tailwind.config.js /build-llm/frontend/
+COPY llm_manager_integrated/frontend/scripts/ /build-llm/frontend/scripts/
+COPY llm_manager_integrated/static/assets/index.html /build-llm/static-assets/
 WORKDIR /build-llm/frontend
 RUN if [ "$OFFLINE_MODE" != "true" ]; then \
-        npm install --production=false; fi
-COPY llm_manager_integrated/frontend/ /build-llm/frontend/
-RUN if [ "$OFFLINE_MODE" != "true" ]; then \
-        npm run build && \
-        npx tailwindcss -i ./styles/main.css -o ../static/assets/main.css --minify \
-            --content "../static/assets/**/*.html" --content "./scripts/**/*.js"; \
-        sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' ../static/assets/index.html; \
-        sed -i 's|https://cdn.tailwindcss.com;||g' ../static/assets/index.html; \
-    else \
-        echo "Offline mode: using pre-compiled LLM Manager frontend"; \
+        npm install --production=false && \
+        npx tailwindcss -i ./styles/main.css -o ../static-assets/main.css --minify \
+            --content "../static-assets/index.html" --content "./scripts/**/*.js" && \
+        sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' ../static-assets/index.html && \
+        sed -i 's|https://cdn.tailwindcss.com;||g' ../static-assets/index.html; \
     fi
 
 # Stage 2: 运行时
@@ -95,7 +95,8 @@ COPY deepanalyze.py .
 # 复制前端构建产物（Next.js static export + LLM Manager Vite 编译）
 # 生产模式下 FastAPI 直接提供静态文件
 COPY --from=frontend-builder /build/dist ./demo/chat/dist
-COPY --from=frontend-builder /build-llm/static/assets/ ./llm_manager_integrated/static/assets/
+COPY --from=frontend-builder /build-llm/static-assets/main.css ./llm_manager_integrated/static/assets/main.css
+COPY --from=frontend-builder /build-llm/static-assets/index.html ./llm_manager_integrated/static/assets/index.html
 
 # 创建必要的目录
 RUN mkdir -p workspace execution_states task_results logs config
