@@ -223,6 +223,22 @@ done
 STEP=$((STEP + 1))
 
 echo ""
+echo -e "${GREEN}[${STEP}] 编译 LLM Manager 前端${NC}"
+LLM_FRONTEND="$PROJECT_ROOT/llm_manager_integrated/frontend"
+if [ -f "$LLM_FRONTEND/package.json" ] && command -v node &>/dev/null; then
+    cd "$LLM_FRONTEND"
+    npm install --production=false 2>/dev/null && npm run build
+    npx tailwindcss -i ./styles/main.css -o "$PROJECT_ROOT/llm_manager_integrated/static/assets/main.css" --minify \
+        --content "$PROJECT_ROOT/llm_manager_integrated/static/assets/**/*.html" \
+        --content ./scripts/**/*.js 2>/dev/null
+    sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
+    sed -i 's|https://cdn.tailwindcss.com;||g' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
+    cd "$PROJECT_ROOT"
+fi
+
+STEP=$((STEP + 1))
+
+echo ""
 echo -e "${GREEN}[${STEP}] 构建 Docker 镜像${NC}"
 cd "$PROJECT_ROOT/docker"
 echo "构建中，首次可能需要 5-10 分钟..."

@@ -98,15 +98,35 @@ echo -e "${GREEN}  ✅ Node.js 依赖下载完成${NC}"
 # =============================================================================
 # [4/5] 编译 Tailwind CSS 静态文件
 # =============================================================================
-echo -e "${GREEN}[4/5] 编译 Tailwind CSS 静态文件${NC}"
+echo -e "${GREEN}[4/5] 编译 LLM Manager 前端（Vite JS + Tailwind CSS）${NC}"
 
-# 复制相关文件
-mkdir -p "$BUNDLE_DIR/tailwind"
-cp "$PROJECT_ROOT/llm_manager_integrated/static/index.html" "$BUNDLE_DIR/tailwind/" 2>/dev/null || true
-cp "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html" "$BUNDLE_DIR/tailwind/assets.html" 2>/dev/null || true
+LLM_FRONTEND_DIR="$PROJECT_ROOT/llm_manager_integrated/frontend"
+LLM_STATIC_DIR="$PROJECT_ROOT/llm_manager_integrated/static"
 
-echo -e "${GREEN}  ✅ Tailwind 文件已复制到离线包${NC}"
-echo -e "${YELLOW}  ⚠️ 注意：当前仍使用 CDN 版 Tailwind，如需离线请先运行本地编译${NC}"
+if [ -f "$LLM_FRONTEND_DIR/package.json" ]; then
+    cd "$LLM_FRONTEND_DIR"
+    echo "  安装 npm 依赖..."
+    npm install --production=false 2>/dev/null || {
+        echo -e "${RED}npm install 失败，请确保 Node.js >= 18 已安装${NC}"
+        exit 1
+    }
+    echo "  Vite 构建..."
+    npm run build
+    echo "  Tailwind CSS 编译..."
+    npx tailwindcss -i ./styles/main.css -o "$LLM_STATIC_DIR/assets/main.css" --minify \
+        --content "$LLM_STATIC_DIR/assets/**/*.html" \
+        --content ./scripts/**/*.js \
+        2>&1 | tail -1
+    # 替换 CDN → 本地 CSS
+    sed -i 's|<script src="https://cdn.tailwindcss.com.*></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$LLM_STATIC_DIR/assets/index.html"
+    sed -i 's|https://cdn.tailwindcss.com;||g' "$LLM_STATIC_DIR/assets/index.html"
+    cd "$PROJECT_ROOT"
+fi
+
+# 保存编译产物到离线包
+mkdir -p "$BUNDLE_DIR/llm-manager-static/assets"
+cp -r "$LLM_STATIC_DIR/assets"/* "$BUNDLE_DIR/llm-manager-static/assets/" 2>/dev/null || true
+echo -e "${GREEN}  ✅ LLM Manager 前端编译完成（离线可用）${NC}"
 
 # =============================================================================
 # [5/5] 打包

@@ -148,6 +148,14 @@ done
 # =============================================================================
 # [4] 构建并启动
 # =============================================================================
+
+# 恢复 LLM Manager 编译产物
+LLM_STATIC="$PROJECT_ROOT/llm_manager_integrated/static/assets"
+if [ -d "$BUNDLE_DIR/llm-manager-static/assets" ]; then
+    echo -e "${GREEN}  恢复 LLM Manager 编译前端...${NC}"
+    cp -r "$BUNDLE_DIR/llm-manager-static/assets"/* "$LLM_STATIC/" 2>/dev/null || true
+fi
+
 echo -e "${GREEN}[4] 构建 Docker 镜像${NC}"
 cd "$PROJECT_ROOT/docker"
 
