@@ -47,3 +47,6 @@ deepanalyze/SkyRL/
 deepanalyze/ms-swift/
 playground/
 
+# Node.js 依赖（由 Docker 内重新 npm install，避免 Windows/Linux 跨平台问题）
+**/node_modules/
+
