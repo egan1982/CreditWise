@@ -1136,14 +1136,116 @@ def _build_result_summary(stage_id: str, output_preview: dict[str, Any]) -> str:
     return "、".join(parts)
 
 
+def _build_result_summary_dict(
+    stage_id: str, output_preview: dict[str, Any]
+) -> dict[str, Any]:
+    """从 output_preview 提取关键指标为 dict，供代码计算版本间差异（非 LLM 估算）"""
+    if not output_preview:
+        return {}
+
+    if stage_id == "woe_binning":
+        iv_table = output_preview.get("iv_table", [])
+        if iv_table:
+            valid_iv = [
+                r for r in iv_table
+                if isinstance(r.get("total_iv"), (int, float))
+                and r["total_iv"] >= 0.02
+            ]
+            mono_pass = [r for r in iv_table if r.get("monotonic") is True]
+            return {
+                "total_features": len(iv_table),
+                "iv_ge_002_count": len(valid_iv),
+                "mono_pass_count": len(mono_pass),
+            }
+
+    if stage_id == "feature_selection":
+        selected = output_preview.get("selected_features", [])
+        removed = output_preview.get("removed_features", [])
+        return {
+            "selected_count": len(selected) if isinstance(selected, list) else selected,
+            "removed_count": len(removed) if isinstance(removed, list) else removed,
+        }
+
+    if stage_id in ("model_training", "model_evaluation"):
+        metrics = output_preview.get("metrics", {})
+        ks = metrics.get("ks") or output_preview.get("ks")
+        auc = metrics.get("auc") or output_preview.get("auc")
+        result: dict[str, float] = {}
+        if ks is not None:
+            result["ks"] = round(float(ks), 4)
+        if auc is not None:
+            result["auc"] = round(float(auc), 4)
+        return result
+
+    # 通用兜底：提取数值型字段
+    result: dict[str, float] = {}
+    for k, v in output_preview.items():
+        if isinstance(v, (int, float)) and not k.startswith("_") and len(result) < 3:
+            result[k] = float(v)
+    return result
+
+
+def _build_metric_diff(
+    prev: dict[str, Any], curr: dict[str, Any], stage_id: str
+) -> str:
+    """基于 dict 指标精确计算版本间差异（非 LLM 自由发挥）"""
+    if not prev or not curr:
+        return ""
+
+    if stage_id == "woe_binning":
+        total = curr.get("total_features", 0)
+        prev_iv = prev.get("iv_ge_002_count", 0)
+        curr_iv = curr.get("iv_ge_002_count", 0)
+        prev_mono = prev.get("mono_pass_count", 0)
+        curr_mono = curr.get("mono_pass_count", 0)
+
+        parts = [f"IV≥0.02特征数: {prev_iv}/{total}→{curr_iv}/{total}"]
+        if prev_iv == curr_iv:
+            parts.append("（未变化）")
+        parts.append(f"；单调性通过: {prev_mono}/{total}→{curr_mono}/{total}")
+        if prev_mono == curr_mono:
+            parts.append("（未变化）")
+        return "".join(parts)
+
+    if stage_id == "feature_selection":
+        prev_sel = prev.get("selected_count", 0)
+        curr_sel = curr.get("selected_count", 0)
+        prev_rem = prev.get("removed_count", 0)
+        curr_rem = curr.get("removed_count", 0)
+        return f"入选特征: {prev_sel}→{curr_sel}；移除特征: {prev_rem}→{curr_rem}"
+
+    if stage_id in ("model_training", "model_evaluation"):
+        parts = []
+        for key, label in [("ks", "KS"), ("auc", "AUC")]:
+            pv = prev.get(key)
+            cv = curr.get(key)
+            if pv is not None and cv is not None:
+                delta = cv - pv
+                sign = "+" if delta > 0 else ""
+                parts.append(f"{label}: {pv:.4f}→{cv:.4f} ({sign}{delta:.4f})")
+        return "；".join(parts)
+
+    # 通用兜底
+    parts = []
+    all_keys = set(prev.keys()) | set(curr.keys())
+    for k in sorted(all_keys):
+        pv, cv = prev.get(k), curr.get(k)
+        if pv is not None and cv is not None:
+            parts.append(f"{k}: {pv}→{cv}")
+    return "；".join(parts)
+
+
 def _build_prev_snapshot_context(
     stage_id: str,
     prev_snapshot: dict[str, Any],
     curr_params: dict[str, Any],
     task_type: Optional[str] = None,
+    curr_data: Optional[dict[str, Any]] = None,
 ) -> str:
     """
     构建上一版本对比 section，用于重试场景的 Prompt 注入。
+
+    新增 curr_data：当前阶段输出数据，用于代码精确计算指标差异（非 LLM 估算）。
 
     返回空字符串表示无可用对比信息（不注入）。
     """
@@ -1160,7 +1262,12 @@ def _build_prev_snapshot_context(
     # 结果摘要
     prev_summary = _build_result_summary(stage_id, prev_output)
 
-    if not param_diff and not prev_summary:
+    # 代码计算指标差异（非 LLM 估算）
+    prev_metrics = _build_result_summary_dict(stage_id, prev_output)
+    curr_metrics = _build_result_summary_dict(stage_id, curr_data or {})
+    metric_diff = _build_metric_diff(prev_metrics, curr_metrics, stage_id)
+
+    if not param_diff and not prev_summary and not metric_diff:
         return ""
 
     lines = [f"\n\n## 上一版本对比（v{prev_version}，{retry_reason}）"]
@@ -1169,6 +1276,14 @@ def _build_prev_snapshot_context(
         lines.append(param_diff)
     if prev_summary:
         lines.append(f"上一版结果：{prev_summary}")
+    # 注入精确计算的指标差异（硬约束）
+    if metric_diff:
+        lines.append(
+            f"\n**指标变化（基于实际数据系统计算，必须严格使用以下数值）**：\n{metric_diff}"
+        )
+        lines.append(
+            "禁止编造任何与上述数值不一致的提升幅度、绝对数字或百分比。"
+        )
     # 明确列出当前参数值，强化禁止建议回退的约束
     _P2M = _get_pipeline_to_meta_key(task_type)
     import json as _json2
@@ -1324,7 +1439,10 @@ def get_stage_analysis_prompt(
         params_context = f"\n\n## 本次执行参数\n{params_str}\n"
 
     # ── 上一版本对比 section（重试场景）────────────────────────────────────
-    prev_snapshot_context = _build_prev_snapshot_context(stage_id, prev_snapshot or {}, params_used or {}, task_type=task_type)
+    prev_snapshot_context = _build_prev_snapshot_context(
+        stage_id, prev_snapshot or {}, params_used or {},
+        task_type=task_type, curr_data=data,
+    )
 
     return f"""## 角色设定
 你是一位{role_config['role']}，专长领域：{role_config['expertise']}。
