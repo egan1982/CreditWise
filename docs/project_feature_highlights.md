@@ -422,4 +422,4 @@ CreditWise 目前已在真实环境中部署和运行：
 
 ---
 
-*文档聚焦于业务维度的功能亮点与价值呈现，工程技术实现细节请参考 [CLAUDE.md](../CLAUDE.md) 和 [项目开发复盘报告](./project_development_review.md)。*
+*文档聚焦于业务维度的功能亮点与价值呈现，工程技术实现细节请参考 [项目开发复盘报告](./project_development_review.md)。*

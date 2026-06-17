@@ -4,9 +4,12 @@
 
 # CreditWise: AI 驱动的信贷风控智能分析平台
 
-> 基于 [DeepAnalyze](https://github.com/ruc-datalab/DeepAnalyze) 的信贷风控专用版本，将通用数据科学 Agent 能力专项化为**规则挖掘**、**评分卡建模**和**策略分析**。
+[![Version](https://img.shields.io/badge/version-1.0.0--beta.2-blue)](./CHANGELOG.md)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+
+> 在 [DeepAnalyze](https://github.com/ruc-datalab/DeepAnalyze) 基础上深度重构的信贷风控智能分析平台。以 **LLM + Pipeline 混合架构**为核心，将风控分析中最耗时的**规则挖掘**和**评分卡建模**从数天的手工编程升级为分钟级自动完成。
 >
-> 🚧 未来将拓展更多 SOP 类任务，如**策略诊断**（Swap Set 分析、新旧策略对比评估）、贷后监控、客群分层等。
+> 🚧 下一阶段将拓展**策略诊断**（Swap Set 分析、新旧策略对比评估）、贷后监控、客群分层等 SOP 任务。
 
 ---
 
@@ -77,10 +80,10 @@ $env:DEEPSEEK_API_KEY = "your-api-key-here"
 python API/main.py
 
 # Docker 部署
-cd docker && docker-compose up -d
+cd docker && docker compose up -d
 
 # Docker 内网多用户模式
-ENABLE_AUTH=true docker-compose up -d
+ENABLE_AUTH=true docker compose up -d
 ```
 
 ```powershell
@@ -102,9 +105,9 @@ ENABLE_AUTH=true docker-compose up -d
 
 ## 📦 环境要求
 
-- Python 3.8+
-- Node.js 16+（前端开发）
-- Docker（可选，用于容器化部署）
+- Python 3.10–3.12
+- Node.js 18+（前端开发）
+- Docker 20.10+（可选，用于容器化部署）
 
 ---
 
@@ -125,13 +128,12 @@ ENABLE_AUTH=true docker-compose up -d
 
 | 文档 | 说明 |
 |------|------|
-| [CLAUDE.md](./CLAUDE.md) | 项目开发指南（架构决策、关键文件、已知问题） |
+| [docs/project_feature_highlights.md](./docs/project_feature_highlights.md) | 功能亮点与业务价值 |
+| [docs/deployment_guide.md](./docs/deployment_guide.md) | 部署指南（Docker/手动/Win/Mac/Linux） |
+| [docs/user_manual.md](./docs/user_manual.md) | 用户使用手册（含 LLM 配置、任务操作、报告导出） |
+| [docs/project_development_review.md](./docs/project_development_review.md) | 项目开发复盘报告 |
 | [CHANGELOG.md](./CHANGELOG.md) | 功能开发清单 |
 | [RELEASE_NOTES.md](./RELEASE_NOTES.md) | 版本发布说明 |
-| [docker/README.md](./docker/README.md) | Docker 部署指南 |
-| [docs/system_prompt_guide.md](./docs/system_prompt_guide.md) | System Prompt 设计规范 |
-| [docs/LLM_Manager_guide.md](./docs/LLM_Manager_guide.md) | LLM Manager 使用指南 |
-| [docs/规则指标体系与策略应用指南.md](./docs/规则指标体系与策略应用指南.md) | 规则指标定义 |
 
 ---
 

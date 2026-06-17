@@ -1,6 +1,138 @@
-# DeepAnalyze 功能开发清单
+# CreditWise 功能开发清单
 
-> 本文档记录了相较于原始项目的所有新增、优化和调整功能，以及下一阶段待完成的优化事项。
+> 本文档记录了相较于原始 DeepAnalyze 项目的所有新增、优化和调整功能。
+
+---
+
+## [1.0.0-beta.2] - 2026-06-12
+
+### 发布说明
+
+🎉 CreditWise v1.0.0-beta.2 发布，在 beta.1 基础上完成大量功能增强和体验优化。
+
+### 新增功能
+
+#### LLM + Pipeline 架构深化
+- **System Prompt 架构重构**：消除关键词嗅探模式判定，改用显式 `mode` 参数分流（chat / extraction）
+- **AI 参数建议机制**：阶段完成后自动调用 LLM 分析输出，生成参数优化建议（SUGGESTED_PARAMS），支持一键采纳并自动重试
+- **首次/重试双 Prompt 机制**：重试场景自动注入上一版本对比分析
+
+#### 规则挖掘增强
+- **先验规则输入增强**：支持 CSV 文件上传和两种格式解析，三级校验（格式→列名→数据）
+- **金额维度分析**：规则选择阶段新增金额召回率、金额 Lift 等指标，前端 6 张汇总卡片
+- **OOT 时间稳定性验证**：按时间维度划分验证集，规则和评分卡均可计算 PSI/CSI 稳定性指标
+- **类别不平衡处理**：none / auto / class_weight 三种策略，自动检测 bad_rate 并加权
+- **特征衍生阶段性重构**：datetime/text 衍生从预处理阶段移至特征工程阶段
+
+#### 评分卡开发增强
+- **StatisticalLogisticRegression**：扩展 sklearn LR，自动计算标准误/p值/置信区间/AIC/BIC，支持加权似然
+- **ScoreTransformer**：评分↔概率双向转换器，提供 `/sop/score/convert` API
+- **CSI 特征稳定性指标**：各特征分箱在新老样本上的稳定性评估
+
+#### 专家模式与版本管理
+- **专家模式**：每个 Pipeline 阶段完成后自动暂停，支持审核输出、调整参数后重试
+- **AI 建议卡片**：阶段完成后自动生成参数优化建议，支持"仅填入"或"填入并重试"
+- **版本快照机制**：每次重试自动保存历史版本（参数+输出+AI分析），支持版本切换和对比
+- **阶段缓存**：已完成的前序阶段结果缓存，重试时无需重新执行
+
+#### 任务管理增强
+- **暂停/恢复/停止**：完整任务控制能力，支持阶段级暂停和跨重启恢复
+- **阶段重试**：从任意中间阶段重新执行，execution_version 机制防止旧线程干扰
+- **批量删除**：支持多选/全选任务记录，级联清理 7 类关联资源
+- **任务历史持久化**：执行状态、阶段结果、AI 分析结果持久化到 SQLite
+
+#### 安全与合规
+- **Basic Auth 认证**：bcrypt 密码哈希，5 次失败锁定 15 分钟，admin/user 双角色
+- **敏感信息预检**：上传数据双层检测（列名匹配 + 值扫描），高危阻断上传并自动删除
+- **账户有效期控制**：管理员可设置用户账户过期时间，到期自动拒绝登录
+- **API Key 加密存储**：Fernet（AES-128-CBC）加密存储
+
+#### 部署与运维
+- **Docker 内网多用户部署**：一键部署脚本，支持在线和离线两种模式
+- **离线部署包**：`prepare_offline.sh` 生成含镜像/wheels/npm-cache 的完整离线包
+- **跨平台支持**：Win/Mac/Linux 三平台手动部署脚本
+
+#### UI/UX 优化
+- **Chat 任务入口交互优化**：TaskConfirmCard 轻量确认卡片（~230行）替换 TaskParamCard（~1372行）
+- **双重登录修复**：全局 fetch 拦截器 + LoginDialog 统一登录 + 静态资源白名单
+- **workspace 文件管理**：全选/Checkbox/批量删除 + 单击选中/双击预览
+- **SOP 面板隐藏 Chat**：空间利用优化
+
+### 新增底层模块
+
+| 模块 | 文件 |
+|------|------|
+| StatisticalLogisticRegression | `analysis/statistical_model.py` |
+| ScoreTransformer | `analysis/score_transformer.py` |
+| ExcelReportGenerator | `analysis/excel_report.py` |
+| PriorRuleAnalyzer | `rule_mining.py` |
+| AmountAnalyzer | `rule_mining.py` |
+| RuleValidator | `rule_mining.py` |
+| RuleInterpreter | `rule_mining.py` |
+
+### 新增 API
+
+| 端点 | 说明 |
+|------|------|
+| `POST /sop/score/convert` | 评分↔概率双向转换 |
+| `POST /sop/report/export` | 多格式报告导出（Word/Excel/HTML） |
+| `POST /sop/prior-rules/parse` | 先验规则 CSV 解析与校验 |
+| `POST /sop/history/batch-delete` | 批量删除历史记录级联清理 |
+
+### Bug 修复（10 项）
+
+| 编号 | 日期 | 问题 |
+|------|------|------|
+| B-OOT-1 | 2026-04-22 | one-hot 编码未排除 exclude_cols，导致 sample_type 列被删除 |
+| B-CHAT-1 | 2026-04-23 | 任务执行中 TaskConfirmCard 渲染为 raw JSON |
+| B-RESUME-1 | 2026-04-23 | 重启后恢复任务点击「继续」无效 |
+| B-STATUS-1 | 2026-04-23 | 任务完成（100%）但历史列表显示"执行中" |
+| B-RETRY-1 | 2026-04-24 | 阶段重试后旧线程继续执行导致状态混乱 |
+| B-RETRY-2 | 2026-04-24 | 最优选择阶段重试后报告生成崩溃（UnboundLocalError） |
+| B-MODEL-1 | 2026-04-24 | 迭代验证循环 const 死循环 |
+| B-STATS-1 | 2026-04-24 | class_weight='balanced' 导致似然比检验和伪R²异常 |
+| B-LOGIN-1 | 2026-06-02 | 双重登录弹窗（前端 prompt + 浏览器 Basic Auth） |
+| B-SENSITIVE-1 | 2026-06-02 | 高危文件上传后弹窗但文件仍保留在 workspace |
+
+---
+
+## [1.0.0-beta.1] - 2026-03-11
+
+### 发布说明
+
+🎉 CreditWise v1.0.0-beta.1 首个公开测试版本，完成从 DeepAnalyze fork 到信贷风控专项平台的转型。
+
+### 新增功能
+
+#### 核心 Pipeline
+- **规则挖掘**：数据预处理 → 特征工程 → 规则生成 → 规则筛选 → 最优选择 → 报告生成（7 阶段）
+- **评分卡开发**：数据加载 → WOE 分箱 → 特征选择 → 模型训练 → 评分转换 → 模型评估 → 报告生成（7 阶段）
+- **LLM + Pipeline 混合架构**：LLM 仅做参数提取，Pipeline 确定性执行，兼顾智能与可靠
+- **全自动/专家模式**：一键执行或阶段审核确认两种交互模式
+
+#### LLM Manager 深度集成
+- 多供应商支持：OpenAI / DeepSeek / Claude / Google / 通义千问 / 自定义 API
+- Web 管理界面 + API 代理服务 + 负载均衡 + 调用日志
+
+#### 规则挖掘专项
+- 决策树单/多特征规则提取 + 阈值分箱
+- 二值特征方向优化（One-Hot 自动 `==` 方向）
+- 规则质量验证（覆盖率/冲突/重叠/冗余 + 0-100 评分）
+- PSI 时间稳定性检测 + 规则业务解读
+
+#### 评分卡开发专项
+- WOE/IV 分析（等频/等距/卡方/决策树分箱）
+- 多轮特征筛选（IV → 相关性 → VIF → 逐步回归）
+- KS / ROC / AUC / 评分分布评估 + Word/HTML 报告
+
+#### 安全审计
+- P0 级 9 项 + P1 级 41 项安全审计全部修复
+- 路径遍历防护 + 代码安全基线建立
+
+### 部署里程碑
+- 开发周期：约 4.5 个月（2025.11 ~ 2026.03）
+- CVM Docker 部署 + 内网多用户上线运营（注册用户 6 人）
+- 首次部署发现并修复 13 个问题，全部固化到代码仓库
 
 ---
 

@@ -255,3 +255,4 @@
 > |------|------|
 > | 2026-06-12 16:41 | 初版完成，覆盖 68 个 .md 文件 |
 > | 2026-06-12 16:42 | pull commit `db49fe6`，新增 `docs/cvm_deployment_test_plan.md`（CVM 部署方案验证测试计划），归入「保留—部署与运维」，总数更新为 69 |
+> | 2026-06-17 | 执行审计建议 + 补充更新：① §二 #1 `README.md` 已更新（版本 bate.2 badge、起源描述、Python 3.10+、docker compose、文档索引精简至 6 条）；② §二 #2 `RELEASE_NOTES.md` 已补充（Bug 修复汇总表、安全细节、级联清理范围）；③ `CHANGELOG.md` 新增 `[1.0.0-beta.1]` 和 `[1.0.0-beta.2]` 两版本章节（覆盖 2026.01-06 全部功能+Bug）；④ `LICENSE` 版权年份 2025→2025-2026；⑤ `docs/routing_architecture_guide.md` 已归档至 `docs/archive/`（路由严重过时，FastAPI /docs 可替代）；⑥ `rule_mining_workflow.md` + `scorecard_dev_workflow.md` 补充专家模式 AI 建议交互流程 |
