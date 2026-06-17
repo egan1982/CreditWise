@@ -57,6 +57,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    # 中文字体（Plotly/kaleido 图表渲染必需） \
+    fonts-wqy-zenhei \
     # kaleido/Chromium 运行依赖
     libgbm1 \
     libnss3 \
