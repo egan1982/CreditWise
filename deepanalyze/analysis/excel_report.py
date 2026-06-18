@@ -2281,7 +2281,9 @@ class ExcelReportGenerator:
             cell.alignment = self.styles.CENTER
         row += 1
         
-        # 数据行
+        # 数据行（兼容 DataFrame 和 list）
+        if isinstance(rules, pd.DataFrame):
+            rules = rules.to_dict(orient='records')
         for i, rule in enumerate(rules[:max_rules], 1):
             rule_text = str(rule.get('rule', rule.get('condition', '-')))
             if len(rule_text) > 60:
