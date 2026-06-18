@@ -1386,7 +1386,7 @@ def _generate_rule_mining_html_report(
     html_parts.append('<h2 class="section-title">🎯 三、最优规则</h2>')
     
     # Add cumulative metrics chart
-    if include_charts and optimal_rules:
+    if include_charts and isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
         _init_rule_mining_viz()  # Lazy init
         if RULE_MINING_VIZ_AVAILABLE and RULE_MINING_HAS_PLOTLY:
             try:
