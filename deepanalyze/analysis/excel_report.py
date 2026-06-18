@@ -279,9 +279,12 @@ class ExcelReportGenerator:
         # ========== 一、概览 ==========
         row = self._write_section_header(ws, row, "一、概览")
         
-        # 汇总指标卡片
+        # 汇总指标卡片（对齐评分卡的三列表格样式）
         optimal_rules = results.get('optimal_rules', results.get('rules', []))
         # Phase 25: 兼容 DataFrame 和 list
+        # Pipeline 输出经 JSON 序列化后变为 list of dicts，统一转为 DataFrame
+        if isinstance(optimal_rules, list) and optimal_rules:
+            optimal_rules = pd.DataFrame(optimal_rules)
         if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
             n_rules = len(optimal_rules)
             last_rule = optimal_rules.iloc[-1].to_dict()
@@ -289,16 +292,33 @@ class ExcelReportGenerator:
             final_hit_rate = last_rule.get('cumulative_hit_rate', last_rule.get('cum_hit_rate', last_rule.get('dev_cum_hit_rate', 0)))
             final_lift = last_rule.get('cumulative_lift', last_rule.get('cum_lift', last_rule.get('dev_cum_lift', last_rule.get('lift', 0))))
             
-            overview_metrics = [
-                ("最优规则数", str(n_rules)),
-                ("累计召回率", f"{final_recall*100:.1f}%"),
-                ("累计命中率", f"{final_hit_rate*100:.1f}%"),
-                ("累计提升倍数", f"{final_lift:.2f}x"),
-            ]
+            # 评级函数
+            def _get_recall_level(r): return '优秀' if r >= 0.30 else '良好' if r >= 0.20 else '一般' if r >= 0.10 else '偏低'
+            def _get_hit_level(h): return '精确' if h <= 0.10 else '良好' if h <= 0.15 else '可接受' if h <= 0.25 else '过高'
+            def _get_lift_level(l): return '极强' if l >= 4.0 else '强' if l >= 3.0 else '中等' if l >= 2.0 else '偏弱'
             
-            for name, value in overview_metrics:
+            # 三列表格：指标 | 值 | 评级
+            headers = ['指标', '值', '评级']
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=row, column=col, value=header)
+                cell.font = self.styles.HEADER_FONT
+                cell.fill = self.styles.HEADER_FILL
+                cell.border = self.styles.THIN_BORDER
+            row += 1
+            
+            overview_data = [
+                ('最优规则数', str(n_rules), '—'),
+                ('累计召回率', f"{final_recall*100:.1f}%", _get_recall_level(final_recall)),
+                ('累计命中率', f"{final_hit_rate*100:.1f}%", _get_hit_level(final_hit_rate)),
+                ('累计提升倍数', f"{final_lift:.2f}x", _get_lift_level(final_lift)),
+            ]
+            for name, value, rating in overview_data:
                 ws.cell(row=row, column=1, value=name).font = self.styles.DATA_FONT
-                ws.cell(row=row, column=2, value=value).font = Font(name='Arial', size=10, bold=True)
+                ws.cell(row=row, column=1).border = self.styles.THIN_BORDER
+                ws.cell(row=row, column=2, value=value).font = self.styles.DATA_FONT
+                ws.cell(row=row, column=2).border = self.styles.THIN_BORDER
+                ws.cell(row=row, column=3, value=rating).font = self.styles.DATA_FONT
+                ws.cell(row=row, column=3).border = self.styles.THIN_BORDER
                 row += 1
             row += 1
         

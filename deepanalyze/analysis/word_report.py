@@ -2738,6 +2738,9 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
     # 汇总指标卡片（与HTML报告一致）
     optimal_rules = results.get('optimal_rules', results.get('rules', []))
     # Phase 25: 兼容 DataFrame 和 list
+    # Pipeline 输出经 JSON 序列化后变为 list of dicts，统一转为 DataFrame
+    if isinstance(optimal_rules, list) and optimal_rules:
+        optimal_rules = pd.DataFrame(optimal_rules)
     if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
         n_rules = len(optimal_rules)
         last_rule = optimal_rules.iloc[-1].to_dict()
@@ -2745,12 +2748,22 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
         final_hit_rate = last_rule.get('cumulative_hit_rate', last_rule.get('cum_hit_rate', last_rule.get('dev_cum_hit_rate', 0)))
         final_lift = last_rule.get('cumulative_lift', last_rule.get('cum_lift', last_rule.get('dev_cum_lift', last_rule.get('lift', 0))))
         
-        summary_table = doc.add_table(rows=1, cols=2)
+        # 评级辅助函数
+        def _rm_level(recall: float, hit: float, lift: float):
+            def _r(r): return ('🟢优秀' if r >= 0.30 else '🔵良好' if r >= 0.20 else '🟡一般' if r >= 0.10 else '🔴偏低')
+            def _h(h): return ('🟢精确' if h <= 0.10 else '🔵良好' if h <= 0.15 else '🟡可接受' if h <= 0.25 else '🔴过高')
+            def _l(l): return ('🟢极强' if l >= 4.0 else '🔵强' if l >= 3.0 else '🟡中等' if l >= 2.0 else '🔴偏弱')
+            return _r(recall), _h(hit), _l(lift)
+        
+        r_recall, r_hit, r_lift = _rm_level(final_recall, final_hit_rate, final_lift)
+        
+        summary_table = doc.add_table(rows=1, cols=3)
         _set_table_border(summary_table)
         
         header_cells = summary_table.rows[0].cells
-        header_cells[0].text = "核心指标"
+        header_cells[0].text = "指标"
         header_cells[1].text = "值"
+        header_cells[2].text = "评级"
         for cell in header_cells:
             _set_cell_shading(cell, "2E86AB")
             for para in cell.paragraphs:
@@ -2759,15 +2772,16 @@ def _generate_rule_mining_word_report(results: dict[str, Any], title: str, ai_an
                     run.font.bold = True
         
         summary_data = [
-            ('最优规则数', str(n_rules)),
-            ('累计召回率', f'{final_recall*100:.1f}%'),
-            ('累计命中率', f'{final_hit_rate*100:.1f}%'),
-            ('累计提升倍数', f'{final_lift:.2f}x'),
+            ('最优规则数', str(n_rules), '—'),
+            ('累计召回率', f'{final_recall*100:.1f}%', r_recall),
+            ('累计命中率', f'{final_hit_rate*100:.1f}%', r_hit),
+            ('累计提升倍数', f'{final_lift:.2f}x', r_lift),
         ]
-        for label, value in summary_data:
+        for label, value, rating in summary_data:
             row = summary_table.add_row()
             row.cells[0].text = label
             row.cells[1].text = value
+            row.cells[2].text = rating
         
         doc.add_paragraph()
     

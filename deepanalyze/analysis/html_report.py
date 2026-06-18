@@ -1267,17 +1267,23 @@ def _generate_rule_mining_html_report(
     # Summary metrics cards
     optimal_rules = results.get('optimal_rules', results.get('rules', []))
     # Phase 25: 兼容 DataFrame 和 list
+    # Pipeline 输出经 JSON 序列化后变为 list of dicts，统一转为 DataFrame
+    if isinstance(optimal_rules, list) and optimal_rules:
+        optimal_rules = pd.DataFrame(optimal_rules)
     if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
         n_rules = len(optimal_rules)
         
         # Calculate cumulative metrics from last rule
-        if isinstance(optimal_rules, list) and len(optimal_rules) > 0:
-            last_rule = optimal_rules[-1]
-            final_recall = last_rule.get('cumulative_recall', last_rule.get('cum_recall', last_rule.get('dev_cum_recall', 0)))
-            final_hit_rate = last_rule.get('cumulative_hit_rate', last_rule.get('cum_hit_rate', last_rule.get('dev_cum_hit_rate', 0)))
-            final_lift = last_rule.get('cumulative_lift', last_rule.get('cum_lift', last_rule.get('dev_cum_lift', last_rule.get('lift', 0))))
-        else:
-            final_recall = final_hit_rate = final_lift = 0
+        last_rule = optimal_rules.iloc[-1].to_dict()
+        final_recall = last_rule.get('cumulative_recall', last_rule.get('cum_recall', last_rule.get('dev_cum_recall', 0)))
+        final_hit_rate = last_rule.get('cumulative_hit_rate', last_rule.get('cum_hit_rate', last_rule.get('dev_cum_hit_rate', 0)))
+        final_lift = last_rule.get('cumulative_lift', last_rule.get('cum_lift', last_rule.get('dev_cum_lift', last_rule.get('lift', 0))))
+        
+        # Rating helpers
+        def _r(r): return ('excellent', '优秀') if r >= 0.30 else ('good', '良好') if r >= 0.20 else ('acceptable', '一般') if r >= 0.10 else ('poor', '偏低')
+        def _h(h): return ('excellent', '精确') if h <= 0.10 else ('good', '良好') if h <= 0.15 else ('acceptable', '可接受') if h <= 0.25 else ('poor', '过高')
+        def _l(l): return ('excellent', '极强') if l >= 4.0 else ('good', '强') if l >= 3.0 else ('acceptable', '中等') if l >= 2.0 else ('poor', '偏弱')
+        r_recall, r_hit, r_lift = _r(final_recall), _h(final_hit_rate), _l(final_lift)
         
         html_parts.append('<div class="metric-grid">')
         html_parts.append(f'''
@@ -1288,14 +1294,17 @@ def _generate_rule_mining_html_report(
             <div class="metric-card">
                 <div class="metric-value">{final_recall*100:.1f}%</div>
                 <div class="metric-label">累计召回率</div>
+                <div class="metric-level {r_recall[0]}">{r_recall[1]}</div>
             </div>
             <div class="metric-card">
                 <div class="metric-value">{final_hit_rate*100:.1f}%</div>
                 <div class="metric-label">累计命中率</div>
+                <div class="metric-level {r_hit[0]}">{r_hit[1]}</div>
             </div>
             <div class="metric-card">
                 <div class="metric-value">{final_lift:.2f}x</div>
                 <div class="metric-label">累计提升倍数</div>
+                <div class="metric-level {r_lift[0]}">{r_lift[1]}</div>
             </div>
         ''')
         html_parts.append('</div>')

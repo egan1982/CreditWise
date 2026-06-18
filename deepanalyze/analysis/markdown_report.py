@@ -98,6 +98,9 @@ class MarkdownReportGenerator:
         optimal_rules = results.get('optimal_rules', results.get('rules', []))
         has_overview_content = False
         # Phase 25: 兼容 DataFrame 和 list 两种类型
+        # Pipeline 输出经 JSON 序列化后变为 list of dicts，统一转为 DataFrame
+        if isinstance(optimal_rules, list) and optimal_rules:
+            optimal_rules = pd.DataFrame(optimal_rules)
         if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
             n_rules = len(optimal_rules)
             last_rule = optimal_rules.iloc[-1].to_dict()
@@ -105,12 +108,17 @@ class MarkdownReportGenerator:
             final_hit_rate = last_rule.get('cumulative_hit_rate', last_rule.get('cum_hit_rate', last_rule.get('dev_cum_hit_rate', 0)))
             final_lift = last_rule.get('cumulative_lift', last_rule.get('cum_lift', last_rule.get('dev_cum_lift', last_rule.get('lift', 0))))
             
-            md += "| 指标 | 值 |\n"
-            md += "|------|----|\n"
-            md += f"| 最优规则数 | {n_rules} |\n"
-            md += f"| 累计召回率 | {final_recall*100:.1f}% |\n"
-            md += f"| 累计命中率 | {final_hit_rate*100:.1f}% |\n"
-            md += f"| 累计提升倍数 | {final_lift:.2f}x |\n"
+            # Rating helpers
+            def _r(r): return '优秀' if r >= 0.30 else '良好' if r >= 0.20 else '一般' if r >= 0.10 else '偏低'
+            def _h(h): return '精确' if h <= 0.10 else '良好' if h <= 0.15 else '可接受' if h <= 0.25 else '过高'
+            def _l(l): return '极强' if l >= 4.0 else '强' if l >= 3.0 else '中等' if l >= 2.0 else '偏弱'
+            
+            md += "| 指标 | 值 | 评级 |\n"
+            md += "|------|-----|:---:|\n"
+            md += f"| 最优规则数 | {n_rules} | — |\n"
+            md += f"| 累计召回率 | {final_recall*100:.1f}% | {_r(final_recall)} |\n"
+            md += f"| 累计命中率 | {final_hit_rate*100:.1f}% | {_h(final_hit_rate)} |\n"
+            md += f"| 累计提升倍数 | {final_lift:.2f}x | {_l(final_lift)} |\n"
             md += "\n"
             has_overview_content = True
         
@@ -144,6 +152,8 @@ class MarkdownReportGenerator:
         # 3. 最优规则（固定章节号，始终显示）
         md += "## 三、最优规则\n\n"
         optimal_rules = results.get('optimal_rules', results.get('rules', []))
+        if isinstance(optimal_rules, list) and optimal_rules:
+            optimal_rules = pd.DataFrame(optimal_rules)
         if isinstance(optimal_rules, pd.DataFrame) and not optimal_rules.empty:
             md += self._format_rules_table(optimal_rules, max_rules=30)
         else:
