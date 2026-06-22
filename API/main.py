@@ -770,9 +770,11 @@ def create_app() -> FastAPI:
             dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
             if dev_mode:
                 return RedirectResponse(url="http://localhost:3001", status_code=302)
-            # 生产模式：直接读取子应用的 index.html 并返回，绕过 Starlette 斜杠重定向
+            # 生产模式：直接读取构建产物（优先 assets/，回退根目录）
             static_dir = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
-            index_file = static_dir / "index.html"
+            built_html = static_dir / "assets" / "index.html"
+            source_html = static_dir / "index.html"
+            index_file = built_html if built_html.exists() else source_html
             if index_file.exists():
                 with open(index_file, "r", encoding="utf-8") as f:
                     html = f.read()

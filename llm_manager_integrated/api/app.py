@@ -225,15 +225,17 @@ def create_app(
             # 根路径 - 返回前端 HTML（优先级高于 SPA catch-all 路由）
             @app.get("/", tags=["前端"], include_in_schema=False)
             async def serve_root():
-                """返回前端主页 HTML"""
+                """返回前端主页 HTML — 优先使用构建产物，回退到源文件"""
                 logger.info("[DEBUG] serve_root called")
-                index_file = static_dir / "index.html"
+                # Vite 生产构建产出在 assets/ 子目录，static/index.html 是 SSR manifest
+                built_html = static_dir / "assets" / "index.html"
+                source_html = static_dir / "index.html"
+                index_file = built_html if built_html.exists() else source_html
                 if index_file.exists():
                     with open(index_file, "r", encoding="utf-8") as f:
                         html_content = f.read()
                     # 替换资源路径，添加前缀
                     if prefix:
-                        # 替换绝对路径，添加前缀
                         html_content = (
                             html_content
                             .replace('href="/', f'href="{prefix}/')
@@ -265,7 +267,9 @@ def create_app(
                     )
                 
                 # 返回 index.html（前端 SPA 路由处理）
-                index_file = static_dir / "index.html"
+                built_html = static_dir / "assets" / "index.html"
+                source_html = static_dir / "index.html"
+                index_file = built_html if built_html.exists() else source_html
                 if index_file.exists():
                     with open(index_file, "r", encoding="utf-8") as f:
                         html_content = f.read()
