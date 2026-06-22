@@ -136,10 +136,11 @@ def create_app() -> FastAPI:
         )
 
     # 添加全局异常处理器，确保异常响应也包含CORS头
+    # 同时处理 SPA fallback（生产模式下对非 API 路径的 404 返回 index.html）
     from fastapi import Request
     from fastapi.responses import JSONResponse
     from starlette.exceptions import HTTPException as StarletteHTTPException
-    
+
     def _cors_headers_from_request(request: Request) -> dict:
         """从请求中提取 Origin 构建 CORS 响应头，避免硬编码 '*' 与 credentials 冲突"""
         origin = request.headers.get("origin", "")
@@ -147,9 +148,33 @@ def create_app() -> FastAPI:
             "Access-Control-Allow-Origin": origin or "*",
             "Access-Control-Allow-Credentials": "true" if origin else "false",
         }
-    
+
+    # 已知的 API 路径前缀（生产模式 SPA fallback 时不应重定向到前端）
+    _api_prefixes = (
+        "/v1/", "/sop/", "/workspace/", "/health", "/docs",
+        "/openapi", "/llm-manager/", "/download/", "/execute/",
+        "/export/", "/chat/",
+    )
+
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+        # 生产模式下，对非 API 路径的 404 尝试 SPA fallback
+        dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        if not dev_mode and exc.status_code == 404:
+            path = request.url.path
+            if not path.startswith(_api_prefixes):
+                frontend_dist = Path(__file__).parent.parent / "demo" / "chat" / "dist"
+                if frontend_dist.exists():
+                    # 优先返回实际静态文件（图片、favicon 等）
+                    static_file = frontend_dist / path.lstrip("/")
+                    if static_file.is_file():
+                        from fastapi.responses import FileResponse
+                        return FileResponse(str(static_file))
+                    # SPA fallback：返回 index.html
+                    index_file = frontend_dist / "index.html"
+                    if index_file.exists():
+                        from fastapi.responses import FileResponse
+                        return FileResponse(str(index_file))
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
@@ -762,66 +787,89 @@ def create_app() -> FastAPI:
             logger.error(f"Proxy fetch failed: {e}", exc_info=True)
             raise HTTPException(status_code=502, detail="Proxy fetch failed")
     
-    # LLM Manager direct access (without trailing slash) - 开发模式重定向到Vite服务器
-    if llm_manager.available and llm_manager.create_app is not None:
-        @app.get("/llm-manager", include_in_schema=False)
-        async def llm_manager_direct():  # pyright: ignore[reportUnusedFunction]
-            """直接访问LLM Manager - 开发模式重定向到Vite，生产模式由子应用处理"""
-            from fastapi.responses import RedirectResponse
-            
-            # 开发模式下重定向到Vite服务器
-            dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
-            if dev_mode:
-                return RedirectResponse(url="http://localhost:3001", status_code=302)
-            
-            # 生产模式下直接返回 LLM Manager 前端首页
-            # 避免 /llm-manager → /llm-manager/ → /llm-manager 重定向死循环
-            from fastapi.responses import FileResponse
-            llm_dist = Path(__file__).parent.parent / "llm_manager_integrated" / "frontend" / "dist"
-            index_file = llm_dist / "index.html"
-            if index_file.exists():
-                return FileResponse(str(index_file))
-            # 兜底：无法加载前端时返回提示
-            from fastapi.responses import HTMLResponse
-            return HTMLResponse(
-                "<html><body><h2>LLM Manager frontend not built.</h2>"
-                "<p>Please run: cd llm_manager_integrated/frontend && npm run build</p></body></html>",
-                status_code=503
-            )
-
-    # Integrate LLM_Manager - Backend Only in Development, Backend + Frontend in Production
+    # Integrate LLM_Manager
+    # - Dev: sub-app mount API only, Vite dev server at :3001 for frontend
+    # - Prod: main app serves pre-built frontend (offline Tailwind CSS + Vite JS)
+    #         + registers API routers directly (avoids Starlette mount redirect loops)
     if llm_manager.available and llm_manager.create_app is not None:
         try:
-            # Check if we're in development mode (Vite server is running)
             dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
             
-            # In development mode, only mount the backend API to avoid conflicts with Vite server
-            # In production mode, mount both backend and frontend
-            llm_manager_app = llm_manager.create_app(
-                config={
-                    "app_title": "LLM API Manager for DeepAnalyze",
-                    "cors_origins": cors_origins,
-                },
-                as_subapp=True,
-                enable_frontend=not dev_mode,  # Disable frontend in development mode
-                prefix="/llm-manager"
-            )
-            
-            # Mount the LLM_Manager app at /llm-manager
-            # In dev mode: API only (frontend served by Vite at port 3001)
-            # In prod mode: Both API and frontend
-            app.mount("/llm-manager", llm_manager_app)
-            
             if dev_mode:
+                llm_manager_app = llm_manager.create_app(
+                    config={"app_title": "LLM API Manager for DeepAnalyze"},
+                    as_subapp=True, enable_frontend=False, prefix="/llm-manager")
+                app.mount("/llm-manager", llm_manager_app)
+                
+                @app.get("/llm-manager", include_in_schema=False)
+                async def llm_manager_dev_redirect():
+                    from fastapi.responses import RedirectResponse
+                    return RedirectResponse(url="http://localhost:3001", status_code=302)
+                
                 print("[OK] LLM_Manager backend integrated (Development Mode)")
                 print(f"   - API: http://{API_HOST}:{API_PORT}/llm-manager/api")
-                print(f"   - Docs: http://{API_HOST}:{API_PORT}/llm-manager/docs")
                 print(f"   - Frontend: Running on Vite server at http://localhost:3001")
             else:
+                # Prod: register API routers directly on main app
+                from llm_manager_integrated.api.routes import channels, logs, monitoring
+                from llm_manager_integrated.api.routes.proxy.proxy import router as proxy_router
+                from llm_manager_integrated.api.routes.proxy.models_proxy import router as models_router
+                app.include_router(channels.router, prefix="/llm-manager/api/manage")
+                app.include_router(logs.router, prefix="/llm-manager/api")
+                app.include_router(proxy_router, prefix="/llm-manager/api/proxy")
+                app.include_router(models_router, prefix="/llm-manager/api")
+                app.include_router(monitoring.router, prefix="/llm-manager/api/monitoring")
+
+                # 生产模式：初始化 LLM Manager 依赖（api/dependencies.py 从 app.state 取 db_manager）
+                # 必须在 startup 事件中挂载，此时 app.state 才可写
+                @app.on_event("startup")
+                async def llm_manager_startup():
+                    try:
+                        from llm_manager_integrated.models.database import DatabaseManager
+                        from llm_manager_integrated.core.config import settings as llm_settings
+                        from llm_manager_integrated.core.startup import app_startup_handler
+                        db_manager = DatabaseManager(llm_settings.database_url)
+                        db_manager.create_tables()
+                        app.state.db_manager = db_manager
+                        app.state.config = llm_settings
+                        await app_startup_handler(app)
+                        logger.info("[OK] LLM_Manager db_manager initialized on main app.state")
+                    except Exception as e:
+                        logger.warning(f"[WARN] LLM_Manager startup init failed: {e}")
+                
+                # Serve pre-built LLM Manager frontend (Vite + Tailwind, offline-ready)
+                _llm_static = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
+                _llm_assets = _llm_static / "assets"
+                
+                @app.get("/llm-manager/", include_in_schema=False)
+                async def llm_manager_prod_index():
+                    from fastapi import HTTPException
+                    from fastapi.responses import HTMLResponse
+                    # Vite build 产物：assets/index.html（frontend/index.html 经过 Tailwind + sed 处理）
+                    idx = _llm_assets / "index.html"
+                    if not idx.exists():
+                        raise HTTPException(status_code=404, detail="LLM Manager frontend not built")
+                    return HTMLResponse(content=idx.read_text(encoding="utf-8"))
+                
+                @app.get("/llm-manager", include_in_schema=False)
+                async def llm_manager_prod_redirect():
+                    from fastapi.responses import RedirectResponse
+                    return RedirectResponse(url="/llm-manager/", status_code=302)
+                
+                # Serve Vite build output (assets, scripts, shared, favicon)
+                @app.get("/llm-manager/{r:path}", include_in_schema=False)
+                async def llm_manager_static_files(r: str):
+                    from fastapi import HTTPException
+                    file = (_llm_static / r).resolve()
+                    if not str(file).startswith(str(_llm_static.resolve())) or not file.is_file():
+                        raise HTTPException(status_code=404)
+                    ext = file.suffix.lower()
+                    mime_map = {".css":"text/css",".js":"application/javascript",".html":"text/html",".ico":"image/x-icon",".woff2":"font/woff2"}
+                    return FileResponse(str(file), media_type=mime_map.get(ext,"application/octet-stream"))
+                
                 print("[OK] LLM_Manager integrated (Production Mode)")
                 print(f"   - UI: http://{API_HOST}:{API_PORT}/llm-manager")
                 print(f"   - API: http://{API_HOST}:{API_PORT}/llm-manager/api")
-                print(f"   - Docs: http://{API_HOST}:{API_PORT}/llm-manager/docs")
         except Exception as e:
             logger.error(f"Failed to integrate LLM_Manager: {e}")
             print(f"[WARN] Failed to integrate LLM_Manager: {e}")
@@ -832,6 +880,7 @@ def create_app() -> FastAPI:
 
     # 生产模式下挂载 Next.js 静态导出的前端文件
     # 开发模式下前端由 Next.js dev server (:3000) 提供
+    # SPA fallback（404 → index.html）已统一处理在上方的 http_exception_handler 中
     dev_mode_global = os.getenv("DEV_MODE", "true").lower() == "true"
     if not dev_mode_global:
         frontend_dist = Path(__file__).parent.parent / "demo" / "chat" / "dist"
@@ -840,47 +889,6 @@ def create_app() -> FastAPI:
             _next_dir = frontend_dist / "_next"
             if _next_dir.exists():
                 app.mount("/_next", StaticFiles(directory=str(_next_dir)), name="nextjs-assets")
-
-            # 已知的 API 路径前缀（这些不应 fallback 到前端）
-            _api_prefixes = (
-                "/v1/", "/sop/", "/workspace/", "/health", "/docs",
-                "/openapi", "/llm-manager/", "/download/", "/execute/",
-                "/export/", "/chat/",
-            )
-
-            from starlette.exceptions import HTTPException as StarletteHTTPException
-
-            @app.exception_handler(StarletteHTTPException)
-            async def spa_fallback(request, exc):
-                """
-                非 API 路径的 404:
-                - 先看 dist/ 下有没有对应的静态文件（图片、favicon 等）
-                - 没有则返回 index.html（SPA 路由支持）
-                API 路径的错误正常返回 JSON
-                """
-                path = request.url.path
-                if exc.status_code == 404 and not path.startswith(_api_prefixes):
-                    # 尝试在 dist/ 下找到对应的静态文件
-                    # 路径遍历防护：resolve 后检查是否仍在 frontend_dist 目录内
-                    candidate = (frontend_dist / path.lstrip("/")).resolve()
-                    try:
-                        candidate.relative_to(frontend_dist.resolve())
-                    except ValueError:
-                        pass  # 路径逃逸，不回退文件
-                    else:
-                        if candidate.is_file():
-                            return FileResponse(str(candidate))
-                    # SPA fallback: 返回 index.html
-                    index_file = frontend_dist / "index.html"
-                    if index_file.exists():
-                        return FileResponse(str(index_file))
-                # API 路径或非 404 错误，正常返回 JSON
-                from fastapi.responses import JSONResponse
-                return JSONResponse(
-                    status_code=exc.status_code,
-                    content={"detail": exc.detail or "Not found"},
-                )
-
             logger.info(f"[OK] Frontend static files mounted from {frontend_dist}")
         else:
             logger.warning(f"[WARN] Frontend dist not found at {frontend_dist}, skipping frontend mount")

@@ -774,20 +774,8 @@ def create_app() -> FastAPI:
             if dev_mode:
                 return RedirectResponse(url="http://localhost:3001", status_code=302)
             
-            # 生产模式下直接返回 LLM Manager 前端首页
-            # 避免 /llm-manager → /llm-manager/ → /llm-manager 重定向死循环
-            from fastapi.responses import FileResponse
-            llm_dist = Path(__file__).parent.parent / "llm_manager_integrated" / "frontend" / "dist"
-            index_file = llm_dist / "index.html"
-            if index_file.exists():
-                return FileResponse(str(index_file))
-            # 兜底：无法加载前端时返回提示
-            from fastapi.responses import HTMLResponse
-            return HTMLResponse(
-                "<html><body><h2>LLM Manager frontend not built.</h2>"
-                "<p>Please run: cd llm_manager_integrated/frontend && npm run build</p></body></html>",
-                status_code=503
-            )
+            # 生产模式下重定向到子应用根路径（带斜杠）
+            return RedirectResponse(url="/llm-manager/", status_code=302)
 
     # Integrate LLM_Manager - Backend Only in Development, Backend + Frontend in Production
     if llm_manager.available and llm_manager.create_app is not None:
