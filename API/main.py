@@ -166,10 +166,16 @@ def create_app() -> FastAPI:
                 frontend_dist = Path(__file__).parent.parent / "demo" / "chat" / "dist"
                 if frontend_dist.exists():
                     # 优先返回实际静态文件（图片、favicon 等）
-                    static_file = frontend_dist / path.lstrip("/")
-                    if static_file.is_file():
-                        from fastapi.responses import FileResponse
-                        return FileResponse(str(static_file))
+                    # 路径遍历防护：resolve 后检查是否仍在 frontend_dist 目录内
+                    candidate = (frontend_dist / path.lstrip("/")).resolve()
+                    try:
+                        candidate.relative_to(frontend_dist.resolve())
+                    except ValueError:
+                        pass  # 路径逃逸，不回退文件
+                    else:
+                        if candidate.is_file():
+                            from fastapi.responses import FileResponse
+                            return FileResponse(str(candidate))
                     # SPA fallback：返回 index.html
                     index_file = frontend_dist / "index.html"
                     if index_file.exists():

@@ -589,13 +589,27 @@ def render_file_block(
     return ""
 
 def start_http_server():
+    """启动文件下载 HTTP 服务器（带路径遍历防护）"""
     os.makedirs(WORKSPACE_BASE_DIR, exist_ok=True)
 
+    workspace_root = os.path.abspath(WORKSPACE_BASE_DIR)
+
+    class SafeHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+        """自定义 HTTP 请求处理器，添加路径遍历防护"""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=WORKSPACE_BASE_DIR, **kwargs)
+
+        def translate_path(self, path):
+            """重写路径翻译，添加 resolve + 前缀检查防止路径遍历"""
+            resolved = os.path.abspath(super().translate_path(path))
+            if not resolved.startswith(workspace_root + os.sep) and resolved != workspace_root:
+                # 路径逃逸，返回一个不存在的路径导致 404
+                return os.path.join(workspace_root, "__nonexistent__")
+            return resolved
+
     # 使用 ThreadingTCPServer 处理并发
-    handler = partial(
-        http.server.SimpleHTTPRequestHandler,
-        directory=WORKSPACE_BASE_DIR
-    )
+    handler = partial(SafeHTTPRequestHandler)
 
     with socketserver.ThreadingTCPServer(("", HTTP_SERVER_PORT), handler) as httpd:
         httpd.allow_reuse_address = True
