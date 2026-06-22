@@ -236,13 +236,14 @@
 | **16** | `task_report_ai_analysis_design.md` | 仅剩端到端测试验证，可在其他功能完成后统一测试 | - |
 | **17** | `release_readiness_plan.md` | Release发布流程，代码审计已完成，后续Phase按需推进 | 按Phase分阶段 |
 | **18** | 📋 **导出报告新增指标同步** | 新增指标（CSI/OOT稳定性等）仅在前端/AI Prompt展示，导出报告缺失。Phase 1.7 作为统一登记处，按批次同步 | 按批次评估 |
+| **19** | 📋 **用户管理与登录审计** | 独立模块（非 LLM Manager 部分）：① 用户管理界面（增删改查、角色分配、账户有效期设置）；② 登录审计日志持久化到 SQLite（时间/IP/用户名/结果）；③ 管理员查看登录历史。当前仅 docker logs + login_state.json 临时记录 | 待设计方案 |
 
 ### 🟣 P4 - 远期/按需
 
 | 优先级 | 文档 | 建议理由 | 预计工作量 |
 |:------:|------|---------|-----------|
-| **19** | `analysis_prompt_refactor_plan.md` | Prompt 工程优化 Phase 2，需根据新增 SOP 任务重新评估提示词框架方案 | Phase 2: ~2天 |
-| **20** | `strategy_diagnosis_plan.md` | 策略诊断 SOP 任务：Swap Set + 人数/金额双口径 + 业务/风险影响评估（框架文档已创建，待细化） | ~7-8天 |
+| **20** | `analysis_prompt_refactor_plan.md` | Prompt 工程优化 Phase 2，需根据新增 SOP 任务重新评估提示词框架方案 | Phase 2: ~2天 |
+| **21** | `strategy_diagnosis_plan.md` | 策略诊断 SOP 任务：Swap Set + 人数/金额双口径 + 业务/风险影响评估（框架文档已创建，待细化） | ~7-8天 |
 
 > 详细方案见 [`taskSOP_solution/task_management_module_design.md` Phase 25](./taskSOP_solution/task_management_module_design.md#phase-25删除历史记录级联清理已完成)
 > 详细方案见 [`taskSOP_solution/report_config_driven_plan.md` Phase 1.7](./taskSOP_solution/report_config_driven_plan.md#phase-17导出报告补充新增稳定性指标待实施)
