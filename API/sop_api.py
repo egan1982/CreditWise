@@ -525,9 +525,13 @@ async def preview_data(request: DataPreviewRequest) -> DataPreviewResponse:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     
-    # 构建完整的文件路径
-    workspace_dir = Path("workspace") / request.session_id
-    file_path = workspace_dir / request.file_path
+    # 构建完整的文件路径（带路径遍历防护）
+    workspace_dir = (Path("workspace") / request.session_id).resolve()
+    file_path = (workspace_dir / request.file_path).resolve()
+    
+    # 路径遍历防护：确保解析后的路径仍在 workspace 目录内
+    if workspace_dir not in file_path.parents and file_path != workspace_dir:
+        raise HTTPException(status_code=400, detail="Invalid file path")
     
     logger.info(f"Preview data request: file_path={request.file_path}, session_id={request.session_id}, full_path={file_path}")
     
@@ -682,8 +686,12 @@ async def sensitive_check(request: SensitiveCheckRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    workspace_dir = Path("workspace") / request.session_id
-    file_path = workspace_dir / request.file_path
+    workspace_dir = (Path("workspace") / request.session_id).resolve()
+    file_path = (workspace_dir / request.file_path).resolve()
+
+    # 路径遍历防护：确保解析后的路径仍在 workspace 目录内
+    if workspace_dir not in file_path.parents and file_path != workspace_dir:
+        raise HTTPException(status_code=400, detail="Invalid file path")
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
