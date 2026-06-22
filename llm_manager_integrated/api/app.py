@@ -81,7 +81,7 @@ def create_app(
             "openapi_url": "/openapi.json"
         })
     
-    app = FastAPI(**app_kwargs, redirect_slashes=False)
+    app = FastAPI(**app_kwargs)
     
     # 应用启动事件
     @app.on_event("startup")

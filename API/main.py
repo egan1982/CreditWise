@@ -762,15 +762,23 @@ def create_app() -> FastAPI:
             logger.error(f"Proxy fetch failed: {e}", exc_info=True)
             raise HTTPException(status_code=502, detail="Proxy fetch failed")
     
-    # LLM Manager direct access — 开发模式重定向Vite，生产模式重定向到子应用根路径
+    # LLM Manager direct access — 开发模式重定向Vite，生产模式直接返回HTML
     if llm_manager.available:
         @app.get("/llm-manager", include_in_schema=False)
         async def llm_manager_direct():
-            from fastapi.responses import RedirectResponse
+            from fastapi.responses import RedirectResponse, HTMLResponse
             dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
             if dev_mode:
                 return RedirectResponse(url="http://localhost:3001", status_code=302)
-            return RedirectResponse(url="/llm-manager/", status_code=302)
+            # 生产模式：直接读取子应用的 index.html 并返回，绕过 Starlette 斜杠重定向
+            static_dir = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
+            index_file = static_dir / "index.html"
+            if index_file.exists():
+                with open(index_file, "r", encoding="utf-8") as f:
+                    html = f.read()
+                html = html.replace('href="/', 'href="/llm-manager/').replace('src="/', 'src="/llm-manager/')
+                return HTMLResponse(content=html)
+            return HTMLResponse("<h2>LLM Manager frontend not found</h2>", status_code=503)
 
     # Integrate LLM_Manager - Backend Only in Development, Backend + Frontend in Production
     if llm_manager.available and llm_manager.create_app is not None:
