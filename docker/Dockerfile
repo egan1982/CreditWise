@@ -47,7 +47,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     API_HOST=0.0.0.0 \
     API_PORT=8200 \
     DEV_MODE=false \
-    ENABLE_AUTH=false
+    ENABLE_AUTH=true
 
 WORKDIR /app
 

@@ -362,7 +362,7 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 | ~~双重登录问题~~ | ✅ | ~~P0~~ | v1.5 已修复：`/` 和 `/favicon.ico` 加入精确匹配白名单，认证统一由前端 `authFetch` 处理（commit `55fcbc5`） |
 | workspace 基于用户名隔离 | ❌ | **P1** | 将 workspace 目录从 `session_随机ID` 改为登录用户名，解决同账号不同终端/清缓存后文件"丢失"问题 |
 | 用户自助改密码 | ❌ | P2 | `/auth/change-password` API |
-| Tailwind CSS 本地化 | ❌ | P3 | LLM Manager UI 依赖外网 CDN，内网样式缺失 |
+| ~~Tailwind CSS 本地化~~ | ✅ | ~~P3~~ | Docker 构建阶段自动完成 Tailwind 离线编译 + CDN 替换，内网无需外网访问 |
 | 任务历史按用户隔离 | ❌ | P3 | 当前所有用户共享任务历史列表 |
 
 ---

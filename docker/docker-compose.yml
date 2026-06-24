@@ -51,7 +51,7 @@ services:
       - API_PORT=8200
       - DEV_MODE=false
       # 认证控制：默认关闭，内网多用户设为 true
-      - ENABLE_AUTH=${ENABLE_AUTH:-false}
+      - ENABLE_AUTH=${ENABLE_AUTH:-true}
       # CORS（生产模式同源，一般不需要配置）
       - CORS_ORIGINS=${CORS_ORIGINS:-}
 

@@ -85,6 +85,8 @@ cd docker && ENABLE_AUTH=true docker compose up -d
 
 ## 二、Docker 离线部署
 
+> 核心思路：在有外网的机器上构建完整 Docker 镜像（含前端编译 + Python 依赖），导出镜像 + 打包源码。内网服务器只需 `docker load` + `docker compose up`，**无需 build**。
+
 ### 2.1 在有外网的机器上准备离线包
 
 ```bash
@@ -92,18 +94,25 @@ chmod +x scripts/prepare_offline.sh
 ./scripts/prepare_offline.sh
 ```
 
+脚本自动完成：
+1. 构建完整 Docker 镜像（`docker compose build`，含前端编译 + Python 依赖安装）
+2. 导出镜像为 tar 文件（`docker save`）
+3. 打包项目源码（排除 `.git`、`node_modules`、`workspace` 等运行时文件）
+4. 生成 `creditwise_offline_bundle.tar.gz`（约 500MB）
+
 产出：`creditwise_offline_bundle.tar.gz`
 
 包含：
-- `images/` — python:3.12-slim + node:18-slim Docker 镜像
-- `wheels/` — 全部 Python 依赖的 wheel 文件（Python 3.12）
-- `npm-cache/` — 前端 Node.js 依赖缓存
-- `llm-manager-static/` — LLM Manager UI 静态资源（Tailwind CSS 已编译，CDN 引用已替换）
+- `images/creditwise-latest.tar` — 完整构建好的 Docker 镜像（含前端 + 后端 + 所有依赖）
+- `source/` — 项目源码 + 运行配置（`docker-compose.yml`、`.env`、`config/` 等）
 
 ### 2.2 传输到内网服务器
 
 ```bash
+# U 盘或 SCP 传输
 scp creditwise_offline_bundle.tar.gz user@intranet-server:/opt/
+
+# 在内网服务器上解压
 ssh user@intranet-server
 cd /opt && tar -xzf creditwise_offline_bundle.tar.gz
 ```
@@ -111,9 +120,16 @@ cd /opt && tar -xzf creditwise_offline_bundle.tar.gz
 ### 2.3 在内网服务器上部署
 
 ```bash
+cd offline_bundle/source
 chmod +x scripts/deploy_offline.sh
 ./scripts/deploy_offline.sh
 ```
+
+脚本自动完成：
+1. 加载 Docker 镜像（`docker load`）
+2. 交互式选择部署模式（单用户 / 内网多用户）
+3. 配置环境（`.env`、加密密钥、用户账号）
+4. 启动服务（`docker compose up -d`，**不执行 build**）
 
 ---
 
@@ -258,8 +274,8 @@ tail -f logs/server.log
 
 | `ENABLE_AUTH` | 模式 | 说明 |
 |:---:|------|------|
-| `false`（默认） | 单用户 | 无需登录，适合个人使用 |
-| `true` | 内网多用户 | Basic Auth 认证，适合团队 |
+| `true`（默认） | 内网多用户 | Basic Auth 认证，适合团队 |
+| `false` | 单用户 | 无需登录，适合个人使用 |
 
 ### 多用户模式配置 users.yaml
 

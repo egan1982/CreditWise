@@ -290,10 +290,13 @@ users:
 ### 3.2 生成密码哈希
 
 ```bash
-# 在宿主机执行
-docker-compose run --rm creditwise python scripts/hash_password.py <你的密码>
+# 方式一：使用 service.sh（推荐，服务已启动时）
+./scripts/service.sh hash <你的密码>
 
-# 或在容器内执行
+# 方式二：使用 docker run（离线部署场景，服务未启动时）
+docker run --rm creditwise:latest python scripts/hash_password.py <你的密码>
+
+# 方式三：在已运行的容器内执行
 docker-compose exec creditwise python scripts/hash_password.py <你的密码>
 ```
 
