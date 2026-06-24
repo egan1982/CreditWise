@@ -19,11 +19,7 @@
     "chokidar": "^3.5.3",
     "concurrently": "^8.2.2",
     "postcss": "^8.4.38",
-    "tailwindcss": "3.4.12",
+    "tailwindcss": "3.3.7",
     "vite": "^4.5.14"
-  },
-  "overrides": {
-    "fast-glob": "3.3.2",
-    "picomatch": "2.3.1"
   }
 }
