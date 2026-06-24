@@ -311,7 +311,7 @@ class SimpleAuth:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Missing authorization",
-                headers={"WWW-Authenticate": "Basic realm=\"DeepAnalyze\""},
+                headers={"WWW-Authenticate": "Basic realm=\"CreditWise\""},
             )
 
         try:
@@ -322,7 +322,7 @@ class SimpleAuth:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authorization header",
-                headers={"WWW-Authenticate": "Basic realm=\"DeepAnalyze\""},
+                headers={"WWW-Authenticate": "Basic realm=\"CreditWise\""},
             )
 
         client_ip = request.client.host if request.client else "unknown"
@@ -346,7 +346,7 @@ class SimpleAuth:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
-                headers={"WWW-Authenticate": "Basic realm=\"DeepAnalyze\""},
+                headers={"WWW-Authenticate": "Basic realm=\"CreditWise\""},
             )
 
         self._reset_failures(username)
