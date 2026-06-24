@@ -1504,15 +1504,14 @@ async def _generate_stream_with_execution_async(
         
         if is_async_client:
             # LLM Manager渠道：异步调用
-            response = await llm_client.chat.completions.create(**(
-                _build_extra_params({
+            req_params = _build_extra_params({
                     "model": model,
                     "messages": vllm_messages,
                     "temperature": temperature,
                     "stream": True,
                     "max_tokens": max_tokens,
                 })
-            ))
+            response = await llm_client.chat.completions.create(**req_params)
         else:
             # 旧版客户端：同步调用（在线程池中执行）
             import asyncio
