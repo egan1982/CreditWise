@@ -389,21 +389,12 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         try:
             user = self.auth.authenticate(request)
         except HTTPException as exc:
-            accept = request.headers.get("accept", "")
-            if "text/html" in str(accept):
-                response = Response(
-                    content=f"<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
-                            f"<title>401</title></head><body><h1>{exc.detail}</h1></body></html>",
-                    status_code=exc.status_code,
-                    media_type="text/html",
-                    headers=dict(exc.headers) if exc.headers else {},
-                )
-            else:
-                response = JSONResponse(
-                    status_code=exc.status_code,
-                    content={"detail": exc.detail},
-                    headers=dict(exc.headers) if exc.headers else {},
-                )
+            # 构造错误响应并补上 CORS 头
+            response = JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=dict(exc.headers) if exc.headers else {},
+            )
             return self._patch_cors(request, response)
 
         # 4. 角色检查：admin-only 路由
