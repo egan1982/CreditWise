@@ -23,6 +23,7 @@
     "vite": "^4.5.14"
   },
   "overrides": {
-    "fast-glob": "3.3.2"
+    "fast-glob": "3.3.2",
+    "picomatch": "2.3.1"
   }
 }
