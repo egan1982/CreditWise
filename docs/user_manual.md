@@ -76,12 +76,14 @@ echo "ENABLE_AUTH=true" >> .env
 **直接使用 docker-compose**（低级操作，适合调试）：
 
 ```bash
-# 单用户模式
-cd docker && docker-compose up -d
+# 默认多用户模式（无需传 ENABLE_AUTH）
+cd docker && docker compose up -d
 
-# 多用户模式（手动传入环境变量）
-ENABLE_AUTH=true docker-compose up -d
+# 单用户模式
+ENABLE_AUTH=false docker compose up -d
 ```
+
+> 默认部署为多用户模式，访问首页和 LLM Manager 均需登录。详见 [部署指南](./deployment_guide.md)。
 
 启动后访问 `http://<服务器IP>:8200` 即可使用。如果启用了认证，浏览器会自动弹出登录框。
 

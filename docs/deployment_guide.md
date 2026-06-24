@@ -12,6 +12,8 @@
 | Docker 离线部署 | 内网无外网访问 | Linux | 否 |
 | 非 Docker 手动部署 | Docker 不可用的环境 | Win/Mac/Linux | 否（离线包） |
 
+> **默认部署模式为多用户**（`ENABLE_AUTH=true`），所有页面均需登录。单用户模式需显式设置 `ENABLE_AUTH=false`。
+
 ---
 
 ## 零、服务器环境要求
@@ -71,11 +73,18 @@ chmod +x scripts/deploy_linux.sh
 
 ### 手动 Docker 启动
 
-> ⚠️ `ENABLE_AUTH` 需通过 shell 环境变量传入，仅写 `.env` 不会被 `docker compose` 读取。
-
 ```bash
-# 单用户模式（无认证）
+# 默认多用户模式
 cd docker && docker compose up -d
+
+# 单用户模式（如不需要认证）
+ENABLE_AUTH=false docker compose up -d
+```
+
+> ⚠️ **部署后必须操作**：`config/users.yaml` 初始为占位符密码。生成真实哈希替换后才能登录：
+> ```bash
+> docker run --rm creditwise:latest python scripts/hash_password.py <密码>
+> ```
 
 # 内网多用户模式（Basic Auth）
 cd docker && ENABLE_AUTH=true docker compose up -d
@@ -130,6 +139,12 @@ chmod +x scripts/deploy_offline.sh
 2. 交互式选择部署模式（单用户 / 内网多用户）
 3. 配置环境（`.env`、加密密钥、用户账号）
 4. 启动服务（`docker compose up -d`，**不执行 build**）
+
+> ⚠️ **部署后必须操作**：`config/users.yaml` 中初始为占位符密码，任何人无法登录。需立即生成真实哈希替换：
+> ```bash
+> # 用容器生成（离线镜像已加载）
+> docker run --rm creditwise:latest python scripts/hash_password.py <你的密码>
+> # 将输出的哈希值替换 config/users.yaml 中的 PLACEHOLDER
 
 ---
 
