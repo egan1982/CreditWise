@@ -106,10 +106,9 @@ AUTH_WHITELIST = [
 # "/" 和 "/favicon.ico" 只返回前端 HTML/图标，不含敏感数据
 # 所有数据操作 API（/workspace/*、/sop/*、/v1/*）仍需认证
 AUTH_WHITELIST_EXACT = [
-    "/",
     "/favicon.ico",
-    "/placeholder-logo.png",     # 前端 Avatar 占位图，不存在时避免 401 触发浏览器弹窗
-    "/placeholder-user.jpg",     # 前端用户 Avatar 占位图
+    "/placeholder-logo.png",
+    "/placeholder-user.jpg",
 ]
 
 # 静态资源后缀白名单（浏览器直接加载，无法注入 Authorization header）
