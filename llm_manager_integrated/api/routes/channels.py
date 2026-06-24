@@ -38,9 +38,9 @@ def _invalidate_models_cache():
 
 # 默认参数范围配置
 DEFAULT_PARAM_LIMITS = {
-    'temperature': {'min': 0, 'max': 2, 'step': 0.1, 'default': 0.7},
-    'top_p': {'min': 0, 'max': 1, 'step': 0.05, 'default': 1.0},
-    'max_tokens': {'min': 100, 'max': 4096, 'step': 100, 'default': 2000},
+    'temperature': {'min': 0, 'max': 2, 'step': 0.1, 'default': 0.3},
+    'top_p': {'min': 0, 'max': 1, 'step': 0.05, 'default': 0.8},
+    'max_tokens': {'min': 100, 'max': 4096, 'step': 100, 'default': 4096},
     'frequency_penalty': {'min': -2, 'max': 2, 'step': 0.1, 'default': 0.0},
     'presence_penalty': {'min': -2, 'max': 2, 'step': 0.1, 'default': 0.0},
     'thinking_budget': {'min': 1024, 'max': 32768, 'step': 1024, 'default': 8192},

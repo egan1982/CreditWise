@@ -204,10 +204,10 @@ function createBasicModelConfigModal() {
               <div class="param-card">
                 <div class="param-header">
                   <label for="temperature">Temperature</label>
-                  <span class="param-value" id="temperature-value">0.7</span>
+                  <span class="param-value" id="temperature-value">0.3</span>
                 </div>
                 <div class="param-control">
-                  <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" 
+                  <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.3" 
                          oninput="updateParameterDisplay('temperature')" class="styled-range">
                   <div class="range-track">
                     <div class="range-progress" style="width: 35%;"></div>
@@ -219,10 +219,10 @@ function createBasicModelConfigModal() {
               <div class="param-card">
                 <div class="param-header">
                   <label for="top_p">Top P</label>
-                  <span class="param-value" id="top_p-value">1.0</span>
+                  <span class="param-value" id="top_p-value">0.8</span>
                 </div>
                 <div class="param-control">
-                  <input type="range" id="top_p" min="0" max="1" step="0.05" value="1.0" 
+                  <input type="range" id="top_p" min="0" max="1" step="0.05" value="0.8" 
                          oninput="updateParameterDisplay('top_p')" class="styled-range">
                   <div class="range-track">
                     <div class="range-progress" style="width: 100%;"></div>
@@ -234,10 +234,10 @@ function createBasicModelConfigModal() {
               <div class="param-card">
                 <div class="param-header">
                   <label for="max_tokens">Max Tokens</label>
-                  <span class="param-value" id="max_tokens-value">2000</span>
+                  <span class="param-value" id="max_tokens-value">4096</span>
                 </div>
                 <div class="param-control">
-                  <input type="range" id="max_tokens" min="100" max="8192" step="1" value="2000" 
+                  <input type="range" id="max_tokens" min="100" max="8192" step="1" value="4096" 
                          oninput="updateParameterDisplay('max_tokens')" class="styled-range">
                   <div class="range-track">
                     <div class="range-progress" style="width: 48%;"></div>
@@ -865,9 +865,9 @@ async function loadModelConfig(channelId) {
     // 如果没有配置，返回默认配置
     if (response.status === 404) {
       return {
-        temperature: 0.7,
-        top_p: 1.0,
-        max_tokens: 2000,
+        temperature: 0.3,
+        top_p: 0.8,
+        max_tokens: 4096,
         frequency_penalty: 0.0,
         presence_penalty: 0.0,
         system_prompt: '',
@@ -915,9 +915,9 @@ function fillConfigForm(config) {
   }
   
   // 填充参数值
-  document.getElementById('temperature').value = config.temperature || 0.7;
-  document.getElementById('top_p').value = config.top_p || 1.0;
-  document.getElementById('max_tokens').value = config.max_tokens || 2000;
+  document.getElementById('temperature').value = config.temperature || 0.3;
+  document.getElementById('top_p').value = config.top_p || 0.8;
+  document.getElementById('max_tokens').value = config.max_tokens || 4096;
   document.getElementById('frequency_penalty').value = config.frequency_penalty || 0.0;
   document.getElementById('presence_penalty').value = config.presence_penalty || 0.0;
   document.getElementById('system_prompt').value = config.system_prompt || '';
@@ -1179,9 +1179,9 @@ function resetSystemPrompt() {
 // 恢复默认参数
 function resetToDefaults() {
   if (confirm('确定要恢复所有参数到默认值吗？')) {
-    document.getElementById('temperature').value = 0.7;
-    document.getElementById('top_p').value = 1.0;
-    document.getElementById('max_tokens').value = 2000;
+    document.getElementById('temperature').value = 0.3;
+    document.getElementById('top_p').value = 0.8;
+    document.getElementById('max_tokens').value = 4096;
     document.getElementById('frequency_penalty').value = 0.0;
     document.getElementById('presence_penalty').value = 0.0;
     document.getElementById('system_prompt').value = '';

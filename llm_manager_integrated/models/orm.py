@@ -21,9 +21,9 @@ class ModelConfig(Base):
     channel_id = Column(Integer, ForeignKey("channels.id"), nullable=False, index=True)
     model_name = Column(String, nullable=False, index=True)
     system_prompt = Column(Text, nullable=True)  # 默认系统提示词
-    temperature = Column(Float, default=0.7)  # 温度参数 (0-2)
-    top_p = Column(Float, default=1.0)  # Top P 参数 (0-1)
-    max_tokens = Column(Integer, default=2000)  # 最大输出 token 数
+    temperature = Column(Float, default=0.3)  # 温度参数 (0-2)，风控场景建议低温度保证一致性
+    top_p = Column(Float, default=0.8)  # Top P 参数 (0-1)，适度截断低概率token提升稳定性
+    max_tokens = Column(Integer, default=4096)  # 最大输出 token 数，风控报告通常需要较长输出
     frequency_penalty = Column(Float, default=0.0)  # 频率惩罚 (-2-2)
     presence_penalty = Column(Float, default=0.0)  # 存在惩罚 (-2-2)
     description = Column(Text, nullable=True)  # 模型描述（用户编辑）

@@ -46,9 +46,9 @@ class ModelConfigBase(BaseModel):
 
     model_name: Optional[str] = None  # 可选，从渠道配置获取
     system_prompt: Optional[str] = None
-    temperature: float = 0.7
-    top_p: float = 1.0
-    max_tokens: int = 2000
+    temperature: float = 0.3
+    top_p: float = 0.8
+    max_tokens: int = 4096
     frequency_penalty: float = 0.0
     presence_penalty: float = 0.0
     description: Optional[str] = None
@@ -72,9 +72,9 @@ class ModelConfigCreate(BaseModel):
     channel_id: Optional[int] = None  # 由路由参数提供
     model_name: Optional[str] = None
     system_prompt: Optional[str] = None
-    temperature: Optional[float] = 0.7
-    top_p: Optional[float] = 1.0
-    max_tokens: Optional[int] = 2000
+    temperature: Optional[float] = 0.3
+    top_p: Optional[float] = 0.8
+    max_tokens: Optional[int] = 4096
     frequency_penalty: Optional[float] = 0.0
     presence_penalty: Optional[float] = 0.0
     description: Optional[str] = None
@@ -144,7 +144,7 @@ class ChatCompletionRequest(BaseModel):
     """OpenAI兼容的聊天完成请求"""
     model: str
     messages: list[dict]
-    temperature: Optional[float] = 1.0
+    temperature: Optional[float] = 0.7
     top_p: Optional[float] = 1.0
     n: Optional[int] = 1
     stream: Optional[bool] = False

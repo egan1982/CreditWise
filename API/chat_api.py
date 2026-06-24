@@ -521,6 +521,7 @@ async def chat_completions(
             system_prompt=enhanced_system_prompt,
             channel_info=channel_info,
             max_tokens=max_tokens,
+            top_p=top_p,
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
         )
@@ -541,6 +542,7 @@ async def chat_completions(
             system_prompt=enhanced_system_prompt,
             channel_info=channel_info,
             max_tokens=max_tokens,
+            top_p=top_p,
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
         )
@@ -559,6 +561,7 @@ async def chat_completions(
                 system_prompt=enhanced_system_prompt,
                 channel_info=channel_info,
                 max_tokens=max_tokens,
+                top_p=top_p,
                 frequency_penalty=frequency_penalty,
                 presence_penalty=presence_penalty,
             )
@@ -617,6 +620,13 @@ async def chat_completions(
         channel_max_tokens = getattr(channel_info, 'max_tokens', None)
         effective_max_tokens = max_tokens if max_tokens is not None else channel_max_tokens
         
+        # top_p：请求参数优先，否则使用渠道配置
+        effective_top_p = top_p if top_p is not None else getattr(channel_info, 'top_p', None)
+        
+        # frequency_penalty / presence_penalty：请求参数优先，否则使用渠道配置
+        effective_frequency_penalty = frequency_penalty if frequency_penalty is not None else getattr(channel_info, 'frequency_penalty', None)
+        effective_presence_penalty = presence_penalty if presence_penalty is not None else getattr(channel_info, 'presence_penalty', None)
+        
         # 确保不超过模型的max_tokens_limit
         max_limit = getattr(channel_info, 'max_tokens_limit', None)
         if max_limit and effective_max_tokens and effective_max_tokens > max_limit:
@@ -627,12 +637,15 @@ async def chat_completions(
         if effective_max_tokens is None:
             logger.warning(f"渠道 {channel_info.channel_name} 未配置max_tokens，请在LLM Manager中配置")
         if effective_temperature is None:
-            logger.warning(f"渠道 {channel_info.channel_name} 未配置temperature，使用默认值0.7")
-            effective_temperature = 0.7
+            logger.warning(f"渠道 {channel_info.channel_name} 未配置temperature，使用默认值0.3")
+            effective_temperature = 0.3
     else:
         # 非LLM Manager渠道（旧版兼容）
         effective_max_tokens = max_tokens
-        effective_temperature = temperature if temperature is not None else 0.7
+        effective_top_p = top_p
+        effective_frequency_penalty = frequency_penalty
+        effective_presence_penalty = presence_penalty
+        effective_temperature = temperature if temperature is not None else 0.3
 
     # Stream response with code execution
     if effective_stream:
@@ -649,7 +662,10 @@ async def chat_completions(
                 generated_files=generated_files,
                 channel_info=channel_info,
                 max_tokens=effective_max_tokens,
-                session_id=temp_thread.id if enable_code_execution else None,  # 传递session_id用于任务记录
+                top_p=effective_top_p,
+                frequency_penalty=effective_frequency_penalty,
+                presence_penalty=effective_presence_penalty,
+                session_id=temp_thread.id if enable_code_execution else None,
             ),
             media_type="text/event-stream"
         )
@@ -668,7 +684,10 @@ async def chat_completions(
             generated_files=generated_files,
             channel_info=channel_info,
             max_tokens=effective_max_tokens,
-            session_id=temp_thread.id if enable_code_execution else None,  # 传递session_id用于任务记录
+            top_p=effective_top_p,
+            frequency_penalty=effective_frequency_penalty,
+            presence_penalty=effective_presence_penalty,
+            session_id=temp_thread.id if enable_code_execution else None,
         )
 
 
@@ -682,6 +701,7 @@ async def _simple_chat_completion(
     system_prompt: Optional[str],
     channel_info: Optional[Any] = None,
     max_tokens: Optional[int] = None,
+    top_p: Optional[float] = None,
     frequency_penalty: Optional[float] = None,
     presence_penalty: Optional[float] = None,
 ):
@@ -722,6 +742,9 @@ async def _simple_chat_completion(
         channel_max_tokens = getattr(channel_info, 'max_tokens', None)
         effective_max_tokens = max_tokens if max_tokens is not None else channel_max_tokens
         
+        # top_p：请求参数优先，否则使用渠道配置
+        effective_top_p = top_p if top_p is not None else getattr(channel_info, 'top_p', None)
+        
         # frequency_penalty和presence_penalty：请求参数优先，否则使用渠道配置
         # 这允许AI分析评估等场景覆盖渠道默认值
         effective_frequency_penalty = frequency_penalty if frequency_penalty is not None else getattr(channel_info, 'frequency_penalty', None)
@@ -737,14 +760,15 @@ async def _simple_chat_completion(
         if effective_max_tokens is None:
             logger.warning(f"渠道 {channel_info.channel_name} 未配置max_tokens，请在LLM Manager中配置")
         if effective_temperature is None:
-            logger.warning(f"渠道 {channel_info.channel_name} 未配置temperature，使用默认值0.7")
-            effective_temperature = 0.7
+            logger.warning(f"渠道 {channel_info.channel_name} 未配置temperature，使用默认值0.3")
+            effective_temperature = 0.3
     else:
         # 非LLM Manager渠道（旧版兼容），使用请求参数
         effective_max_tokens = max_tokens
+        effective_top_p = top_p
         effective_frequency_penalty = frequency_penalty
         effective_presence_penalty = presence_penalty
-        effective_temperature = temperature if temperature is not None else 0.7
+        effective_temperature = temperature if temperature is not None else 0.3
         effective_system_prompt = system_prompt
     
     # Prepare messages with system prompt (None workspace_dir for simple mode = no file scanning)
@@ -795,7 +819,9 @@ async def _simple_chat_completion(
                 "stream": True,
                 "max_tokens": effective_max_tokens,
             }
-            # 添加可选的惩罚参数（仅当有值时）
+            # 添加可选参数（仅当有值时）
+            if effective_top_p is not None:
+                request_params["top_p"] = effective_top_p
             if effective_frequency_penalty is not None:
                 request_params["frequency_penalty"] = effective_frequency_penalty
             if effective_presence_penalty is not None:
@@ -848,7 +874,9 @@ async def _simple_chat_completion(
                 "stream": True,
                 "max_tokens": effective_max_tokens,
             }
-            # 添加可选的惩罚参数（仅当有值时）
+            # 添加可选参数（仅当有值时）
+            if effective_top_p is not None:
+                request_params["top_p"] = effective_top_p
             if effective_frequency_penalty is not None:
                 request_params["frequency_penalty"] = effective_frequency_penalty
             if effective_presence_penalty is not None:
@@ -907,7 +935,9 @@ async def _simple_chat_completion(
                 "temperature": effective_temperature,
                 "max_tokens": effective_max_tokens,
             }
-            # 添加可选的惩罚参数（仅当有值时）
+            # 添加可选参数（仅当有值时）
+            if effective_top_p is not None:
+                request_params["top_p"] = effective_top_p
             if effective_frequency_penalty is not None:
                 request_params["frequency_penalty"] = effective_frequency_penalty
             if effective_presence_penalty is not None:
@@ -1439,7 +1469,10 @@ async def _generate_stream_with_execution_async(
     generated_files: List[Dict],
     channel_info: Optional[Any] = None,
     max_tokens: Optional[int] = None,
-    session_id: Optional[str] = None,  # 添加session_id参数用于任务记录
+    top_p: Optional[float] = None,
+    frequency_penalty: Optional[float] = None,
+    presence_penalty: Optional[float] = None,
+    session_id: Optional[str] = None,
 ):
     """
     异步生成器：流式响应 + 代码执行
@@ -1462,28 +1495,39 @@ async def _generate_stream_with_execution_async(
     is_async_client = channel_info is not None
 
     while not finished:
+        # 构建请求参数的辅助函数
+        def _build_extra_params(params_dict):
+            if top_p is not None: params_dict["top_p"] = top_p
+            if frequency_penalty is not None: params_dict["frequency_penalty"] = frequency_penalty
+            if presence_penalty is not None: params_dict["presence_penalty"] = presence_penalty
+            return params_dict
+        
         if is_async_client:
             # LLM Manager渠道：异步调用
-            response = await llm_client.chat.completions.create(
-                model=model,
-                messages=vllm_messages,
-                temperature=temperature,
-                stream=True,
-                max_tokens=max_tokens,
-            )
+            response = await llm_client.chat.completions.create(**(
+                _build_extra_params({
+                    "model": model,
+                    "messages": vllm_messages,
+                    "temperature": temperature,
+                    "stream": True,
+                    "max_tokens": max_tokens,
+                })
+            ))
         else:
             # 旧版客户端：同步调用（在线程池中执行）
             import asyncio
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: llm_client.chat.completions.create(
-                    model=model,
-                    messages=vllm_messages,
-                    temperature=temperature,
-                    stream=True,
-                    max_tokens=max_tokens,
-                )
+                lambda: llm_client.chat.completions.create(**(
+                    _build_extra_params({
+                        "model": model,
+                        "messages": vllm_messages,
+                        "temperature": temperature,
+                        "stream": True,
+                        "max_tokens": max_tokens,
+                    })
+                ))
             )
 
         cur_res = ""
@@ -1679,7 +1723,10 @@ async def _non_streaming_with_execution(
     generated_files: List[Dict],
     channel_info: Optional[Any] = None,
     max_tokens: Optional[int] = None,
-    session_id: Optional[str] = None,  # 添加session_id参数用于任务记录
+    top_p: Optional[float] = None,
+    frequency_penalty: Optional[float] = None,
+    presence_penalty: Optional[float] = None,
+    session_id: Optional[str] = None,
 ) -> Dict:
     """Non-streaming response with code execution workflow
     
@@ -1722,14 +1769,23 @@ async def _non_streaming_with_execution(
     tracker = WorkspaceTracker(workspace_dir, generated_dir)
 
     while not finished:
+        # 构建请求参数
+        req_params = {
+            "model": model,
+            "messages": vllm_messages,
+            "temperature": temperature,
+            "stream": True,
+            "max_tokens": max_tokens,
+        }
+        if top_p is not None:
+            req_params["top_p"] = top_p
+        if frequency_penalty is not None:
+            req_params["frequency_penalty"] = frequency_penalty
+        if presence_penalty is not None:
+            req_params["presence_penalty"] = presence_penalty
+        
         # Use async client to avoid blocking
-        response = await llm_client_async.chat.completions.create(
-            model=model,
-            messages=vllm_messages,
-            temperature=temperature,
-            stream=True,
-            max_tokens=max_tokens,
-        )
+        response = await llm_client_async.chat.completions.create(**req_params)
 
         cur_res = ""
         last_finish_reason: Optional[str] = None
