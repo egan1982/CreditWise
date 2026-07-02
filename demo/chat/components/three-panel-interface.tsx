@@ -54,6 +54,10 @@ import {
   Code2,
   BrainCircuit,
   Loader2,
+  UserCog,
+  LogOut,
+  Settings,
+  Cpu,
 } from "lucide-react";
 import { Tree, NodeApi } from "react-arborist";
 import { useToast } from "@/hooks/use-toast";
@@ -75,6 +79,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
+import { useRouter } from "next/navigation";
+import { useAuthInfo } from "@/hooks/use-auth-info";
+import AccountSettingsDialog from "./AccountSettingsDialog";
+import { clearAuth } from "@/lib/config";
 import ModelSelector from "./ModelSelector";
 import { 
   TaskSelector, 
@@ -178,6 +194,11 @@ function getStageOrder(status: { task_id: string; stage_order?: string[] } | nul
 // 内部组件：使用 ModeContext
 function ThreePanelInterfaceInner() {
   const { toast } = useToast();
+  const router = useRouter();
+  // 用户管理模块 批次2 Phase11：账户设置/用户管理菜单差异化 + 强制改密（must_change_password，TD4）
+  const authInfo = useAuthInfo();
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const forceChangePassword = !!authInfo.user?.must_change_password;
   const [isDarkMode, setIsDarkMode] = useState(false); // 服务端默认 false
   const [mounted, setMounted] = useState(false);
   const [editorHeight, setEditorHeight] = useState(60); // 编辑器高度百分比
@@ -199,15 +220,50 @@ function ThreePanelInterfaceInner() {
   useEffect(() => {
     setMounted(true);
     if (typeof window !== "undefined") {
-      // 初始化或获取 sessionId
-      let sid = localStorage.getItem("sessionId");
-      if (!sid) {
-        sid = `session_${Date.now()}_${Math.random()
-          .toString(36)
-          .substr(2, 9)}`;
-        localStorage.setItem("sessionId", sid);
+      // 用户管理模块 批次1 Phase1：初始化 sessionId
+      // 优先尝试用登录用户名作为 sessionId（身份隔离键统一，详见
+      // docs/user_management_module_design.md §三/§四）；
+      // 单用户模式（未启用认证）下 /auth/me 返回 username=null，
+      // 维持现状（随机字符串），不受本模块影响。
+      const initSessionId = async () => {
+        let sid = localStorage.getItem("sessionId");
+        // 先兜底：保证在异步请求返回前，legacy 逻辑仍可用（不阻塞首屏）
+        if (!sid) {
+          sid = `session_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+          localStorage.setItem("sessionId", sid);
+        }
+        setSessionId(sid);
+
+        try {
+          const res = await authFetch(getApiUrl("/auth/me"));
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.username) {
+              // 多用户模式：用登录用户名覆盖 sessionId，实现按用户名隔离
+              if (sid !== data.username) {
+                localStorage.setItem("sessionId", data.username);
+                setSessionId(data.username);
+              }
+            }
+            // data.username 为 null → 单用户模式，维持上面已设置的随机 sid，不做任何改动
+          }
+        } catch (e) {
+          // 网络异常/未启用认证等场景：静默降级，维持随机 sessionId（不影响现有单用户模式体验）
+          console.warn("[Auth] /auth/me 请求失败，维持现有 sessionId:", e);
+        }
+      };
+      initSessionId();
+
+      // 新增 tabId：仅用于前端UI层区分多标签页，不参与任何数据隔离判断
+      // （详见 docs/user_management_module_design.md §四 4.2）
+      if (!sessionStorage.getItem("tabId")) {
+        sessionStorage.setItem(
+          "tabId",
+          `tab_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
+        );
       }
-      setSessionId(sid);
 
       const savedTheme = localStorage.getItem("theme");
       const shouldBeDark = savedTheme === "dark";
@@ -3856,6 +3912,64 @@ function ThreePanelInterfaceInner() {
                   {/* 旧菜单已移除 */}
                 </div>
                 <div className="flex items-center gap-1">
+                  {/* 用户管理模块 批次2 Phase11：头像/身份菜单，紧邻主题切换按钮，
+                      详见 docs/user_management_module_design.md §15.0。
+                      单用户模式（auth_enabled=false）下完全不渲染，不影响其余Header元素 */}
+                  {authInfo.authEnabled && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 rounded-full"
+                          title={authInfo.user?.username || undefined}
+                        >
+                          <User className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        {authInfo.user?.username && (
+                          <>
+                            <DropdownMenuLabel className="font-normal text-xs text-muted-foreground">
+                              {authInfo.user.display_name || authInfo.user.username}
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
+                        <DropdownMenuItem onClick={() => setAccountDialogOpen(true)}>
+                          <Settings className="h-4 w-4" />
+                          账户设置
+                        </DropdownMenuItem>
+                        {authInfo.isAdmin && (
+                          <DropdownMenuItem onClick={() => router.push("/user-manager")}>
+                            <UserCog className="h-4 w-4" />
+                            用户管理
+                          </DropdownMenuItem>
+                        )}
+                        {authInfo.isAdmin && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              window.location.href = "/llm-manager";
+                            }}
+                          >
+                            <Cpu className="h-4 w-4" />
+                            LLM渠道管理
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => {
+                            clearAuth();
+                            window.location.reload();
+                          }}
+                        >
+                          <LogOut className="h-4 w-4" />
+                          退出登录
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -5093,6 +5207,19 @@ function ThreePanelInterfaceInner() {
           // 重新打开文件选择框
           fileInputRef.current?.click();
         }}
+      />
+
+      {/* 用户管理模块 批次2 Phase11：账户设置弹窗
+          - 正常模式：点击头像菜单「账户设置」打开，可关闭
+          - 强制改密模式（must_change_password=true，TD4）：自动打开，禁止关闭，
+            改密成功后 refreshUser() 会把 must_change_password 刷新为 false，
+            forceChangePassword 随即变为 false，弹窗据此自动消失 */}
+      <AccountSettingsDialog
+        isOpen={accountDialogOpen || forceChangePassword}
+        onClose={() => setAccountDialogOpen(false)}
+        user={authInfo.user}
+        onUpdated={authInfo.refreshUser}
+        forceMode={forceChangePassword}
       />
     </>
   );

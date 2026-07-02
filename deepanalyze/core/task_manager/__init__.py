@@ -15,7 +15,7 @@ Task Manager Module
 """
 
 from .enums import TaskStatus, TaskControlAction, TaskCategory, InteractionMode
-from .models import TaskRecord, TaskControl, TaskManagerBase, ExecutionState, ExecutionCheckpoint, StageAIAnalysis, OverallAIAnalysis
+from .models import TaskRecord, TaskControl, TaskManagerBase, ExecutionState, ExecutionCheckpoint, StageAIAnalysis, OverallAIAnalysis, User
 from .database import TaskManagerDB, get_task_manager_db
 from .controller import TaskController
 from .history_service import TaskHistoryService
@@ -24,6 +24,7 @@ from .checkpoint import CheckpointMixin, TaskPausedException, TaskStoppedExcepti
 from .persistent_store import PersistentExecutionStore
 from .recovery import ExecutionStateRecovery
 from .stage_analysis_service import StageAnalysisService
+from .user_service import UserService, UsernameConflictError, validate_username
 
 __all__ = [
     # Enums
@@ -39,6 +40,7 @@ __all__ = [
     "ExecutionCheckpoint",
     "StageAIAnalysis",
     "OverallAIAnalysis",
+    "User",
     # Database
     "TaskManagerDB",
     "get_task_manager_db",
@@ -59,4 +61,8 @@ __all__ = [
     "ExecutionStateRecovery",
     # Stage Analysis Service (Phase 7)
     "StageAnalysisService",
+    # User Service (批次2 Phase9/10)
+    "UserService",
+    "UsernameConflictError",
+    "validate_username",
 ]

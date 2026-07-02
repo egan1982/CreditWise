@@ -6,7 +6,7 @@ Task Manager ORM Models
 """
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Text, DateTime, Index
+from sqlalchemy import Column, Integer, String, Float, Text, DateTime, Date, Boolean, Index
 from sqlalchemy.ext.declarative import declarative_base
 
 TaskManagerBase = declarative_base()
@@ -266,3 +266,41 @@ class OverallAIAnalysis(TaskManagerBase):
     
     def __repr__(self):
         return f"<OverallAIAnalysis(record_id='{self.record_id}', task_type='{self.task_type}')>"
+
+
+# =============================================================================
+# 用户管理模块 批次2 Phase9：账号存储（users表，取代 config/users.yaml 手工维护）
+# 详见 docs/user_management_module_design.md §十三
+# =============================================================================
+
+class User(TaskManagerBase):
+    """账户表
+
+    迁移前：账号信息全部存于 config/users.yaml，纯手工编辑+重启生效。
+    迁移后：正常运行时以本表为准；users.yaml 仅作为灾备/离线场景兜底保留
+    （见 scripts/migrate_users_yaml_to_db.py 一次性导入脚本）。
+
+    与批次1的关系：本表的 username 字段与批次1 workspace/task 所有权隔离所用的
+    session_id 是同一份值（session_id 直接承载 username），本表新增/禁用账户
+    不会影响批次1已落地的隔离逻辑。
+    """
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # 登录名，创建后不可变更；字符集约束 ^[a-zA-Z0-9_-]+$（TD6），与 session_id/workspace目录名兼容
+    username = Column(String(64), unique=True, nullable=False, index=True)
+    display_name = Column(String(64), nullable=True)          # 显示名/昵称，用户可自助编辑，非唯一
+    password_hash = Column(String(128), nullable=False)       # bcrypt
+    role = Column(String(16), nullable=False, default="user")  # admin | user，仅admin可编辑
+    org = Column(String(128), nullable=True)                  # 部门备注，用户可自助编辑
+    description = Column(Text, nullable=True)                 # 备注，用户可自助编辑
+    valid_until = Column(Date, nullable=True)                 # NULL = 永久有效
+    enabled = Column(Boolean, nullable=False, default=True)   # 软禁用，替代物理删除
+    must_change_password = Column(Boolean, nullable=False, default=False)  # TD4：新建/重置密码后强制首次登录改密
+
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_by = Column(String(64), nullable=True)             # 审计：记录操作人（admin username，迁移导入记为'migration'）
+
+    def __repr__(self):
+        return f"<User(username='{self.username}', role='{self.role}', enabled={self.enabled})>"

@@ -105,10 +105,12 @@ AUTH_WHITELIST = [
 # 不需要认证的精确路径（非前缀匹配）
 # "/" 和 "/favicon.ico" 只返回前端 HTML/图标，不含敏感数据
 # 所有数据操作 API（/workspace/*、/sop/*、/v1/*）仍需认证
+# "/auth/mode" 用户管理模块 批次2 Phase10：登录前需探测是否启用认证，供前端决定是否渲染登录框
 AUTH_WHITELIST_EXACT = [
     "/favicon.ico",
     "/placeholder-logo.png",
     "/placeholder-user.jpg",
+    "/auth/mode",
 ]
 
 # 静态资源后缀白名单（浏览器直接加载，无法注入 Authorization header）
@@ -129,6 +131,7 @@ ADMIN_ONLY_PREFIXES = [
     "/llm-manager/api/manage/",
     "/llm-manager/api/logs",
     "/llm-manager/api/monitoring/",
+    "/admin/",  # 用户管理模块 批次1 Phase6：账户合并等admin专属接口统一前缀
 ]
 
 # LLM Manager 管理页面（非 API 路由）— 仅 admin
@@ -183,9 +186,28 @@ class SimpleAuth:
                 "或: pip install -r requirements.txt"
             )
 
-        config = load_users_config()
-        self.users = {u["username"]: u for u in config["users"]}
-        settings = config.get("settings", {})
+        # 用户管理模块 批次2 Phase10：账号数据源切换（users表 vs config/users.yaml）
+        # 见 docs/user_management_module_design.md §十三："导入后 users.yaml 仅作为
+        # 灾备/离线场景兜底保留，正常运行时以数据库为准"。
+        # 启动时仅用于决定 yaml 是否必须存在（见下方 try/except）；实际每次登录走哪条
+        # 路径由 self._is_db_backed_now() 在 verify() 里实时判断（而非缓存启动时的结果），
+        # 这样 admin 通过 /admin/users 创建首个账户、或运维事后执行迁移脚本后，
+        # 无需重启服务即可立即切换到数据库模式登录。
+        db_backed_at_startup = self._is_db_backed_now()
+
+        # yaml 仍尝试加载：数据库模式下作为灾备信息（不强制要求存在）；
+        # 非数据库模式下（未迁移）是唯一数据源，必须存在，沿用原有报错行为。
+        try:
+            config = load_users_config()
+            self.users = {u["username"]: u for u in config["users"]}
+            settings = config.get("settings", {})
+        except FileNotFoundError:
+            if not db_backed_at_startup:
+                raise  # 非数据库模式下 yaml 是唯一数据源，缺失必须报错，维持原有行为
+            self.users = {}
+            settings = {}
+            logger.info("config/users.yaml 未找到（数据库模式下允许缺失，作为灾备兜底的可选文件）")
+
         self.max_failures = settings.get("max_login_failures", 5)
         self.lockout_duration = settings.get("lockout_duration_minutes", 15) * 60
 
@@ -198,10 +220,30 @@ class SimpleAuth:
         self._load_failures()
 
         logger.info(
-            f"认证系统初始化完成：{len(self.users)} 个用户，"
+            f"认证系统初始化完成：启动时数据源={'users表(数据库)' if db_backed_at_startup else 'config/users.yaml'}"
+            f"（运行期会随users表状态动态切换），yaml中定义{len(self.users)}个用户，"
             f"锁定阈值={self.max_failures}次，"
             f"锁定时长={self.lockout_duration // 60}分钟"
         )
+
+    @staticmethod
+    def _is_db_backed_now() -> bool:
+        """实时判断当前应走 users 表（数据库）还是 config/users.yaml。
+
+        每次调用都重新查询（而非缓存），使数据源切换无需重启服务：
+        - 迁移脚本执行完成的那一刻起
+        - 或 admin 首次通过 /admin/users 创建账户的那一刻起
+        下一次登录请求即可立即感知并切换到数据库模式。
+
+        查询开销：SQLite `SELECT COUNT(*)`，相对 bcrypt 密码哈希计算可忽略不计。
+        数据库/依赖不可用时（如某些测试环境未初始化数据库）安全回退到 yaml，不阻断认证。
+        """
+        try:
+            from deepanalyze.core.task_manager.user_service import UserService
+            return UserService.count_users() > 0
+        except Exception as e:
+            logger.debug(f"users表检测失败（可能尚未迁移），回退到 config/users.yaml: {e}")
+            return False
 
     def _load_failures(self) -> None:
         """从磁盘加载登录失败状态"""
@@ -260,8 +302,23 @@ class SimpleAuth:
         验证用户凭证
 
         Returns:
-            成功返回用户字典，失败返回 None
+            成功返回用户字典（统一字段：username/role/org/description/valid_until/
+            display_name/enabled/must_change_password，不含password_hash），
+            失败返回 None
         """
+        if self._is_db_backed_now():
+            return self._verify_db(username, password)
+        return self._verify_yaml(username, password)
+
+    def _verify_db(self, username: str, password: str) -> Optional[dict]:
+        """用户管理模块 批次2 Phase10：数据库模式下的凭证校验，
+        委托给 UserService（含 bcrypt 校验 + valid_until 过期检查 + enabled 检查）。
+        """
+        from deepanalyze.core.task_manager.user_service import UserService
+        return UserService.verify_password(username, password)
+
+    def _verify_yaml(self, username: str, password: str) -> Optional[dict]:
+        """原有 config/users.yaml 校验逻辑（未迁移/无数据库场景，兼容保留）"""
         user = self.users.get(username)
         if not user:
             # 即使用户不存在也做一次哈希运算，防止时序攻击泄露用户名
@@ -292,7 +349,18 @@ class SimpleAuth:
                 )
                 return None  # 格式错误时保守拒绝
 
-        return user
+        # 用户管理模块 批次2 Phase10：归一化返回字段，与 _verify_db 的返回形状保持一致，
+        # 使 /auth/me、/auth/profile 等下游读取方不需要区分数据源分支
+        return {
+            "username": user.get("username", username),
+            "role": user.get("role", "user"),
+            "org": user.get("org"),
+            "description": user.get("description"),
+            "valid_until": valid_until or None,
+            "display_name": None,               # yaml 模式不支持该字段，统一给 None
+            "enabled": True,                     # yaml 中的账户视为始终启用（无软删除概念）
+            "must_change_password": False,       # yaml 模式不支持强制改密流程
+        }
 
     def authenticate(self, request: Request) -> dict:
         """

@@ -2064,6 +2064,7 @@ def get_execution_status(execution_id: str) -> dict[str, object] | None:
     return {
         "execution_id": context.execution_id,
         "task_id": context.task_id,
+        "session_id": context.session_id,  # 用户管理模块 批次1 Phase3：供API层做所有权校验用
         "status": context.status.value,
         "current_stage": context.current_stage,
         "overall_progress": context.overall_progress,
@@ -2210,6 +2211,7 @@ def get_execution_result(execution_id: str) -> dict[str, object] | None:
     return {
         "execution_id": context.execution_id,
         "task_id": context.task_id,
+        "session_id": context.session_id,  # 用户管理模块 批次1 Phase3：供API层做所有权校验用
         "status": context.status.value,
         "record_id": context.record_id,  # 添加record_id用于获取历史stages数据
         "outputs": outputs,

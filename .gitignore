@@ -37,6 +37,9 @@ llm_manager.db
 # User config (contains password hashes)
 config/users.yaml
 
+# 登录失败计数运行时状态（SimpleAuth._failure_tracker 落盘文件，本地运行时数据，非源码）
+config/login_state.json
+
 # Logs
 logs/
 *.log

@@ -12,7 +12,7 @@
 |------|------|
 | ✅ 已实现/已验证/已完成 | 24个 |
 | ⚠️ 部分实现 | 4个 |
-| 📋 待实施/待开发 | 13个 |
+| 📋 待实施/待开发 | 14个（原新增的"用户管理与数据隔离相关"1项已于2026-07-02完成开发，详见第18项；新增1项：全量测试基础设施历史债务排查发现，详见第19项） |
 
 ---
 
@@ -179,14 +179,41 @@
 | **优先级** | P2 |
 | **预计工作量** | 测试 ~0.5天（✅） / 修复 ~2天（✅ 实际 ~0.5天） |
 
+### 18. user_management_module_design.md — 用户管理与数据隔离（批次1、批次2均已完成）
+
+| 项目 | 内容 |
+|------|------|
+| **当前状态** | ✅ **批次1、批次2均已开发完成并通过全部单元测试（2026-07-02）**，整个用户管理与数据隔离模块开发完毕 |
+| **批次1完成内容** | 1. ✅ **workspace 基于用户名隔离**：`session_id`前端改为从`/auth/me`获取的登录用户名，后端27处路由强制从认证身份派生所有权<br>2. ✅ **任务历史按用户隔离**：`/sop/history`列表+13个记录端点强制按用户过滤<br>3. ✅ **数据迁移**：自助认领旧会话接口 + admin批量迁移脚本<br>4. ✅ **账户合并小工具**：`merge_user_data`服务 + `/admin/users/merge` API |
+| **批次2完成内容** | 1. ✅ **TD3技术选型**：确定自建，不引入`fastapi-users`<br>2. ✅ **数据模型**：`users`表 + `UserService` + yaml一次性导入脚本<br>3. ✅ **账号管理API**：`/auth/mode`、`/auth/profile`、`/auth/change-password`、`/admin/users`全套CRUD、reset-password；`SimpleAuth`数据源动态切换（DB优先/yaml兜底，无需重启即可切换）<br>4. ✅ **前端**：`AccountSettingsDialog`（改密+个人信息+强制改密模式）、`UserManagerPage`+`/user-manager`独立页面（列表/新建/编辑/重置密码/合并账户/一次性密码展示/有效期临期高亮）、头像身份菜单（按角色差异化）<br>5. ✅ **文档同步**：`intranet_deployment_guide.md`§3.3、`user_manual.md`§3.1/§3.2 已改为以 Web UI 为主路径描述 |
+| **回归测试** | 后端全量90项单测全通过（Phase1/5_6/9/10），无回归；前端因项目未配置JS测试框架，以人工代码审查+复用既有UI组件模式的方式验证（未执行实际浏览器运行验证，建议部署后人工走一遍关键路径） |
+| **详细设计与实施记录** | 📋 统一详见 [`user_management_module_design.md`](./user_management_module_design.md)§九「批次1 Phase划分」+ §十七「批次2 Phase划分」（含实施清单、已知未覆盖项） |
+| **需求出处（历史文档引用，已归档为本条目）** | `docs/intranet_deployment_guide.md` §5/§6、`docs/online_multiuser_deployment_assessment.md` §五、`docs/project_development_review.md` §7.1 中原"workspace用户名隔离/用户自助改密码/任务历史按用户隔离/数据隔离"相关行，均已同步更新为完成状态并指向本条目 |
+
+### 19. tests/ 目录测试基础设施历史债务（2026-07-02 排查发现）
+
+> 背景：为验证用户管理模块批次1（第18项）无回归，尝试运行全量 `pytest tests/`，发现并修复了一个阻塞性 collection 崩溃 bug；顺带暴露出一批与本次改动无关、长期被掩盖的独立测试维护债务，现登记以便后续排期清理。
+
+| 项目 | 内容 |
+|------|------|
+| **✅ 已修复（阻塞性 bug）** | `tests/test_oot_validation.py` L32-33 在**模块导入时**（非 `__main__` 保护块内）执行 `sys.stdout = io.TextIOWrapper(...)`，永久劫持 pytest 内部 capture 对象，导致 `pytest tests/`（整目录扫描）在 collection 阶段崩溃退出（`ValueError: I/O operation on closed file`），此前该 bug 使14个测试文件（含`test_sop_api.py`、`test_task_manager_complete.py`等）在整目录扫描时**静默消失、完全不被收集执行**，严重削弱回归测试的可信度。已将这两行移入 `if __name__ == "__main__":` 块内，修复后 `pytest tests/` 可正常收集全部 342 个测试用例 |
+| **❌ 待排查修复（2个 collection error）** | `test_resume_expert_mode.py` 导入 `ExecutionStatus`（已从 `deepanalyze.core.task_manager.models` 移除/改名）；`test_resume_integration.py` 导入 `ExecutionStore`（已从 `deepanalyze.core.task_manager.persistent_store` 移除/改名）——均为历史重构后测试文件未同步更新 |
+| **❌ 待排查修复（9个 setup error）** | `test_ai_suggest_retry.py::TestSuggestedParamsParsing`/`TestGetApiReturnsCleanText`/`TestPostApiStoresRawText` 试图从 `API.sop_api` 导入 `_parse_suggested_params`，但该函数已迁移至 `chat_api.py`（`sop_api.py` L2786 注释明确记录），测试未同步更新 import 路径 |
+| **❌ 待排查修复（8个 setup error）** | `test_sop_api.py::TestSOPAPIEndpoints` 试图 `from API.main import app`，但 `API/main.py` 一直采用 `create_app()` 工厂函数模式，从未导出模块级 `app` 变量——测试文件本身过时 |
+| **❌ 待排查修复（17个 failed）** | ①`test_task_manager_complete.py`：数据库共享状态污染（`UNIQUE constraint failed`、"应有且仅有1条历史记录"断言失败等）；②`test_rule_mining.py`/`test_resume_functionality.py`：GBK/UTF-8 编码不一致导致中文断言消息乱码比对失败；③`test_sop_api.py` 既有 bug（`ExecutionContext` 无 `update_stage` 属性、`KeyError: 'id'`、解包异常）；④`test_llm_pipeline_integration.py`：proxy URL 断言与当前实现不一致 |
+| **范围判断** | 以上除已修复项外，均为**测试代码本身的维护债务**（非生产代码 bug），且与用户管理模块（批次1/2）改动无关；因分布散（6+文件）、成因各异，修复工作量不亚于独立一个小 Phase，故不纳入批次1/2 范围，登记后按需排期 |
+| **优先级** | P3（不阻塞功能开发，但长期积累会持续削弱 `pytest tests/` 全量回归的可信度） |
+
 ---
 
 ## 📝 说明
 
 1. **已实现/已验证/已完成**（24个）：文档设计的功能已全部实现或已清理（过时/合并）
 2. **部分实现**（4个）：已完成基础功能，但有明确的后续开发内容
-3. **待实施/待开发**（12个）：尚未开始实现，或仅完成设计阶段
+3. **待实施/待开发**（13个）：尚未开始实现，或仅完成设计阶段
 4. 本报告基于2026-04-15的代码库核实及最新文档状态同步结果更新
+5. 2026-07-01 补充：新增部署类文档（`intranet_deployment_guide.md`）中登记的用户管理相关待实现任务（第18项）；2026-07-02 更新：第18项批次1已开发完成并通过测试，第18项标题及相关引用（6c/18a/后续迭代列表）已统一指向 `user_management_module_design.md`§九
+6. 2026-07-02 补充：批次1回归测试期间排查发现并修复了 `pytest tests/` 整目录扫描崩溃的阻塞性 bug（`test_oot_validation.py` stdout劫持），顺带登记暴露出的一批独立测试维护债务（第19项，P3，与用户管理模块无关）
 
 ---
 
@@ -212,6 +239,7 @@
 | **5** | `rule_mining_oot_validation_design.md` | ✅ Phase 1-6 全部完成（后端+前端融合展示+AI Prompt+测试 8/8 通过）。Phase 6 修复：preprocess one-hot 编码未排除 exclude_cols 导致 sample_type 列被删除 | ~14h |
 | **6** | ✅ `sensitive_field_detection` | **已完成 + 人工验证通过（2026-06-02）**：双层检测（L1列名+L2值扫描）+ 高危阻断上传+自动删除 + 中危警告 + SensitiveCheckDialog + 29个单元测试通过 | ~2天 |
 | **6b** | ✅ `ai_suggest_retry_design.md` | **已完成（2026-06-02）**：StageSnapshot dataclass + FIFO快照 + SUGGESTED_PARAMS Prompt注入+解析 + SuggestedParamsCard.tsx + StageVersionSelector.tsx + 版本历史对比。B1~B6后端 + F1~F4前端 + T1 12单元测试全通过。待：HT-01~HT-05本机手工验证 | ~2天（实际~2天） |
+| **6c** | ✅ `user_management_module_design.md` — **workspace 基于用户名隔离** | **已完成（2026-07-02）**：详见[`user_management_module_design.md`](./user_management_module_design.md)§九 | ~1天（实际~2天，含Phase3全部27处路由改造） |
 
 ### 🟢 P2 - 中期实施（1个月内）
 
@@ -223,6 +251,7 @@
 | **10** | ✅ **删除历史记录级联清理 + 批量删除** | 已完成 + QA 通过（含 SOP + inference 两种类型验证）：级联清理 7 类资源 + 批量删除 API（POST）+ 前端多选/全选。QA 修复 3 项：路由顺序 Bug、Checkbox 对比度、pending 状态误跳过导致 inference 记录无法批量删除 | ~1天 |
 | **11** | ✅ `amount_analysis_test_plan.md` | 测试 + Bug 修复完成：FIX-1 扁平化 + FIX-2 prop 修复 + FIX-3 DataFrame truthiness×6 + FIX-4 Excel 重写 + FIX-5 Markdown 重写 + FIX-6 类型校验 | ~0.5天+0.5天修复 |
 | **12** | ✅ **账户有效期控制** | **已完成 + 本机单元测试25/25通过 + CVM集成测试6/6通过（2026-06-01）**：`valid_until` 字段 + 过期拒绝401 + 格式错误保守拒绝 + 部署文档v1.3更新 | ~1.5小时 |
+| **12a** | ✅ `user_management_module_design.md` — **用户自助改密码** | **已完成（2026-07-02）**：`/auth/change-password` API + 前端「账户设置」弹窗，详见[`user_management_module_design.md`](./user_management_module_design.md)§十七 | ~1.5天（实际，含整个批次2 Phase10~11） |
 
 > 详细方案见 [`taskSOP_solution/SOP_WebUI_detail_design.md` 第十章](./taskSOP_solution/SOP_WebUI_detail_design.md#十chat-任务入口交互优化方案待实施)
 
@@ -236,6 +265,7 @@
 | **16** | `task_report_ai_analysis_design.md` | 仅剩端到端测试验证，可在其他功能完成后统一测试 | - |
 | **17** | `release_readiness_plan.md` | Release发布流程，代码审计已完成，后续Phase按需推进 | 按Phase分阶段 |
 | **18** | 📋 **导出报告新增指标同步** | 新增指标（CSI/OOT稳定性等）仅在前端/AI Prompt展示，导出报告缺失。Phase 1.7 作为统一登记处，按批次同步 | 按批次评估 |
+| **18a** | ✅ `user_management_module_design.md` — **任务历史按用户隔离** | **已完成（2026-07-02）**：详见[`user_management_module_design.md`](./user_management_module_design.md)§九 | ~0.5天（实际） |
 
 ### 🟣 P4 - 远期/按需
 
@@ -243,6 +273,7 @@
 |:------:|------|---------|-----------|
 | **19** | `analysis_prompt_refactor_plan.md` | Prompt 工程优化 Phase 2，需根据新增 SOP 任务重新评估提示词框架方案 | Phase 2: ~2天 |
 | **20** | `strategy_diagnosis_plan.md` | 策略诊断 SOP 任务：Swap Set + 人数/金额双口径 + 业务/风险影响评估（框架文档已创建，待细化） | ~7-8天 |
+| **21** | 📋 `tests/` 目录测试基础设施历史债务（第19项） | 2个ImportError（历史重构遗留）+9个`_parse_suggested_params`路径过时+8个`test_sop_api.py::app`导入过时+17个既有断言/状态污染失败，均非生产bug | 待评估 |
 
 > 详细方案见 [`taskSOP_solution/task_management_module_design.md` Phase 25](./taskSOP_solution/task_management_module_design.md#phase-25删除历史记录级联清理已完成)
 > 详细方案见 [`taskSOP_solution/report_config_driven_plan.md` Phase 1.7](./taskSOP_solution/report_config_driven_plan.md#phase-17导出报告补充新增稳定性指标待实施)
@@ -281,11 +312,15 @@ Week 6（2026-06-02）:
 
 后续迭代:
   ├─ [P1] ✅ ai_suggest_retry_design（已完成：StageSnapshot+SUGGESTED_PARAMS+SuggestedParamsCard+StageVersionSelector+12单元测试，待HT-01~05本机手工验证）
+  ├─ [P1] ✅ workspace 基于用户名隔离（已完成2026-07-02，详见 user_management_module_design.md§九）
+  ├─ [P2] ✅ 用户自助改密码 /auth/change-password（已完成2026-07-02，属批次2账号管理Web UI，详见 user_management_module_design.md）
+  ├─ [P3] ✅ 任务历史按用户隔离（已完成2026-07-02，详见 user_management_module_design.md§九）
   ├─ [P3] report_config_driven_plan Phase 2（业务功能完善后）
   ├─ [P3] 导出报告新增指标同步（Phase 1.7，按批次实施）
   ├─ [P3] multimodal_chat_plan
   ├─ [P3] right_panel_unified_architecture_plan
-  └─ [P3] release_readiness_plan Phase 2-5 (按需推进)
+  ├─ [P3] release_readiness_plan Phase 2-5 (按需推进)
+  └─ [P3] 📋 tests/ 测试基础设施历史债务（第19项，2026-07-02新增登记，待排期）
 
 远期:
   ├─ [P4] analysis_prompt_refactor_plan Phase 2（需根据新增SOP任务重新评估提示词框架方案）
@@ -386,6 +421,14 @@ Week 6（2026-06-02）:
 - **根因**: 检测逻辑是"先上传再检测"，`onReselect` 回调只关闭弹窗，没有删除已上传的文件
 - **修复**: 新增 `sensitiveFilePath` state 记录已上传路径，`onReselect` 时调用 `deleteFile(sensitiveFilePath)` 回滚删除，并重新打开文件选择框
 - **文件**: `demo/chat/components/three-panel-interface.tsx`
+
+### B-TEST-1: `pytest tests/` 整目录扫描崩溃，14个测试文件被静默丢弃（2026-07-02）
+- **影响**: 执行全量 `pytest tests/` 时仅收集到144个测试用例就以 `ValueError: I/O operation on closed file` 崩溃退出，`test_sop_api.py`、`test_task_manager_complete.py`、`test_user_management_phase1/5_6.py` 等14个测试文件完全不被收集/执行，且无任何错误提示——严重削弱全量回归测试的可信度（发现于用户管理模块批次1回归测试期间）
+- **根因**: `tests/test_oot_validation.py` L32-33 在**模块导入时**（而非 `if __name__ == "__main__":` 保护块内）执行 `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, ...)`（原意是修复独立脚本运行时的 Windows GBK 编码问题）。但 pytest 收集测试时会**导入**该模块，此时 `sys.stdout` 已被 pytest 的 capture 机制接管，这行代码会把 pytest 内部的 capture 对象**永久替换**掉，导致 session 结束时 pytest 尝试恢复原始 stdout 时崩溃，且此后所有输出/收集均受影响
+- **修复**: 将该 stdout/stderr 重绑定逻辑移入 `if __name__ == "__main__":` 块内，不影响其独立脚本运行时的原有编码修复效果，仅消除对 pytest 导入阶段的副作用
+- **验证**: 修复后 `pytest tests/ --collect-only` 可正常收集全部 342 个测试用例（此前仅144个即崩溃）
+- **文件**: `tests/test_oot_validation.py`
+- **遗留**: 修复该崩溃 bug 后暴露出一批与本次改动无关的独立测试维护债务（2个ImportError + 9个`_parse_suggested_params`路径过时 + 8个`test_sop_api.py::app`导入过时 + 17个既有断言/状态污染失败），已登记至本文档「📋 待实施/待开发」第19项，按需排期清理
 
 
 

@@ -30,7 +30,7 @@ print("[SOP API] Basic imports done")
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, UploadFile, File, Form, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -44,6 +44,12 @@ try:
     from utils import validate_session_id as _validate_session_id
 except ImportError:
     from API.utils import validate_session_id as _validate_session_id
+
+# Import 用户管理模块 批次1 Phase3：所有权强制落地 helper
+try:
+    from utils import resolve_owned_session_id as _resolve_owned_session_id
+except ImportError:
+    from API.utils import resolve_owned_session_id as _resolve_owned_session_id
 
 # Import SOP modules
 import sys
@@ -507,7 +513,7 @@ async def get_task_definition(task_id: str) -> Dict:
 
 
 @router.post("/data/preview", response_model=DataPreviewResponse)
-async def preview_data(request: DataPreviewRequest) -> DataPreviewResponse:
+async def preview_data(request: DataPreviewRequest, http_request: Request) -> DataPreviewResponse:
     """
     预览上传的数据文件（带缓存优化）
     
@@ -524,6 +530,7 @@ async def preview_data(request: DataPreviewRequest) -> DataPreviewResponse:
         request.session_id = _validate_session_id(request.session_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    request.session_id = _resolve_owned_session_id(http_request, request.session_id)  # 用户管理模块 批次1 Phase3
     
     # 构建完整的文件路径（带路径遍历防护）
     workspace_dir = (Path("workspace") / request.session_id).resolve()
@@ -666,7 +673,7 @@ class SensitiveCheckRequest(BaseModel):
 
 
 @router.post("/data/sensitive-check")
-async def sensitive_check(request: SensitiveCheckRequest):
+async def sensitive_check(request: SensitiveCheckRequest, http_request: Request):
     """
     上传数据集的敏感信息预检接口（个保法合规）
 
@@ -684,6 +691,7 @@ async def sensitive_check(request: SensitiveCheckRequest):
         request.session_id = _validate_session_id(request.session_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    request.session_id = _resolve_owned_session_id(http_request, request.session_id)  # 用户管理模块 批次1 Phase3
 
     workspace_dir = (Path("workspace") / request.session_id).resolve()
     file_path = (workspace_dir / request.file_path).resolve()
@@ -723,6 +731,7 @@ async def sensitive_check(request: SensitiveCheckRequest):
 
 @router.post("/data/analyze")
 async def analyze_data(
+    http_request: Request,
     file_path: str = Query(..., description="数据文件路径（相对于工作区）"),
     session_id: str = Query("default")
 ) -> Dict:
@@ -741,6 +750,7 @@ async def analyze_data(
         session_id = _validate_session_id(session_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    session_id = _resolve_owned_session_id(http_request, session_id)  # 用户管理模块 批次1 Phase3
     
     # P1-D4: 路径限制 — 仅允许访问 workspace 内的文件
     from pathlib import Path
@@ -821,7 +831,8 @@ async def analyze_data(
 @router.post("/execute", response_model=TaskExecuteResponse)
 async def execute_task(
     request: TaskExecuteRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    http_request: Request
 ) -> TaskExecuteResponse:
     """
     执行SOP任务（异步）
@@ -838,6 +849,7 @@ async def execute_task(
         request.session_id = _validate_session_id(request.session_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    request.session_id = _resolve_owned_session_id(http_request, request.session_id)  # 用户管理模块 批次1 Phase3
     
     # Validate task exists
     registry = get_registry()
@@ -916,8 +928,42 @@ async def execute_task(
     )
 
 
+def _resolve_execution_owner(execution_id: str) -> Optional[str]:
+    """用户管理模块 批次1 Phase3：解析execution的归属session_id（多数据源兜底）。
+
+    优先内存 ExecutionStore，其次持久化 TaskHistoryService 记录。
+    找不到归属信息时返回 None（历史遗留数据可能缺失，不阻断访问，仅做最大努力校验）。
+    """
+    context = ExecutionStore.get(execution_id)
+    if context is not None and getattr(context, "session_id", None):
+        return context.session_id
+    if TASK_MANAGER_AVAILABLE:
+        try:
+            record = TaskHistoryService.get_record_by_execution_id(execution_id)
+            if record:
+                return record.get("session_id")
+        except Exception:
+            pass
+    return None
+
+
+def _enforce_execution_ownership(execution_id: str, http_request: Request) -> None:
+    """用户管理模块 批次1 Phase3：所有权强制落地（M15决策）。
+
+    非admin用户仅可操作/查看自己名下的execution；单用户模式（无 request.state.user）
+    或无法确定归属信息（历史遗留数据）时不拦截；admin豁免。
+    详见 docs/user_management_module_design.md §五。
+    """
+    user = getattr(http_request.state, "user", None)
+    if not user or user.get("role") == "admin":
+        return
+    owner = _resolve_execution_owner(execution_id)
+    if owner and owner != user.get("username"):
+        raise HTTPException(status_code=403, detail="无权访问该任务")
+
+
 @router.get("/status/{execution_id}", response_model=TaskStatusResponse)
-async def get_task_status(execution_id: str) -> TaskStatusResponse:
+async def get_task_status(execution_id: str, request: Request) -> TaskStatusResponse:
     """
     获取任务执行状态
     
@@ -931,7 +977,17 @@ async def get_task_status(execution_id: str) -> TaskStatusResponse:
     
     if not status:
         raise HTTPException(status_code=404, detail="Execution not found")
-    
+
+    # 用户管理模块 批次1 Phase3：所有权校验
+    # 多用户模式下（request.state.user 存在），非admin用户只能查看自己名下的execution；
+    # 单用户模式（未启用认证）下 request.state 无 user 属性，维持现状不做校验。
+    # 详见 docs/user_management_module_design.md §五
+    user = getattr(request.state, "user", None)
+    if user and user.get("role") != "admin":
+        owner_session_id = status.get("session_id")
+        if owner_session_id and owner_session_id != user.get("username"):
+            raise HTTPException(status_code=403, detail="无权访问该任务的状态")
+
     return TaskStatusResponse(**status)
 
 
@@ -1026,7 +1082,7 @@ def _wrap_stored_outputs(outputs: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.get("/results/{execution_id}")
-async def get_task_results(execution_id: str) -> JSONResponse:
+async def get_task_results(execution_id: str, http_request: Request) -> JSONResponse:
     """
     获取任务执行结果
     
@@ -1036,6 +1092,7 @@ async def get_task_results(execution_id: str) -> JSONResponse:
     Returns:
         任务结果信息
     """
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     result = get_execution_result(execution_id)
     
     # 如果内存中找不到，尝试从历史存储加载
@@ -1167,7 +1224,7 @@ async def build_sop_prompt(request: BuildPromptRequest) -> Dict[str, str]:
 # =============================================================================
 
 @router.post("/llm/extract", response_model=LLMExtractResponse)
-async def extract_params_from_chat(request: LLMExtractRequest) -> LLMExtractResponse:
+async def extract_params_from_chat(request: LLMExtractRequest, http_request: Request) -> LLMExtractResponse:
     """
     从自然语言对话中提取任务参数（Chat 入口）
     
@@ -1185,6 +1242,7 @@ async def extract_params_from_chat(request: LLMExtractRequest) -> LLMExtractResp
         request.session_id = _validate_session_id(request.session_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    request.session_id = _resolve_owned_session_id(http_request, request.session_id)  # 用户管理模块 批次1 Phase3
     
     if not LLM_PIPELINE_ARCH_AVAILABLE:
         raise HTTPException(
@@ -1239,7 +1297,8 @@ async def extract_params_from_chat(request: LLMExtractRequest) -> LLMExtractResp
 @router.post("/unified/execute", response_model=TaskExecuteResponse)
 async def unified_execute_task(
     request: UnifiedExecuteRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    http_request: Request
 ) -> TaskExecuteResponse:
     """
     统一任务执行入口（支持 SOP UI 和 Chat 两种入口）
@@ -1259,6 +1318,7 @@ async def unified_execute_task(
         request.session_id = _validate_session_id(request.session_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    request.session_id = _resolve_owned_session_id(http_request, request.session_id)  # 用户管理模块 批次1 Phase3
     
     # Validate task exists
     registry = get_registry()
@@ -1356,7 +1416,7 @@ async def unified_execute_task(
 
 
 @router.get("/code/{execution_id}/events")
-async def get_code_events(execution_id: str) -> List[StageCodeEvent]:
+async def get_code_events(execution_id: str, http_request: Request) -> List[StageCodeEvent]:
     """
     获取任务执行的代码事件（用于 Code 栏展示）
     
@@ -1373,6 +1433,7 @@ async def get_code_events(execution_id: str) -> List[StageCodeEvent]:
     Returns:
         代码事件列表
     """
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     context = ExecutionStore.get(execution_id)
     if not context:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -1461,7 +1522,7 @@ async def get_code_events(execution_id: str) -> List[StageCodeEvent]:
 
 
 @router.delete("/executions/{execution_id}")
-async def cancel_execution(execution_id: str) -> Dict[str, str]:
+async def cancel_execution(execution_id: str, http_request: Request) -> Dict[str, str]:
     """
     取消/删除执行记录
     
@@ -1471,6 +1532,7 @@ async def cancel_execution(execution_id: str) -> Dict[str, str]:
     Returns:
         操作结果
     """
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     if ExecutionStore.delete(execution_id):
         return {"message": f"Execution {execution_id} deleted"}
     else:
@@ -1479,6 +1541,7 @@ async def cancel_execution(execution_id: str) -> Dict[str, str]:
 
 @router.get("/executions")
 async def list_executions(
+    http_request: Request,
     session_id: Optional[str] = Query(None, description="按会话ID筛选")
 ) -> List[Dict]:
     """
@@ -1496,6 +1559,9 @@ async def list_executions(
             session_id = _validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+    # 用户管理模块 批次1 Phase3：非admin强制只能看自己的执行记录（忽略/覆盖客户端传参）；
+    # admin可通过session_id参数筛选指定用户，不传则查看全部
+    session_id = _resolve_owned_session_id(http_request, session_id)
     
     if session_id:
         contexts = ExecutionStore.list_by_session(session_id)
@@ -2486,7 +2552,7 @@ class TaskControlResponse(BaseModel):
 
 
 @router.post("/executions/{execution_id}/pause", response_model=TaskControlResponse)
-async def pause_execution(execution_id: str) -> TaskControlResponse:
+async def pause_execution(execution_id: str, http_request: Request) -> TaskControlResponse:
     """
     暂停任务执行
     
@@ -2500,6 +2566,7 @@ async def pause_execution(execution_id: str) -> TaskControlResponse:
     """
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     
     context = ExecutionStore.get(execution_id)
     if not context:
@@ -2522,7 +2589,7 @@ async def pause_execution(execution_id: str) -> TaskControlResponse:
 
 
 @router.post("/executions/{execution_id}/stop", response_model=TaskControlResponse)
-async def stop_execution(execution_id: str) -> TaskControlResponse:
+async def stop_execution(execution_id: str, http_request: Request) -> TaskControlResponse:
     """
     停止任务执行
     
@@ -2536,6 +2603,7 @@ async def stop_execution(execution_id: str) -> TaskControlResponse:
     """
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     
     context = ExecutionStore.get(execution_id)
     if not context:
@@ -2558,7 +2626,7 @@ async def stop_execution(execution_id: str) -> TaskControlResponse:
 
 
 @router.post("/executions/{execution_id}/resume", response_model=TaskControlResponse)
-async def resume_execution(execution_id: str) -> TaskControlResponse:
+async def resume_execution(execution_id: str, http_request: Request) -> TaskControlResponse:
     """
     恢复已暂停的任务
     
@@ -2574,6 +2642,7 @@ async def resume_execution(execution_id: str) -> TaskControlResponse:
     
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     
     # Check if task is paused (via persistent record OR in-memory context)
     record = TaskHistoryService.get_record_by_execution_id(execution_id)
@@ -2853,7 +2922,7 @@ async def list_recoverable_executions(
 
 
 @router.get("/executions/{execution_id}/checkpoints", response_model=ExecutionCheckpointsResponse)
-async def get_execution_checkpoints(execution_id: str) -> ExecutionCheckpointsResponse:
+async def get_execution_checkpoints(execution_id: str, http_request: Request) -> ExecutionCheckpointsResponse:
     """
     获取执行的所有检查点
     
@@ -2861,6 +2930,7 @@ async def get_execution_checkpoints(execution_id: str) -> ExecutionCheckpointsRe
     """
     if not TASK_MANAGER_AVAILABLE or PersistentExecutionStore is None:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     
     try:
         checkpoints = PersistentExecutionStore.get_checkpoints(execution_id)
@@ -2888,7 +2958,7 @@ async def get_execution_checkpoints(execution_id: str) -> ExecutionCheckpointsRe
 
 
 @router.get("/executions/{execution_id}/recovery-info")
-async def get_recovery_info(execution_id: str) -> Dict[str, Any]:
+async def get_recovery_info(execution_id: str, http_request: Request) -> Dict[str, Any]:
     """
     获取任务恢复信息
     
@@ -2896,6 +2966,7 @@ async def get_recovery_info(execution_id: str) -> Dict[str, Any]:
     """
     if not TASK_MANAGER_AVAILABLE or ExecutionStateRecovery is None:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     
     try:
         check_result = ExecutionStateRecovery.can_resume(execution_id)
@@ -2919,7 +2990,7 @@ async def get_recovery_info(execution_id: str) -> Dict[str, Any]:
 
 
 @router.post("/executions/{execution_id}/recover")
-async def recover_execution(execution_id: str) -> Dict[str, Any]:
+async def recover_execution(execution_id: str, http_request: Request) -> Dict[str, Any]:
     """
     恢复暂停的任务执行（Phase 6）
     
@@ -2934,6 +3005,7 @@ async def recover_execution(execution_id: str) -> Dict[str, Any]:
     """
     if not TASK_MANAGER_AVAILABLE or ExecutionStateRecovery is None:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     
     try:
         # 检查是否可以恢复
@@ -2996,6 +3068,7 @@ async def recover_execution(execution_id: str) -> Dict[str, Any]:
 async def retry_stage(
     execution_id: str,
     stage_id: str,
+    http_request: Request,
     request: Optional[StageRetryRequest] = None
 ) -> StageRetryResponse:
     """
@@ -3013,6 +3086,7 @@ async def retry_stage(
     """
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     
     # Try to get context from ExecutionStore (memory cache)
     context = ExecutionStore.get(execution_id)
@@ -3255,7 +3329,7 @@ async def retry_stage(
 
 
 @router.post("/executions/{execution_id}/stages/{stage_id}/reset", response_model=TaskControlResponse)
-async def reset_stage(execution_id: str, stage_id: str) -> TaskControlResponse:
+async def reset_stage(execution_id: str, stage_id: str, http_request: Request) -> TaskControlResponse:
     """
     重置指定阶段状态为 pending
     
@@ -3264,6 +3338,7 @@ async def reset_stage(execution_id: str, stage_id: str) -> TaskControlResponse:
     """
     if not TASK_MANAGER_AVAILABLE or PersistentExecutionStore is None:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     
     # Try to get context from ExecutionStore (memory cache)
     context = ExecutionStore.get(execution_id)
@@ -3315,6 +3390,27 @@ async def reset_stage(execution_id: str, stage_id: str) -> TaskControlResponse:
 # =============================================================================
 # Task History Endpoints
 # =============================================================================
+
+def _enforce_record_ownership(record_id: str, http_request: Request) -> None:
+    """用户管理模块 批次1 Phase4：任务历史所有权强制落地。
+
+    非admin用户仅可查看/操作自己名下的历史记录；单用户模式或找不到归属信息
+    （历史遗留数据缺失session_id）时不拦截；admin豁免。
+    详见 docs/user_management_module_design.md §五。
+    """
+    user = getattr(http_request.state, "user", None)
+    if not user or user.get("role") == "admin":
+        return
+    if not TASK_MANAGER_AVAILABLE:
+        return
+    try:
+        record = TaskHistoryService.get_record(record_id)
+    except Exception:
+        record = None
+    owner = record.get("session_id") if record else None
+    if owner and owner != user.get("username"):
+        raise HTTPException(status_code=403, detail="无权访问该历史记录")
+
 
 class TaskHistoryItem(BaseModel):
     """任务历史记录项"""
@@ -3380,6 +3476,7 @@ class TaskStatisticsResponse(BaseModel):
 
 @router.get("/history", response_model=TaskHistoryListResponse)
 async def list_task_history(
+    http_request: Request,
     task_type: Optional[str] = Query(None, description="任务类型筛选"),
     task_category: Optional[str] = Query(None, description="任务类别筛选"),
     session_id: Optional[str] = Query(None, description="会话ID筛选"),
@@ -3400,6 +3497,8 @@ async def list_task_history(
             session_id = _validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+    # 用户管理模块 批次1 Phase4：非admin强制只能看自己的任务历史（忽略/覆盖客户端传参）
+    session_id = _resolve_owned_session_id(http_request, session_id)
     
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
@@ -3437,7 +3536,7 @@ async def list_task_history(
 
 
 @router.get("/history/{record_id}", response_model=TaskHistoryDetailResponse)
-async def get_task_history_detail(record_id: str) -> TaskHistoryDetailResponse:
+async def get_task_history_detail(record_id: str, http_request: Request) -> TaskHistoryDetailResponse:
     """
     获取任务历史记录详情
     
@@ -3449,6 +3548,7 @@ async def get_task_history_detail(record_id: str) -> TaskHistoryDetailResponse:
     """
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_record_ownership(record_id, http_request)  # 用户管理模块 批次1 Phase4
     
     record = TaskHistoryService.get_record(record_id)
     if not record:
@@ -3569,7 +3669,7 @@ def _serialize_task_result(result: Dict[str, Any], record_id: str) -> Dict[str, 
 
 
 @router.get("/history/{record_id}/result")
-async def get_task_history_result(record_id: str) -> Dict[str, Any]:
+async def get_task_history_result(record_id: str, http_request: Request) -> Dict[str, Any]:
     """
     获取历史任务的完整执行结果
     
@@ -3584,6 +3684,7 @@ async def get_task_history_result(record_id: str) -> Dict[str, Any]:
     """
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_record_ownership(record_id, http_request)  # 用户管理模块 批次1 Phase4
     
     record = TaskHistoryService.get_record(record_id)
     if not record:
@@ -3680,7 +3781,7 @@ class BatchDeleteRequest(BaseModel):
 
 
 @router.post("/history/batch-delete")
-async def batch_delete_task_history(request: BatchDeleteRequest) -> Dict[str, Any]:
+async def batch_delete_task_history(request: BatchDeleteRequest, http_request: Request) -> Dict[str, Any]:
     """
     批量删除历史记录（Phase 25）
     
@@ -3695,17 +3796,36 @@ async def batch_delete_task_history(request: BatchDeleteRequest) -> Dict[str, An
     """
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
+
+    # 用户管理模块 批次1 Phase4：非admin只能批量删除自己名下的记录，
+    # 混入他人record_id时静默剔除（不报错中断整批操作），计入forbidden_ids
+    user = getattr(http_request.state, "user", None)
+    forbidden_ids: List[str] = []
+    target_record_ids = request.record_ids
+    if user and user.get("role") != "admin":
+        allowed_ids: List[str] = []
+        for rid in request.record_ids:
+            try:
+                rec = TaskHistoryService.get_record(rid)
+            except Exception:
+                rec = None
+            owner = rec.get("session_id") if rec else None
+            if owner and owner != user.get("username"):
+                forbidden_ids.append(rid)
+            else:
+                allowed_ids.append(rid)
+        target_record_ids = allowed_ids
     
     # 批量删除数据库记录 + 执行状态
     result = TaskHistoryService.batch_delete_records(
-        record_ids=request.record_ids,
+        record_ids=target_record_ids,
         cleanup_files=request.cleanup_files
     )
     
     # 批量删除结果文件
     if request.cleanup_files:
         storage = get_result_storage()
-        for record_id in request.record_ids:
+        for record_id in target_record_ids:
             if record_id not in result.get("skipped_running", []) and record_id not in result.get("failed_ids", []):
                 try:
                     storage.delete_result(record_id)
@@ -3717,15 +3837,17 @@ async def batch_delete_task_history(request: BatchDeleteRequest) -> Dict[str, An
         "deleted": result["deleted"],
         "failed": result["failed"],
         "skipped_running": result.get("skipped_running", []),
+        "forbidden_ids": forbidden_ids,  # 用户管理模块 批次1 Phase4：因越权被剔除的记录ID
         "cleanup_files": request.cleanup_files,
         "message": f"已删除 {result['deleted']} 条记录"
             + (f"，{len(result.get('skipped_running', []))} 条运行中已跳过" if result.get("skipped_running") else "")
             + (f"，{result['failed']} 条失败" if result["failed"] > 0 else "")
+            + (f"，{len(forbidden_ids)} 条无权限已剔除" if forbidden_ids else "")
     }
 
 
 @router.delete("/history/{record_id}")
-async def delete_task_history(record_id: str) -> Dict[str, Any]:
+async def delete_task_history(record_id: str, http_request: Request) -> Dict[str, Any]:
     """
     删除历史记录
     
@@ -3739,6 +3861,7 @@ async def delete_task_history(record_id: str) -> Dict[str, Any]:
     """
     if not TASK_MANAGER_AVAILABLE:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_record_ownership(record_id, http_request)  # 用户管理模块 批次1 Phase4
     
     # Delete database record
     success = TaskHistoryService.delete_record(record_id)
@@ -3779,7 +3902,8 @@ class StageAnalysisResponse(BaseModel):
 @router.get("/history/{record_id}/stages/{stage_id}/analysis")
 async def get_stage_analysis(
     record_id: str,
-    stage_id: str
+    stage_id: str,
+    http_request: Request
 ) -> Dict[str, Any]:
     """
     获取阶段 AI 分析结果
@@ -3795,6 +3919,7 @@ async def get_stage_analysis(
     """
     if not TASK_MANAGER_AVAILABLE or StageAnalysisService is None:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_record_ownership(record_id, http_request)  # 用户管理模块 批次1 Phase4
     
     analysis = StageAnalysisService.get_analysis(record_id, stage_id)
     
@@ -3835,7 +3960,8 @@ async def get_stage_analysis(
 async def save_stage_analysis(
     record_id: str,
     stage_id: str,
-    request: StageAnalysisRequest
+    request: StageAnalysisRequest,
+    http_request: Request
 ) -> Dict[str, Any]:
     """
     保存阶段 AI 分析结果
@@ -3852,6 +3978,7 @@ async def save_stage_analysis(
     """
     if not TASK_MANAGER_AVAILABLE or StageAnalysisService is None:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_record_ownership(record_id, http_request)  # 用户管理模块 批次1 Phase4
     
     logger.info(f"[AI Analysis] Saving analysis for record={record_id}, stage={stage_id}, model={request.model_used}")
     
@@ -3912,7 +4039,8 @@ async def save_stage_analysis(
 @router.delete("/history/{record_id}/stages/{stage_id}/analysis")
 async def delete_stage_analysis(
     record_id: str,
-    stage_id: str
+    stage_id: str,
+    http_request: Request
 ) -> Dict[str, Any]:
     """
     删除阶段 AI 分析结果
@@ -3928,6 +4056,7 @@ async def delete_stage_analysis(
     """
     if not TASK_MANAGER_AVAILABLE or StageAnalysisService is None:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_record_ownership(record_id, http_request)  # 用户管理模块 批次1 Phase4
     
     deleted_count = StageAnalysisService.delete_analysis(record_id, stage_id)
     
@@ -3941,7 +4070,8 @@ async def delete_stage_analysis(
 
 @router.get("/history/{record_id}/analyses")
 async def get_all_stage_analyses(
-    record_id: str
+    record_id: str,
+    http_request: Request
 ) -> Dict[str, Any]:
     """
     获取任务所有阶段的 AI 分析结果
@@ -3956,6 +4086,7 @@ async def get_all_stage_analyses(
     """
     if not TASK_MANAGER_AVAILABLE or StageAnalysisService is None:
         raise HTTPException(status_code=501, detail="Task manager not available")
+    _enforce_record_ownership(record_id, http_request)  # 用户管理模块 批次1 Phase4
     
     # 验证任务记录存在
     record = TaskHistoryService.get_record(record_id)
@@ -4087,7 +4218,7 @@ async def create_expert_execution(request: ExpertExecutionRequest) -> Dict[str, 
 
 
 @router.get("/expert/{execution_id}")
-async def get_expert_execution(execution_id: str) -> Dict[str, Any]:
+async def get_expert_execution(execution_id: str, http_request: Request) -> Dict[str, Any]:
     """
     获取专家模式执行上下文
     
@@ -4097,6 +4228,7 @@ async def get_expert_execution(execution_id: str) -> Dict[str, Any]:
     Returns:
         执行上下文信息
     """
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     context = get_execution_context(execution_id)
     if not context:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -4108,7 +4240,8 @@ async def get_expert_execution(execution_id: str) -> Dict[str, Any]:
 async def execute_expert_stage(
     execution_id: str,
     stage_id: str,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    http_request: Request
 ) -> Dict[str, Any]:
     """
     执行专家模式单个阶段
@@ -4120,6 +4253,7 @@ async def execute_expert_stage(
     Returns:
         阶段执行结果
     """
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     context = get_execution_context(execution_id)
     if not context:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -4152,6 +4286,7 @@ async def execute_expert_stage(
 async def skip_expert_stage(
     execution_id: str,
     stage_id: str,
+    http_request: Request,
     reason: str = Query("", description="跳过原因")
 ) -> Dict[str, Any]:
     """
@@ -4165,6 +4300,7 @@ async def skip_expert_stage(
     Returns:
         操作结果
     """
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     context = get_execution_context(execution_id)
     if not context:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -4197,7 +4333,8 @@ async def skip_expert_stage(
 @router.post("/expert/{execution_id}/stages/{stage_id}/reset")
 async def reset_expert_stage(
     execution_id: str,
-    stage_id: str
+    stage_id: str,
+    http_request: Request
 ) -> Dict[str, Any]:
     """
     重置专家模式阶段
@@ -4209,6 +4346,7 @@ async def reset_expert_stage(
     Returns:
         操作结果
     """
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     context = get_execution_context(execution_id)
     if not context:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -4243,7 +4381,8 @@ async def reset_expert_stage(
 async def update_expert_stage_params(
     execution_id: str,
     stage_id: str,
-    request: ExpertStageParamsRequest
+    request: ExpertStageParamsRequest,
+    http_request: Request
 ) -> Dict[str, Any]:
     """
     更新专家模式阶段参数
@@ -4256,6 +4395,7 @@ async def update_expert_stage_params(
     Returns:
         操作结果
     """
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     context = get_execution_context(execution_id)
     if not context:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -4331,7 +4471,8 @@ async def update_expert_stage_code(
 @router.get("/expert/{execution_id}/stages/{stage_id}/result")
 async def get_expert_stage_result(
     execution_id: str,
-    stage_id: str
+    stage_id: str,
+    http_request: Request
 ) -> Dict[str, Any]:
     """
     获取专家模式阶段结果
@@ -4343,6 +4484,7 @@ async def get_expert_stage_result(
     Returns:
         阶段结果
     """
+    _enforce_execution_ownership(execution_id, http_request)  # 用户管理模块 批次1 Phase3
     context = get_execution_context(execution_id)
     if not context:
         raise HTTPException(status_code=404, detail="Execution not found")
@@ -4382,7 +4524,7 @@ class OverallAnalysisGenerateRequest(BaseModel):
 
 
 @router.get("/history/{record_id}/overall-analysis")
-async def get_overall_analysis(record_id: str) -> Dict[str, Any]:
+async def get_overall_analysis(record_id: str, http_request: Request) -> Dict[str, Any]:
     """
     获取任务整体 AI 分析结果
     
@@ -4392,6 +4534,7 @@ async def get_overall_analysis(record_id: str) -> Dict[str, Any]:
     Returns:
         分析结果
     """
+    _enforce_record_ownership(record_id, http_request)  # 用户管理模块 批次1 Phase4
     from deepanalyze.core.task_manager.overall_analysis_service import OverallAnalysisService
     
     analysis = OverallAnalysisService.get_analysis(record_id)
@@ -4448,7 +4591,7 @@ async def save_overall_analysis(
 
 
 @router.delete("/history/{record_id}/overall-analysis")
-async def delete_overall_analysis(record_id: str) -> Dict[str, Any]:
+async def delete_overall_analysis(record_id: str, http_request: Request) -> Dict[str, Any]:
     """
     删除任务整体 AI 分析结果
     
@@ -4458,6 +4601,7 @@ async def delete_overall_analysis(record_id: str) -> Dict[str, Any]:
     Returns:
         删除结果
     """
+    _enforce_record_ownership(record_id, http_request)  # 用户管理模块 批次1 Phase4
     from deepanalyze.core.task_manager.overall_analysis_service import OverallAnalysisService
     
     success = OverallAnalysisService.delete_analysis(record_id)

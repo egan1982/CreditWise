@@ -64,8 +64,8 @@ API_TITLE = "DeepAnalyze_CreditWise API"
 API_VERSION = "1.0.0-beta.1"
 
 # Integrated LLM Manager Backend - using class for better state management
-from typing import Callable, List
-from fastapi import FastAPI, UploadFile, File, Query
+from typing import Callable, List, Dict, Any
+from fastapi import FastAPI, UploadFile, File, Query, Body
 
 # Define type for create_app function to avoid type inference issues
 CreateAppFuncType = Callable[..., FastAPI]
@@ -119,6 +119,8 @@ def create_app() -> FastAPI:
             from auth_middleware import SimpleAuth, BasicAuthMiddleware
             auth = SimpleAuth()
             app.add_middleware(BasicAuthMiddleware, auth=auth)
+            # 用户管理模块 批次2 Phase10：暴露给 /auth/change-password 复用现有账户锁定机制（M19决策）
+            app.state.auth = auth
             logger.info("[OK] Basic Auth 认证中间件已启用")
         except FileNotFoundError as e:
             logger.error(f"[ERROR] 认证配置缺失: {e}")
@@ -227,6 +229,21 @@ def create_app() -> FastAPI:
         print(f"[ERROR] SOP Task API import failed: {e}")
         traceback.print_exc()
 
+    # 用户管理模块 批次2 Phase10：账号管理 API router（/auth/mode, /auth/profile,
+    # /auth/change-password, /admin/users*）
+    try:
+        try:
+            from .user_admin_api import router as user_admin_router
+        except ImportError:
+            from API.user_admin_api import router as user_admin_router
+        app.include_router(user_admin_router)
+        logger.info("[OK] User Admin API router registered at /auth, /admin/users")
+    except Exception as e:
+        import traceback
+        logger.error(f"[ERROR] User Admin API not available: {e}")
+        print(f"[ERROR] User Admin API import failed: {e}")
+        traceback.print_exc()
+
     # Root endpoint - for health checks and basic info
     @app.get("/")
     async def root():  # pyright: ignore[reportUnusedFunction]
@@ -253,18 +270,42 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health_check():  # pyright: ignore[reportUnusedFunction]
         return {"status": "healthy"}
+
+    # 用户管理模块 批次1 Phase1 + 批次2 Phase10：返回当前登录用户信息
+    # 单用户模式（ENABLE_AUTH=false，中间件未挂载）下 request.state 无 user 属性，
+    # 返回 username=None，前端据此判断维持现状（随机sessionId），不受本模块影响。
+    @app.get("/auth/me")
+    async def get_current_user(request: Request):  # pyright: ignore[reportUnusedFunction]
+        """返回当前登录用户名及个人信息，供前端：
+        1. 将 username 作为身份隔离键（session_id）使用（批次1 §五）
+        2. 渲染账户设置弹窗（display_name/org/description/valid_until/must_change_password，批次2 §十四）
+        """
+        user = getattr(request.state, "user", None)
+        if user:
+            return {
+                "username": user.get("username"),
+                "authenticated": True,
+                "display_name": user.get("display_name"),
+                "role": user.get("role"),
+                "org": user.get("org"),
+                "description": user.get("description"),
+                "valid_until": user.get("valid_until"),
+                "must_change_password": bool(user.get("must_change_password", False)),
+            }
+        return {"username": None, "authenticated": False}
     
     # Add workspace management endpoints
     @app.get("/workspace/files")
-    async def get_workspace_files_endpoint(session_id: str = "default"):
+    async def get_workspace_files_endpoint(request: Request, session_id: str = "default"):
         """获取工作区文件列表（继承原始项目设计）"""
         from pathlib import Path
-        from utils import get_session_workspace, build_download_url, get_file_icon, validate_session_id
+        from utils import get_session_workspace, build_download_url, get_file_icon, validate_session_id, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         # 使用统一的工作区获取函数
         workspace_dir = get_session_workspace(session_id)
@@ -307,16 +348,17 @@ def create_app() -> FastAPI:
         return {"files": files}
     
     @app.delete("/workspace/file")
-    async def delete_workspace_file(path: str, session_id: str = "default"):
+    async def delete_workspace_file(request: Request, path: str, session_id: str = "default"):
         """删除工作区文件（继承原始项目设计）"""
         from pathlib import Path
         from fastapi import HTTPException
-        from utils import get_session_workspace, validate_session_id
+        from utils import get_session_workspace, validate_session_id, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         workspace_dir = get_session_workspace(session_id)
         abs_workspace = Path(workspace_dir).resolve()
@@ -341,15 +383,18 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=500, detail="Failed to delete file")
     
     @app.get("/download/{file_path:path}")
-    async def download_file(file_path: str):
+    async def download_file(request: Request, file_path: str):
         """下载工作区文件（继承原始项目设计）"""
         from pathlib import Path
         from fastapi import HTTPException
         from fastapi.responses import FileResponse
         import mimetypes
         from config import WORKSPACE_BASE_DIR
+        from utils import enforce_path_ownership
         
         # 文件路径格式: session_id/[generated/]filename
+        # 用户管理模块 批次1 Phase3：非admin用户仅可下载自己 session 目录下的文件
+        enforce_path_ownership(request, file_path)
         workspace_dir = Path(WORKSPACE_BASE_DIR).resolve()
         target = (workspace_dir / file_path).resolve()
         
@@ -389,18 +434,20 @@ def create_app() -> FastAPI:
     
     @app.post("/workspace/upload")
     async def upload_to_workspace(
+        request: Request,
         session_id: str = Query("default"), 
         dir: str = Query(""),
         files: List[UploadFile] = File(...)
     ):
         """上传文件到工作区（继承原始项目设计）"""
         from pathlib import Path
-        from utils import get_session_workspace, validate_session_id, check_upload_size
+        from utils import get_session_workspace, validate_session_id, check_upload_size, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         workspace_dir = get_session_workspace(session_id)
         abs_workspace = Path(workspace_dir).resolve()
@@ -431,16 +478,17 @@ def create_app() -> FastAPI:
         return {"files": results}
     
     @app.delete("/workspace/clear")
-    async def clear_workspace(session_id: str = "default"):
+    async def clear_workspace(request: Request, session_id: str = "default"):
         """清空工作区（继承原始项目设计）"""
         from pathlib import Path
         import shutil
-        from utils import get_session_workspace, validate_session_id
+        from utils import get_session_workspace, validate_session_id, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         workspace_dir = Path(get_session_workspace(session_id))
         if workspace_dir.exists():
@@ -456,6 +504,7 @@ def create_app() -> FastAPI:
     
     @app.post("/export/report")
     async def export_report(
+        request: Request,
         session_id: str = "default",
         messages: list = None,
         title: str = "Report"
@@ -464,12 +513,13 @@ def create_app() -> FastAPI:
         from pathlib import Path
         from datetime import datetime
         import re
-        from utils import get_session_workspace, build_download_url, validate_session_id
+        from utils import get_session_workspace, build_download_url, validate_session_id, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         workspace_dir = get_session_workspace(session_id)
         generated_dir = Path(workspace_dir) / "generated"
@@ -505,15 +555,16 @@ def create_app() -> FastAPI:
         }
         
     @app.get("/workspace/tree")
-    async def workspace_tree_endpoint(session_id: str = "default"):
+    async def workspace_tree_endpoint(request: Request, session_id: str = "default"):
         """获取工作区文件树结构（继承原始项目设计）"""
         from pathlib import Path
-        from utils import get_session_workspace, build_download_url, get_file_icon, validate_session_id
+        from utils import get_session_workspace, build_download_url, get_file_icon, validate_session_id, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         # 构建树结构的函数（继承原始项目排序逻辑）
         def _rel_path(path: Path, root: Path) -> str:
@@ -564,6 +615,7 @@ def create_app() -> FastAPI:
     
     @app.get("/workspace/data-columns")
     async def get_data_columns(
+        request: Request,
         file_path: str = Query(..., description="数据文件路径"),
         session_id: str = Query("default")
     ):
@@ -580,12 +632,13 @@ def create_app() -> FastAPI:
         from pathlib import Path
         from fastapi import HTTPException
         import pandas as pd
-        from utils import get_session_workspace, validate_session_id
+        from utils import get_session_workspace, validate_session_id, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         workspace_dir = Path(get_session_workspace(session_id))
         abs_workspace = workspace_dir.resolve()
@@ -630,18 +683,20 @@ def create_app() -> FastAPI:
     
     @app.post("/workspace/move")
     async def move_path(
+        request: Request,
         src: str = Query(..., description="relative source path under workspace"),
         dst_dir: str = Query("", description="relative target directory under workspace"),
         session_id: str = Query("default"),
     ):
         """在同一 workspace 内移动（或重命名）文件/目录（继承原始项目设计）"""
         from fastapi import HTTPException
-        from utils import get_session_workspace, uniquify_path, validate_session_id
+        from utils import get_session_workspace, uniquify_path, validate_session_id, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         workspace_dir = Path(get_session_workspace(session_id))
         abs_workspace = workspace_dir.resolve()
@@ -671,18 +726,20 @@ def create_app() -> FastAPI:
     
     @app.delete("/workspace/dir")
     async def delete_workspace_dir(
+        request: Request,
         path: str = Query(..., description="relative directory under workspace"),
         recursive: bool = Query(True, description="delete directory recursively"),
         session_id: str = Query("default"),
     ):
         """删除 workspace 下的目录（继承原始项目设计）"""
         from fastapi import HTTPException
-        from utils import get_session_workspace, validate_session_id
+        from utils import get_session_workspace, validate_session_id, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         workspace_dir = Path(get_session_workspace(session_id))
         abs_workspace = workspace_dir.resolve()
@@ -709,18 +766,20 @@ def create_app() -> FastAPI:
     
     @app.post("/workspace/upload-to")
     async def upload_to_dir(
+        request: Request,
         dir: str = Query("", description="relative directory under workspace"),
         files: List[UploadFile] = File(...),
         session_id: str = Query("default"),
     ):
         """上传文件到 workspace 下的指定子目录（继承原始项目设计）"""
         from fastapi import HTTPException
-        from utils import get_session_workspace, uniquify_path, validate_session_id, check_upload_size
+        from utils import get_session_workspace, uniquify_path, validate_session_id, check_upload_size, resolve_owned_session_id
         
         try:
             session_id = validate_session_id(session_id)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        session_id = resolve_owned_session_id(request, session_id)  # 用户管理模块 批次1 Phase3：所有权强制落地
         
         workspace_dir = Path(get_session_workspace(session_id))
         abs_workspace = workspace_dir.resolve()
@@ -753,7 +812,105 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=500, detail="Save failed")
         
         return {"message": f"uploaded {len(saved)}", "files": saved}
-    
+
+    # 用户管理模块 批次1 Phase5：用户自助认领旧 session（主路径迁移方式）
+    # 详见 docs/user_management_module_design.md §六
+    @app.post("/workspace/claim-legacy-session")
+    async def claim_legacy_session(request: Request, body: Dict[str, Any] = Body(...)):  # pyright: ignore[reportUnusedFunction]
+        """登录后，前端检测本地残留的旧格式随机sessionId后调用本接口，
+        将该旧session名下的 task_records/execution_states/workspace目录
+        全部转移到当前登录用户名下。
+
+        单用户模式（无 request.state.user）下无意义，直接400拒绝。
+        仅接受形如 session_<timestamp>_<random> 的旧格式ID，防止误关联他人真实账户目录。
+        """
+        from fastapi import HTTPException
+        from utils import validate_session_id
+        from config import WORKSPACE_BASE_DIR
+        from deepanalyze.core.task_manager.user_migration_service import (
+            is_legacy_session_id, merge_user_data,
+        )
+
+        user = getattr(request.state, "user", None)
+        if not user:
+            raise HTTPException(status_code=400, detail="该操作仅在多用户模式下可用")
+
+        old_session_id = (body or {}).get("old_session_id", "")
+        try:
+            old_session_id = validate_session_id(old_session_id, param_name="old_session_id")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        if not is_legacy_session_id(old_session_id):
+            raise HTTPException(
+                status_code=400,
+                detail="仅支持认领旧格式的历史会话（session_<timestamp>_<random>），"
+                       "不允许认领其他用户的账户目录",
+            )
+
+        username = user.get("username")
+        if old_session_id == username:
+            return {"success": True, "message": "无需认领，该会话已属于当前账户", "merged": None}
+
+        try:
+            merge_result = merge_user_data(
+                from_session_id=old_session_id,
+                to_username=username,
+                workspace_base_dir=WORKSPACE_BASE_DIR,
+                dry_run=False,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        logger.info(f"[AUDIT] 用户 {username} 自助认领旧会话 {old_session_id}: {merge_result}")
+
+        return {
+            "success": True,
+            "message": f"已将历史会话 {old_session_id} 关联到当前账户",
+            "merged": merge_result,
+        }
+
+    # 用户管理模块 批次1 Phase6：账户合并小工具（admin，改名场景使用）
+    # 详见 docs/user_management_module_design.md §七
+    @app.post("/admin/users/merge")
+    async def merge_user_accounts(request: Request, body: Dict[str, Any] = Body(...)):  # pyright: ignore[reportUnusedFunction]
+        """把 from_username 名下的历史数据（task_records/execution_states/
+        workspace目录）批量转移到 to_username 名下。仅admin可调用。
+
+        典型场景：管理员通过\"软删除旧账户+创建新账户\"完成改名后，
+        用本接口把旧账户的历史数据转移到新账户名下。
+        """
+        from fastapi import HTTPException
+        from config import WORKSPACE_BASE_DIR
+        from deepanalyze.core.task_manager.user_migration_service import merge_user_data
+
+        user = getattr(request.state, "user", None)
+        # 双重防线：中间件层 ADMIN_ONLY_PREFIXES 已拦截非admin请求，这里再显式校验一次，
+        # 避免因中间件配置遗漏导致越权（不可仅依赖前端/中间件单一层校验）
+        if not user or user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+
+        from_username = (body or {}).get("from_username", "")
+        to_username = (body or {}).get("to_username", "")
+        dry_run = bool((body or {}).get("dry_run", True))
+
+        try:
+            merge_result = merge_user_data(
+                from_session_id=from_username,
+                to_username=to_username,
+                workspace_base_dir=WORKSPACE_BASE_DIR,
+                dry_run=dry_run,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        logger.info(
+            f"[AUDIT] admin {user.get('username')} 执行账户合并 "
+            f"{from_username} -> {to_username} (dry_run={dry_run}): {merge_result}"
+        )
+
+        return {"success": True, "merged": merge_result}
+
     @app.get("/proxy")
     async def proxy(url: str):
         """CORS proxy for previewing local server files (SSRF-protected)"""

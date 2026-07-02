@@ -1,9 +1,9 @@
 # CreditWise 内网多用户部署指南
 
 > 分支：`feature/intranet-multiuser`  
-> 版本：v1.3.0  
+> 版本：v1.5.0  
 > 适用场景：内网 <5 人测试使用  
-> 更新：v1.3 新增账户有效期（valid_until）配置指引，补充用户配置字段说明和运维命令
+> 更新：v1.5 账户管理迁移至 SQLite + Web UI（管理员可通过前端新建/编辑/禁用/重置密码，用户可自助改密），`users.yaml` 降级为迁移前/灾备兜底文件，详见 §3.3；v1.3 新增账户有效期（valid_until）配置指引，补充用户配置字段说明和运维命令
 
 ---
 
@@ -141,18 +141,33 @@ DeepAnalyze/
 
 ### 3.3 用户管理
 
-当前采用**管理员手动维护**模式：
+> **v1.5 更新（2026-07-02）**：账户存储已从 `config/users.yaml` 迁移至 SQLite `users` 表，管理员可通过前端「用户管理」页面（登录后点击头像菜单 → 用户管理）完成账户全生命周期管理，**不再需要编辑 yaml + 重启服务**。以下描述 Web UI 主路径，`users.yaml` 仅作为迁移前存量账户/灾备兜底文件保留。
+
+**Web UI 主路径**（推荐）：
 
 ```
-新用户想使用 → 线下联系管理员 → 管理员执行：
-  1. python scripts/hash_password.py <密码>
-  2. 编辑 config/users.yaml 添加用户
-  3. 重启服务生效（sudo docker restart creditwise-api）
+新用户想使用 → 管理员登录 → 点击头像菜单「用户管理」 → 「新建用户」
+  → 填写用户名/角色/部门/有效期（密码无需手输，系统自动生成）
+  → 保存后一次性弹窗展示初始密码，管理员通过安全渠道告知新用户
+  → 新用户首次登录后会被强制要求修改密码
 ```
 
-不支持用户自助注册和自行修改密码（<5 人场景无需此功能）。
+普通用户可通过头像菜单「账户设置」自助修改密码/编辑显示名与部门备注，无需再联系管理员。
 
-#### users.yaml 字段说明
+管理员在「用户管理」页面还可：编辑角色/有效期/启用禁用、重置任意用户密码、合并账户（改名场景，把旧账户历史数据转移到新账户名下）。
+
+> ⚠️ **安全前置条件**：启用自助改密/管理员改密/重置密码等接口前，必须确认部署环境已启用 HTTPS（或可信内网+二层防护），否则密码将以明文暴露在网络传输中的风险与 Basic Auth 凭证一致，详见 `docs/user_management_module_design.md` §十六。
+
+**存量账户迁移**（首次升级到 v1.5 时执行一次）：
+
+```bash
+python scripts/migrate_users_yaml_to_db.py --dry-run   # 预览
+python scripts/migrate_users_yaml_to_db.py              # 确认无误后实际写入
+```
+
+迁移后 `users` 表内有记录即自动切换为数据库鉴权（无需重启服务，下次登录请求即生效）；若尚未执行迁移或数据库不可用，会自动回退到 `config/users.yaml`（兼容旧部署，见下方字段说明）。
+
+#### users.yaml 字段说明（迁移前 / 灾备兜底场景）
 
 ```yaml
 users:
@@ -184,10 +199,11 @@ settings:
 | 过去日期 | 立即拒绝，返回 401 |
 | 格式错误（非 YYYY-MM-DD） | 保守拒绝，返回 401，并在日志输出 ERROR |
 
-> **注意**：修改 `users.yaml` 后无需重建镜像，**只需重启容器**即可生效：
+> **注意**：`users.yaml` 仅在尚未执行迁移脚本，或数据库不可用时的回退场景下生效。修改该文件后无需重建镜像，**只需重启容器**即可生效：
 > ```bash
 > sudo docker restart creditwise-api
 > ```
+> 已迁移到数据库鉴权后，账户变更请优先使用「用户管理」Web UI（无需重启服务，实时生效）。
 
 ---
 
@@ -236,7 +252,7 @@ chmod +x scripts/deploy_linux.sh
 
 | 任务 | 命令 | 是否必须 |
 |------|------|:--------:|
-| 配置用户账号密码 | 编辑 `config/users.yaml`，用 `scripts/hash_password.py` 生成密码哈希（详见 §3.3） | ✅ 必须 |
+| 配置首个管理员账号 | 首次部署时通过迁移脚本导入 `config/users.yaml`（`scripts/migrate_users_yaml_to_db.py`）或直接调用 `UserService.create_user`；之后新用户改用「用户管理」Web UI 创建（详见 §3.3） | ✅ 必须 |
 | 创建 LLM 渠道 | 通过 LLM Manager 页面或 API 创建 | ✅ 必须 |
 | 同步模型参数配置 | `./scripts/sync_model_configs.sh <用户名:密码>` | 可选 |
 
@@ -361,10 +377,10 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 | ~~跨平台启动脚本~~ | ✅ | ~~P1~~ | Docker 方式天然跨平台 |
 | ~~一键打包脚本~~ | ✅ | ~~P1~~ | Docker 镜像即部署包 |
 | ~~双重登录问题~~ | ✅ | ~~P0~~ | v1.5 已修复：`/` 和 `/favicon.ico` 加入精确匹配白名单，认证统一由前端 `authFetch` 处理（commit `55fcbc5`） |
-| workspace 基于用户名隔离 | ❌ | **P1** | 将 workspace 目录从 `session_随机ID` 改为登录用户名，解决同账号不同终端/清缓存后文件"丢失"问题 |
-| 用户自助改密码 | ❌ | P2 | `/auth/change-password` API |
+| workspace 基于用户名隔离 | ✅ | ~~P1~~ | **已完成（2026-07-02）**：`session_id` 前端改为从 `/auth/me` 获取的登录用户名；后端全部相关路由（workspace/*、sop/*，共27处）强制从认证身份派生所有权，忽略客户端传参；新增自助认领旧会话接口 `POST /workspace/claim-legacy-session` + admin批量迁移脚本 `scripts/migrate_user_isolation.py`。详见 `docs/user_management_module_design.md` |
+| 用户自助改密码 | ❌ | P2 | `/auth/change-password` API（属批次2账号管理Web UI范围，设计已定稿待排期，详见`docs/user_management_module_design.md`§十四） |
 | ~~Tailwind CSS 本地化~~ | ✅ | ~~P3~~ | Docker 构建阶段自动完成 Tailwind 离线编译 + CDN 替换，内网无需外网访问 |
-| 任务历史按用户隔离 | ❌ | P3 | 当前所有用户共享任务历史列表 |
+| 任务历史按用户隔离 | ✅ | ~~P3~~ | **已完成（2026-07-02）**：`/sop/history`列表强制按登录用户过滤，13个记录详情/分析端点所有权校验，批量删除自动剔除越权记录 |
 
 ---
 
@@ -376,7 +392,8 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 | 密码存储 | ✅ bcrypt 哈希 | 低 | 即使泄露也不可逆 |
 | 暴力破解防护 | ✅ 账户锁定 | 低 | 5 次失败锁定 15 分钟 |
 | 账户有效期 | ✅ valid_until 字段 | 低 | 过期账户自动拒绝，无需手动删除；格式错误保守拒绝 |
-| 数据隔离 | ⚠️ 按 session_id | 中 | 非强制绑定用户，不同终端/清缓存后会生成新 sessionId 导致文件"丢失"。**TODO：改为基于登录用户名隔离** |
+| 密码传输 | ⚠️ 依赖 HTTPS/内网 | 中 | 自助改密/管理员改密/重置密码上线前必须确认 HTTPS 或可信内网+二层防护，见 §3.3 |
+| 数据隔离 | ✅ 按登录用户名 | 低 | **已修复（2026-07-02）**：`session_id`统一为登录用户名，后端从认证身份强制派生，不再信任客户端传参；详见`docs/user_management_module_design.md` |
 | LLM API Key | ✅ admin-only | 低 | 普通用户无法访问管理接口 |
 
 ---
@@ -385,4 +402,5 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 *v1.1 更新日期：2026-03-31*  
 *v1.2 更新日期：2026-04-09（修复双重登录、新增 workspace 用户名隔离 TODO）*  
 *v1.3 更新日期：2026-06-01（新增 valid_until 账户有效期指引；补充 §3.3 字段说明和重启生效说明；日常运维命令补充 sudo；补充 docker compose 兼容说明）*  
+*v1.5 更新日期：2026-07-02（账户存储迁移至 SQLite + 新增「用户管理」Web UI 与自助改密，`users.yaml` 降级为迁移前/灾备兜底文件；详见 `docs/user_management_module_design.md`）*  
 *对应分支：feature/intranet-multiuser*

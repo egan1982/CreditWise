@@ -1,7 +1,7 @@
 # CreditWise 使用手册 v1.0
 
 > 对应版本：v1.0.0-beta.2  
-> 更新日期：2026-06-12  
+> 更新日期：2026-06-12（初版）；2026-07-02 补充 §3.1/§3.2：用户管理迁移至 SQLite + Web UI（新建/编辑/重置密码/合并账户/自助改密），`users.yaml` 降级为迁移前/灾备兜底方案  
 > 目标读者：系统管理员、风控分析师、建模工程师
 
 ---
@@ -55,6 +55,8 @@
 
 **内网多用户模式**（启用 Basic Auth 认证）：
 
+> 以下步骤用于**首次部署时创建第一个管理员账号**（此时「用户管理」Web UI 尚不可登录使用）；后续新增用户请改用 §3.1 描述的 Web UI，无需再重复这套 yaml 流程。
+
 ```bash
 # 1. 准备用户配置文件
 cp config/users.yaml.example config/users.yaml
@@ -69,6 +71,9 @@ echo "ENABLE_AUTH=true" >> .env
 
 # 5. 启动
 ./scripts/service.sh start
+
+# 6. 将 yaml 中的账号导入数据库（使 Web UI 生效，登录时也会自动优先走数据库）
+python scripts/migrate_users_yaml_to_db.py
 ```
 
 > 📸 *[截图占位：config/users.yaml 文件内容示例]*
@@ -257,22 +262,31 @@ npm run dev  # 启动前端 dev server（:3001）
 
 ### 3.1 用户管理（内网多用户模式）
 
-用户账号通过 `config/users.yaml` 文件配置。管理员可编辑该文件添加、修改或删除用户。
+> **v1.5 更新（2026-07-02）**：账户存储已从 `config/users.yaml` 迁移至 SQLite 数据库，管理员可通过前端「用户管理」页面（登录后点击右上角头像菜单 → 用户管理）完成账户全生命周期管理，无需再手工编辑 yaml 文件或重启服务。
 
-> 📸 *[截图占位：config/users.yaml 完整内容示例]*
+**管理员操作路径**：点击头像菜单 →「用户管理」→
 
-```yaml
-users:
-  - username: admin
-    password_hash: "$2b$12$..."  # 使用 scripts/hash_password.py 生成
-    role: admin
-    enabled: true
+| 操作 | 说明 |
+|------|------|
+| 新建用户 | 填写用户名/角色/部门/有效期，**无需手输密码**——保存后系统自动生成随机密码，一次性弹窗展示（此密码不会再次显示） |
+| 编辑用户 | 修改角色/部门/有效期/启用禁用状态，用户名创建后不可更改 |
+| 重置密码 | 生成新的随机密码一次性展示，用户下次登录需强制修改 |
+| 合并账户 | 改名场景使用：把旧账户名下的历史任务数据/workspace文件批量转移到新账户名下 |
 
-  - username: analyst01
-    password_hash: "$2b$12$..."
-    role: user
-    enabled: true
-    expires_at: "2026-12-31"     # 可选：账户过期日期
+> 📸 *[截图占位：用户管理页面 - 用户列表/新建用户弹窗]*
+
+**普通用户自助操作**：点击头像菜单 →「账户设置」→ 可自助修改密码、编辑显示名/部门备注，无需联系管理员。
+
+> 📸 *[截图占位：账户设置弹窗]*
+
+新建账户/重置密码后的密码告知与首次登录流程：
+
+```
+管理员创建用户/重置密码 → 一次性明文密码弹窗（截图或安全渠道告知用户）
+                    ↓
+用户首次登录成功 → 自动弹出强制改密弹窗（无法取消/关闭）
+                    ↓
+修改成功 → 自动进入主界面，无需重新登录
 ```
 
 **角色权限说明**：
@@ -289,20 +303,41 @@ users:
 
 > 📸 *[截图占位：管理员视角 vs 普通用户视角的界面差异对比]*
 
-### 3.2 生成密码哈希
+### 3.2 users.yaml 手动配置（迁移前 / 灾备兜底场景，非常规操作）
+
+以下方式仅在尚未执行账户迁移脚本，或数据库不可用需要临时回退时使用；常规场景请优先使用 §3.1 描述的「用户管理」Web UI。
+
+```yaml
+# config/users.yaml
+users:
+  - username: admin
+    password_hash: "$2b$12$..."  # 用下方命令生成
+    role: admin
+    org: "部门名称"
+    description: "说明文字"
+    valid_until: ""               # 留空=永久有效
+
+settings:
+  max_login_failures: 5
+  lockout_duration_minutes: 15
+```
 
 ```bash
-# 方式一：使用 service.sh（推荐，服务已启动时）
+# 生成密码哈希（方式一：service.sh，服务已启动时）
 ./scripts/service.sh hash <你的密码>
 
-# 方式二：使用 docker run（离线部署场景，服务未启动时）
+# 方式二：docker run（离线部署场景，服务未启动时）
 docker run --rm creditwise:latest python scripts/hash_password.py <你的密码>
 
 # 方式三：在已运行的容器内执行
 docker-compose exec creditwise python scripts/hash_password.py <你的密码>
+
+# 把 config/users.yaml 中的存量账户一次性导入数据库（首次升级到 v1.5 时执行）
+python scripts/migrate_users_yaml_to_db.py --dry-run   # 先预览
+python scripts/migrate_users_yaml_to_db.py              # 确认无误后正式导入
 ```
 
-将输出的哈希值填入 `config/users.yaml` 中对应用户的 `password_hash` 字段。
+将输出的哈希值填入 `config/users.yaml` 中对应用户的 `password_hash` 字段。迁移脚本执行后（`users` 表内有记录），系统自动切换为数据库鉴权，无需重启服务。
 
 ### 3.3 敏感信息检测
 

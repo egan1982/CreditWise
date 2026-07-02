@@ -2828,10 +2828,10 @@ settings:
 | # | 问题 | 影响 | 优先级 | 说明 |
 |---|------|------|:------:|------|
 | 1 | LLM Manager UI Tailwind CSS 样式缺失 | Tab 无阴影/悬停效果，布局非横向排列 | P3 | Tailwind 通过外网 CDN（`cdn.tailwindcss.com`）加载，CVM 内网无法访问。修复方案：将 Tailwind CSS 改为本地构建的 CSS 文件引用 |
-| 2 | 任务历史记录未按用户隔离 | 所有用户可看到所有任务历史 | P3 | 内网同部门测试场景可接受，后续按需添加 session_id 过滤 |
+| 2 | ~~任务历史记录未按用户隔离~~ | ~~所有用户可看到所有任务历史~~ | ~~P3~~ | ✅ 已完成（2026-07-02），详见 [`user_management_module_design.md`](./user_management_module_design.md)§九：`/sop/history`列表强制按登录用户过滤，13个记录详情/分析端点所有权校验 |
 | 3 | `docker-compose.yml` 中 `version` 属性警告 | 无功能影响，仅日志警告 | P4 | Docker Compose V2 已弃用 `version` 字段 |
 | 4 | ~~CVM `docker-compose.yml` 中硬编码了加密密钥~~ | ~~安全风险（仅 CVM 本地文件）~~ | ~~P2~~ | ✅ v1.4 已修复：`deploy_linux.sh` 自动生成密钥写入 `.env`，无需硬编码 |
-| 5 | workspace 目录应基于登录用户名而非随机 sessionId | 同账号不同终端/清缓存后无法看到已上传的文件，每次生成新的随机 sessionId 对应空目录 | **P1** | 📋 TODO：将 workspace 目录隔离维度从 `session_随机ID` 改为登录用户名（如 `workspace/fjzheng/`），实现同账号跨终端文件共享。需改动前端 sessionId 生成逻辑 + 后端 workspace 路径映射 |
+| 5 | ~~workspace 目录应基于登录用户名而非随机 sessionId~~ | ~~同账号不同终端/清缓存后无法看到已上传的文件~~ | ~~P1~~ | ✅ 已完成（2026-07-02），详见 [`user_management_module_design.md`](./user_management_module_design.md)§九：`session_id`改为登录用户名派生，新增自助认领旧会话接口 |
 
 ### 六、CVM 日常运维命令
 

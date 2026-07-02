@@ -28,10 +28,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# 修复 Windows GBK 编码问题
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-
 # Setup
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -299,6 +295,14 @@ def test_tc008():
 # 主入口
 # =============================================================================
 if __name__ == "__main__":
+    # 修复 Windows GBK 编码问题（仅作为独立脚本运行时需要；放在 __main__ 内是因为
+    # 若在模块顶层执行，pytest 收集测试时导入本模块会把 pytest 内部的 stdout/stderr
+    # capture 对象永久替换掉，导致 pytest 在 session 结束时 teardown capture 崩溃
+    # 「ValueError: I/O operation on closed file」，进而使整个 `pytest tests/` 目录扫描
+    # 时该文件之后的其它测试文件全部无法被收集/执行）
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
     start_time = time.time()
     
     print("=" * 70)

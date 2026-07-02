@@ -66,6 +66,48 @@ def validate_session_id(session_id: str, param_name: str = "session_id") -> str:
     return session_id
 
 
+def resolve_owned_session_id(request, session_id: str) -> str:
+    """用户管理模块 批次1 Phase3：所有权强制落地（M15决策）。
+
+    多用户模式下（request.state.user 存在），非admin用户的 session_id
+    一律由认证身份派生，忽略/覆盖客户端传入参数，从架构根源杜绝越权；
+    admin 可通过参数查看指定用户的 session（保留客户端传入值）；
+    单用户模式（未启用认证，request.state 无 user 属性）维持现状不变。
+
+    详见 docs/user_management_module_design.md §五。
+
+    Args:
+        request: FastAPI Request 对象
+        session_id: 客户端传入的 session_id（已经过 validate_session_id 校验）
+
+    Returns:
+        实际应使用的 session_id
+    """
+    user = getattr(request.state, "user", None)
+    if not user:
+        return session_id  # 单用户模式，不受影响
+    if user.get("role") == "admin":
+        return session_id  # admin 可显式查看指定用户数据
+    return user.get("username") or session_id  # 非admin：强制派生，忽略客户端传参
+
+
+def enforce_path_ownership(request, rel_path: str) -> None:
+    """用户管理模块 批次1 Phase3：校验以完整相对路径（如 /download/{file_path:path}）
+    暴露的资源，其首段目录（session/owner目录名）是否属于当前登录用户。
+
+    单用户模式或 admin 角色不受限制；非admin访问他人目录时返回 403。
+    与 resolve_owned_session_id 配合使用，覆盖那些不接受显式 session_id
+    参数、而是直接拼接路径访问的入口（如静态文件下载）。
+    """
+    user = getattr(request.state, "user", None)
+    if not user or user.get("role") == "admin":
+        return
+    owner_segment = rel_path.split("/")[0] if rel_path else ""
+    if owner_segment and owner_segment != user.get("username"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="无权访问该文件")
+
+
 def get_thread_workspace(thread_id: str) -> str:
     """Get workspace directory for a thread"""
     workspace_dir = os.path.join(WORKSPACE_BASE_DIR, thread_id)
