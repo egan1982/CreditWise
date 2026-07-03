@@ -4,6 +4,29 @@ const API_BASE = (window.location.port === '3001' || window.location.port === '3
     ? '/llm-manager/api' 
     : '/llm-manager/api';
 
+// 用户管理模块 批次3（2026-07-03）：403 无权限统一提示。
+//
+// 背景：`/llm-manager` 页面壳子已从"未认证/非admin直接403拒绝加载整页"改为
+// "页面壳子公开，真正的admin权限边界下放到具体管理API"（详见
+// API/auth_middleware.py 中 AUTH_WHITELIST_EXACT 上方注释）。这意味着非admin
+// 用户现在**能**打开这个页面，但调用 /manage/channels、/logs、/monitoring/*
+// 等接口仍会收到403——此前各 loadXxx() 函数遇到非0 code/非200状态统一走
+// `showError()`（本质是浏览器原生 `alert()`），技术性文案（如"请求失败，状态码:
+// 403"）+ 弹窗关闭后原容器仍停留在初始"加载中"骨架，给人"一直加载中、没有任何
+// 提示"的错觉，容易被误以为是bug而非"你没有权限"。这里单独拦截403，直接把
+// 目标容器替换成明确的"无权限"提示，不依赖容易被忽略/误关闭的 alert()。
+function renderPermissionDenied(containerId, featureName) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = `
+        <div class="empty-state bg-white rounded-lg shadow-md p-6 mb-5 text-center">
+            <div class="text-4xl mb-2">🔒</div>
+            <div class="text-lg font-medium mb-2 text-gray-800">无权限访问${featureName}</div>
+            <div class="text-gray-600">此功能仅管理员可用，请联系管理员获取权限</div>
+        </div>
+    `;
+}
+
 // 选项卡切换
 function switchTab(event, tabName) {
     // 隐藏所有内容
@@ -49,6 +72,10 @@ async function loadChannels() {
         console.log('正在加载配置，API地址:', API_BASE + '/manage/channels');
         const response = await fetch(`${API_BASE}/manage/channels`);
         
+        if (response.status === 403) {
+            renderPermissionDenied('channels-list', 'LLM渠道管理');
+            return;
+        }
         if (!response.ok) {
             console.error('请求失败，状态码:', response.status);
             showError(`请求失败，状态码: ${response.status}`);
@@ -136,6 +163,10 @@ async function loadChannels() {
 async function loadLogs() {
     try {
         const response = await fetch(`${API_BASE}/logs?limit=10`);
+        if (response.status === 403) {
+            renderPermissionDenied('logs-list', 'API日志');
+            return;
+        }
         const result = await response.json();
 
         if (result.code === 0) {
@@ -174,6 +205,10 @@ async function loadLogs() {
 async function loadStats() {
     try {
         const response = await fetch(`${API_BASE}/monitoring/stats`);
+        if (response.status === 403) {
+            renderPermissionDenied('stats-content', '统计信息');
+            return;
+        }
         const result = await response.json();
 
         if (result.code === 0) {
@@ -203,6 +238,10 @@ async function loadStats() {
 async function loadSystemInfo() {
     try {
         const response = await fetch(`${API_BASE}/monitoring/health`);
+        if (response.status === 403) {
+            renderPermissionDenied('system-info', '系统信息');
+            return;
+        }
         const result = await response.json();
 
         if (result.code === 0) {
