@@ -24,9 +24,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { authFetch, getApiUrl, saveAuth } from "@/lib/config";
+import { authFetch, getApiUrl, saveAuth, clearAuth } from "@/lib/config";
 import type { AuthUserInfo } from "@/hooks/use-auth-info";
 
 interface AccountSettingsDialogProps {
@@ -62,6 +62,10 @@ export default function AccountSettingsDialog({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+  // 密码"小眼睛"显示/隐藏切换（默认隐藏，与浏览器原生行为一致）
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // 个人信息
   const [displayName, setDisplayName] = useState("");
@@ -74,6 +78,9 @@ export default function AccountSettingsDialog({
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      setShowOldPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
       setDisplayName(user.display_name || "");
       setOrg(user.org || "");
       setDescription(user.description || "");
@@ -210,40 +217,108 @@ export default function AccountSettingsDialog({
               <Label htmlFor="old-password" className="text-xs">
                 旧密码
               </Label>
-              <Input
-                id="old-password"
-                type="password"
-                autoComplete="current-password"
-                value={oldPassword}
-                onChange={(e) => setOldPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id="old-password"
+                  type={showOldPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  className="pr-9"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowOldPassword((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showOldPassword ? "隐藏密码" : "显示密码"}
+                >
+                  {showOldPassword ? (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="new-password" className="text-xs">
                 新密码
               </Label>
-              <Input
-                id="new-password"
-                type="password"
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder={`至少 ${MIN_PASSWORD_LENGTH} 位`}
-              />
+              <div className="relative">
+                <Input
+                  id="new-password"
+                  type={showNewPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder={`至少 ${MIN_PASSWORD_LENGTH} 位`}
+                  className="pr-9"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowNewPassword((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showNewPassword ? "隐藏密码" : "显示密码"}
+                >
+                  {showNewPassword ? (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="confirm-password" className="text-xs">
                 确认新密码
               </Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id="confirm-password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="pr-9"
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowConfirmPassword((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showConfirmPassword ? "隐藏密码" : "显示密码"}
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
             </div>
-            <div className="flex justify-end pt-1">
+            <div className="flex items-center justify-between pt-1">
+              {/* 用户管理模块 批次2 补充加固（2026-07-02）：强制改密弹窗"无法取消"是
+                  刻意设计（不改完密码不能用系统），但没考虑"用户根本不知道旧密码"这种
+                  死锁场景（如：admin重置密码时生成的一次性密码没被记录/传达到位）。
+                  之前唯一的脱身方式是手动在浏览器控制台清localStorage，普通用户不会
+                  操作。这里补一个"退出登录"作为正式的逃生出口——不需要知道旧密码，
+                  清除本地凭证后回到未登录状态，可以换个账户登录，或联系admin再要一次
+                  重置密码。仅在forceMode下展示（非强制模式下已有"关闭"按钮+右上角❌）。 */}
+              {forceMode && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => {
+                    clearAuth();
+                    window.location.reload();
+                  }}
+                >
+                  忘记旧密码？退出登录
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={handleChangePassword}

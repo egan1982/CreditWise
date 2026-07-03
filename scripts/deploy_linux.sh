@@ -118,30 +118,45 @@ echo ""
 
 # =============================================================================
 # [3] 检查用户配置（仅多用户模式）
+#
+# 说明：容器现在内置了"零账户自动兜底"逻辑（API/main.py::_ensure_bootstrap_admin_if_empty）
+# ——只要 config/users.yaml 不存在（或存在但未配置任何账户），首次启动会自动创建一个
+# 随机密码的初始 admin 账户并打印到 `docker compose logs`，无需在部署阶段手动配置。
+# 这里默认跳过手动编辑，只在运维明确需要自定义账户名/预置多账户时才走传统 yaml 路径。
+#
+# ⚠️ 历史坑位说明（已修复）：此前版本无论运维是否选择"现在编辑"，都会无条件把
+# users.yaml.example 复制为 users.yaml（含 PLACEHOLDER 占位哈希）。如果运维选了
+# "暂不编辑"，这份带 PLACEHOLDER 哈希的 yaml 就会一直留在原地——它会被自动兜底逻辑
+# 误判为"已配置账户"从而跳过创建，而 PLACEHOLDER 哈希本身又无法通过任何密码验证，
+# 最终导致系统里没有任何账户能登录（永久锁死）。现改为：只有运维明确选择"手动配置"
+# 时才会创建 users.yaml，否则完全不创建该文件，交给自动兜底逻辑处理。
 # =============================================================================
 if [ "$ENABLE_AUTH" = "true" ]; then
     echo -e "${GREEN}[3] 检查用户配置${NC}"
     CONFIG_FILE="$PROJECT_ROOT/config/users.yaml"
     CONFIG_EXAMPLE="$PROJECT_ROOT/config/users.yaml.example"
 
-    if [ ! -f "$CONFIG_FILE" ]; then
-        if [ -f "$CONFIG_EXAMPLE" ]; then
-            echo -e "${YELLOW}users.yaml 不存在，从模板创建...${NC}"
+    if [ -f "$CONFIG_FILE" ]; then
+        echo -e "${GREEN}用户配置已存在: $CONFIG_FILE${NC}"
+    else
+        echo "首次部署，请选择账户初始化方式："
+        echo "  [1] 自动生成初始admin账户（推荐，容器启动后运行 './scripts/service.sh logs' 查看一次性密码）"
+        echo "  [2] 现在手动配置 users.yaml（适合需要自定义用户名或预置多个账户的场景）"
+        read -p "请选择 [1/2] (默认: 1): " USER_SETUP_MODE
+        USER_SETUP_MODE=${USER_SETUP_MODE:-1}
+
+        if [ "$USER_SETUP_MODE" = "2" ]; then
+            if [ ! -f "$CONFIG_EXAMPLE" ]; then
+                echo -e "${RED}config/users.yaml.example 不存在，请检查项目完整性${NC}"
+                exit 1
+            fi
             cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
             echo -e "${YELLOW}⚠️  请编辑 $CONFIG_FILE 配置真实的用户账号和密码哈希${NC}"
             echo -e "${YELLOW}   生成密码哈希: docker run --rm -it creditwise python scripts/hash_password.py${NC}"
-            echo ""
-            read -p "是否现在配置用户？(y/n) " -n 1 -r
-            echo ""
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                ${EDITOR:-vi} "$CONFIG_FILE"
-            fi
+            ${EDITOR:-vi} "$CONFIG_FILE"
         else
-            echo -e "${RED}config/users.yaml.example 不存在，请检查项目完整性${NC}"
-            exit 1
+            echo -e "${GREEN}已选择自动生成，跳过手动配置${NC}"
         fi
-    else
-        echo -e "${GREEN}用户配置已存在: $CONFIG_FILE${NC}"
     fi
     echo ""
     USER_STEP_NUM=3
@@ -299,8 +314,13 @@ echo "   生成密码:    docker compose run --rm creditwise python scripts/hash
 echo ""
 if [ "$ENABLE_AUTH" = "true" ]; then
     echo " 认证信息:"
-    echo "   配置文件:    config/users.yaml"
     echo "   认证模式:    Basic Auth（浏览器弹窗登录）"
+    if [ -f "$PROJECT_ROOT/config/users.yaml" ]; then
+        echo "   配置文件:    config/users.yaml（手动配置模式）"
+    else
+        echo -e "   ${YELLOW}首次启动会自动生成初始admin账户，一次性密码仅打印一次，请立即查看：${NC}"
+        echo "     cd docker && docker compose logs | grep -A5 SECURITY"
+    fi
 fi
 echo ""
 echo "============================================================"

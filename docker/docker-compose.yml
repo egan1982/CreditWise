@@ -1,14 +1,21 @@
 # CreditWise Docker Compose 配置
 #
 # 使用方式：
-#   私有化单用户：  docker-compose up -d
-#   内网多用户：    ENABLE_AUTH=true docker-compose up -d
+#   私有化单用户：  ENABLE_AUTH=false docker-compose up -d
+#   内网多用户：    docker-compose up -d（默认。见下方"首次使用"说明）
 #
-# 首次使用内网多用户模式：
+# 首次使用内网多用户模式（零配置，推荐）：
+#   直接 docker compose up -d 即可。容器首次启动时若检测到数据库中没有任何账户
+#   （且 config/users.yaml 也不存在/未配置），会自动生成一个随机密码的初始
+#   admin 账户，并打印到启动日志——运行 `docker compose logs` 查看一次性密码，
+#   首次登录后会被强制要求修改密码。详见 API/main.py::_ensure_bootstrap_admin_if_empty
+#   与 docs/user_management_module_design.md §十七。
+#
+# 首次使用内网多用户模式（传统手动方式，适合需要自定义初始账户名/多个账户的场景）：
 #   1. cp config/users.yaml.example config/users.yaml
 #   2. python scripts/hash_password.py <密码>
 #   3. 编辑 config/users.yaml 填入哈希值
-#   4. ENABLE_AUTH=true docker-compose up -d
+#   4. docker-compose up -d
 
 services:
   creditwise:
@@ -37,8 +44,12 @@ services:
       # 数据库文件
       - ../llm_manager.db:/app/llm_manager.db
       - ../task_manager.db:/app/task_manager.db
-      # 用户配置（内网多用户模式需要）
-      - ../config/users.yaml:/app/config/users.yaml
+      # 用户配置目录（挂载整个目录而非单个 users.yaml 文件——若挂载一个宿主机
+      # 不存在的单文件路径，Docker 会在容器内自动创建同名空目录兜底，导致
+      # config/users.yaml 被误判为"已存在"（实为空目录），引发 IsADirectoryError。
+      # 挂载整个目录可从根上避免这个问题，同时让 login_state.json 等运行时状态
+      # 文件也能顺带持久化，无需为每个新文件单独加一行 volumes 配置）
+      - ../config:/app/config
       # .env 文件（供 Python dotenv 读取）
       - ../.env:/app/.env
 
@@ -50,7 +61,7 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8200
       - DEV_MODE=false
-      # 认证控制：默认关闭，内网多用户设为 true
+      # 认证控制：默认开启（内网多用户），私有化单用户场景显式设 ENABLE_AUTH=false 关闭
       - ENABLE_AUTH=${ENABLE_AUTH:-true}
       # CORS（生产模式同源，一般不需要配置）
       - CORS_ORIGINS=${CORS_ORIGINS:-}

@@ -1,9 +1,9 @@
 # CreditWise 内网多用户部署指南
 
 > 分支：`feature/intranet-multiuser`  
-> 版本：v1.5.0  
+> 版本：v1.6.0  
 > 适用场景：内网 <5 人测试使用  
-> 更新：v1.5 账户管理迁移至 SQLite + Web UI（管理员可通过前端新建/编辑/禁用/重置密码，用户可自助改密），`users.yaml` 降级为迁移前/灾备兜底文件，详见 §3.3；v1.3 新增账户有效期（valid_until）配置指引，补充用户配置字段说明和运维命令
+> 更新：v1.6 首个管理员账户支持零配置自动创建（容器/服务首次启动自动生成随机密码并打印到日志），修复部署脚本"暂不编辑yaml却留下占位哈希导致永久锁死"的隐患，Docker 用户配置改为整目录挂载避免路径被误建为目录，详见 §3.3；v1.5 账户管理迁移至 SQLite + Web UI（管理员可通过前端新建/编辑/禁用/重置密码，用户可自助改密），`users.yaml` 降级为迁移前/灾备兜底文件；v1.3 新增账户有效期（valid_until）配置指引，补充用户配置字段说明和运维命令
 
 ---
 
@@ -142,8 +142,25 @@ DeepAnalyze/
 ### 3.3 用户管理
 
 > **v1.5 更新（2026-07-02）**：账户存储已从 `config/users.yaml` 迁移至 SQLite `users` 表，管理员可通过前端「用户管理」页面（登录后点击头像菜单 → 用户管理）完成账户全生命周期管理，**不再需要编辑 yaml + 重启服务**。以下描述 Web UI 主路径，`users.yaml` 仅作为迁移前存量账户/灾备兜底文件保留。
+>
+> **v1.6 更新（2026-07-02）**：首个管理员账户创建已实现**零配置自动兜底**——容器/服务首次以 `ENABLE_AUTH=true` 启动时，若检测到数据库0账户且 `config/users.yaml` 也不存在/未配置，会自动生成一个随机密码的 admin 账户并打印到启动日志，无需再手动跑迁移脚本或编辑 yaml 才能登录。见下方"首个管理员账户从哪来"。
 
-**Web UI 主路径**（推荐）：
+**首个管理员账户从哪来**（新增，取代下方旧的"存量账户迁移"作为默认路径）：
+
+```
+服务首次以 ENABLE_AUTH=true 启动
+  → 检测到 users 表 0 账户 且 config/users.yaml 不存在/未配置任何账户
+  → 自动创建 admin 账户（随机密码，must_change_password=true）
+  → 一次性密码打印到启动日志（docker: `docker compose logs`；
+                              本地: 终端标准输出）
+  → 管理员从日志取得密码登录 → 强制改密 → 通过 Web UI 建其他账户
+```
+
+只有以下场景才需要用到传统的 `config/users.yaml` + `scripts/migrate_users_yaml_to_db.py` 路径：
+- 从 v1.5 及更早版本升级，本来就已经在用 `users.yaml` 维护账户（见下方"存量账户迁移"）
+- 首次部署时希望自定义初始账户名，或一次性预置多个账户（而非部署后再逐个用 Web UI 建）
+
+**Web UI 主路径**（推荐，日常新增账户统一走这里）：
 
 ```
 新用户想使用 → 管理员登录 → 点击头像菜单「用户管理」 → 「新建用户」
@@ -158,7 +175,7 @@ DeepAnalyze/
 
 > ⚠️ **安全前置条件**：启用自助改密/管理员改密/重置密码等接口前，必须确认部署环境已启用 HTTPS（或可信内网+二层防护），否则密码将以明文暴露在网络传输中的风险与 Basic Auth 凭证一致，详见 `docs/user_management_module_design.md` §十六。
 
-**存量账户迁移**（首次升级到 v1.5 时执行一次）：
+**存量账户迁移**（从 v1.5 及更早版本升级、本来就在用 `users.yaml` 时执行一次；全新部署无需此步骤）：
 
 ```bash
 python scripts/migrate_users_yaml_to_db.py --dry-run   # 预览
@@ -241,18 +258,20 @@ chmod +x scripts/deploy_linux.sh
 | 步骤 | 内容 | 说明 |
 |------|------|------|
 | [1/7] | 检查/安装 Docker | 自动检测并安装 Docker + Compose |
-| [2/7] | 检查用户配置 | 从 `users.yaml.example` 创建 `users.yaml`，**交互式询问是否编辑** |
+| [2/7] | 检查用户配置 | 多用户模式下交互式二选一：**[1] 自动生成初始admin账户**（默认推荐，容器启动后从日志查看一次性密码）或 **[2] 手动配置** `users.yaml`（适合需要自定义账户名/预置多账户的场景） |
 | [3/7] | 检查环境配置 | 从 `.env.example` 创建 `.env`，**自动生成加密密钥** |
 | [4/7] | 预创建数据库文件 | `touch llm_manager.db task_manager.db`（避免 Docker 创建为目录） |
 | [5/7] | 构建 Docker 镜像 | 首次约 5-10 分钟 |
 | [6/7] | 启动服务 | `ENABLE_AUTH=true docker-compose up -d` |
 | [7/7] | 健康检查验证 | 最多等待 30 秒确认服务启动 |
 
+> ⚠️ **历史坑位（已修复，2026-07-02）**：旧版脚本无论运维是否选择"现在编辑"，都会无条件把 `users.yaml.example` 复制为 `users.yaml`（含 `PLACEHOLDER` 占位哈希）。若选择"暂不编辑"，这份带占位哈希的 yaml 会被系统误判为"已配置账户"从而不再自动创建兜底账户，而占位哈希本身又无法通过任何密码验证——最终导致系统没有任何账户能登录（永久锁死）。现已修正为：只有明确选择"手动配置"才会创建该文件，否则完全跳过，交由下方的自动兜底逻辑处理。
+
 #### 部署后需手动完成
 
 | 任务 | 命令 | 是否必须 |
 |------|------|:--------:|
-| 配置首个管理员账号 | 首次部署时通过迁移脚本导入 `config/users.yaml`（`scripts/migrate_users_yaml_to_db.py`）或直接调用 `UserService.create_user`；之后新用户改用「用户管理」Web UI 创建（详见 §3.3） | ✅ 必须 |
+| 首个管理员账号 | **默认全自动**：容器首次启动检测到零账户时，会自动创建一个随机密码的 admin 账户并打印到启动日志（`docker compose logs`），首次登录会被强制要求改密。仅当部署时在 [2/7] 步骤选择了"手动配置"才需要自行编辑 `config/users.yaml` 或运行 `scripts/init_admin.py`（详见 §3.3、`docs/user_management_module_design.md` §二十） | ⭕ 自动完成，通常无需手动干预 |
 | 创建 LLM 渠道 | 通过 LLM Manager 页面或 API 创建 | ✅ 必须 |
 | 同步模型参数配置 | `./scripts/sync_model_configs.sh <用户名:密码>` | 可选 |
 
@@ -403,4 +422,5 @@ python -m uvicorn API.main:create_app --factory --host 0.0.0.0 --port 8200
 *v1.2 更新日期：2026-04-09（修复双重登录、新增 workspace 用户名隔离 TODO）*  
 *v1.3 更新日期：2026-06-01（新增 valid_until 账户有效期指引；补充 §3.3 字段说明和重启生效说明；日常运维命令补充 sudo；补充 docker compose 兼容说明）*  
 *v1.5 更新日期：2026-07-02（账户存储迁移至 SQLite + 新增「用户管理」Web UI 与自助改密，`users.yaml` 降级为迁移前/灾备兜底文件；详见 `docs/user_management_module_design.md`）*  
+*v1.6 更新日期：2026-07-02（首个管理员账户零配置自动创建；修复 `deploy_linux.sh` 遗留占位哈希yaml导致永久锁死的隐患；`docker-compose.yml` 用户配置改为整目录挂载；详见 `docs/user_management_module_design.md` §二十）*  
 *对应分支：feature/intranet-multiuser*

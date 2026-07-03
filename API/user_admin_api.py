@@ -276,7 +276,19 @@ async def reset_user_password(request: Request, username: str) -> Dict[str, Any]
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    logger.info(f"[AUDIT] admin {admin_user['username']} 重置了 {username} 的密码")
+    # 用户管理模块 批次2 补充加固（2026-07-02）：重置密码时一并清除账户锁定状态。
+    # 背景：`/auth/change-password`（自助改密）早就有这个逻辑（旧密码校验通过后
+    # 会调用 auth._reset_failures），但本接口（admin代为重置）此前完全没有处理
+    # 账户锁定——如果该账户此前因连续输错密码触发了15分钟锁定（`_is_locked`
+    # 独立于密码是否正确，检查的是失败计数+时间窗口），admin重置完密码后，
+    # 用户拿着全新的正确密码登录仍会被 429 拦下，且锁定不会因为密码已被重置
+    # 而提前解除，只能傻等剩余的锁定时间——admin已经通过管理页面验证过身份并
+    # 主动重置，没有安全理由继续保留锁定状态，这里补上清除。
+    auth = getattr(request.app.state, "auth", None)
+    if auth is not None:
+        auth._reset_failures(username)
+
+    logger.info(f"[AUDIT] admin {admin_user['username']} 重置了 {username} 的密码（并清除账户锁定状态）")
     return {"username": username, "new_password": new_password, "must_change_password": True}
 
 

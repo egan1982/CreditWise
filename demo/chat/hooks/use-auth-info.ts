@@ -59,21 +59,22 @@ export function useAuthInfo(): UseAuthInfoResult {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // `/auth/mode` 在认证白名单内，无需认证即可探测，用普通 fetch 避免触发登录弹窗
-      try {
-        const res = await fetch(getApiUrl("/auth/mode"));
-        if (!cancelled && res.ok) {
-          const data = await res.json();
-          setAuthEnabled(!!data.auth_enabled);
-        } else if (!cancelled) {
-          setAuthEnabled(false);
-        }
-      } catch {
-        if (!cancelled) setAuthEnabled(false);
-      }
+      // 用户管理模块 批次2 补充加固（2026-07-02）：`/auth/mode` 与 `/auth/me`
+      // 两者语义互不依赖（mode=是否全局启用认证；me=当前登录者是谁），此前串行
+      // await 会白白多等一次网络往返。改为并行发起，减少首屏头像按钮出现的延迟
+      // （原两次串行请求耗时叠加，是用户反馈"刷新后头像按钮要等几秒才出现"的
+      // 主要原因之一，另一部分原因是本组件与 three-panel-interface.tsx 此前各自
+      // 独立发一次 /auth/me，该重复调用已在 three-panel-interface.tsx 侧移除）。
+      const modePromise = fetch(getApiUrl("/auth/mode"))
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null);
 
-      await refreshUser();
-      if (!cancelled) setLoading(false);
+      const [modeData] = await Promise.all([modePromise, refreshUser()]);
+
+      if (!cancelled) {
+        setAuthEnabled(modeData ? !!modeData.auth_enabled : false);
+        setLoading(false);
+      }
     })();
     return () => {
       cancelled = true;

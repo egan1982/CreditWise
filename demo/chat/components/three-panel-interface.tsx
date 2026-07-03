@@ -90,7 +90,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useAuthInfo } from "@/hooks/use-auth-info";
 import AccountSettingsDialog from "./AccountSettingsDialog";
-import { clearAuth } from "@/lib/config";
+import { clearAuth, getLlmManagerUrl } from "@/lib/config";
 import ModelSelector from "./ModelSelector";
 import { 
   TaskSelector, 
@@ -211,6 +211,20 @@ function ThreePanelInterfaceInner() {
   // Session ID：用于区分不同浏览器用户（无需登录）
   const [sessionId, setSessionId] = useState<string>("");
 
+  // 用户管理模块 批次1 补充（2026-07-02）：管理员浏览指定工作区（只读）
+  // 详见 docs/user_management_module_design.md §二十六。
+  // 非null时，Files/Tree 面板改为展示该 session_id 对应的工作区（其他人的/旧遗留
+  // session的），并进入只读模式（禁止上传/删除/移动）；聊天与任务执行始终仍使用
+  // sessionId（管理员自己的身份），不受这个"浏览视角"切换影响。
+  const [adminViewSessionId, setAdminViewSessionId] = useState<string | null>(null);
+  const [availableWorkspaceSessions, setAvailableWorkspaceSessions] = useState<
+    Array<{ session_id: string; is_registered_user: boolean; file_count: number; last_modified: string }>
+  >([]);
+  const workspaceSessionId = adminViewSessionId || sessionId;
+  const isBrowsingOtherWorkspace = !!adminViewSessionId && adminViewSessionId !== sessionId;
+
+
+
   // 步骤导航相关状态
   const [activeSection, setActiveSection] = useState<string>("");
   const stepNavigatorRef = useRef<HTMLDivElement>(null);
@@ -220,41 +234,17 @@ function ThreePanelInterfaceInner() {
   useEffect(() => {
     setMounted(true);
     if (typeof window !== "undefined") {
-      // 用户管理模块 批次1 Phase1：初始化 sessionId
-      // 优先尝试用登录用户名作为 sessionId（身份隔离键统一，详见
-      // docs/user_management_module_design.md §三/§四）；
-      // 单用户模式（未启用认证）下 /auth/me 返回 username=null，
-      // 维持现状（随机字符串），不受本模块影响。
-      const initSessionId = async () => {
-        let sid = localStorage.getItem("sessionId");
-        // 先兜底：保证在异步请求返回前，legacy 逻辑仍可用（不阻塞首屏）
-        if (!sid) {
-          sid = `session_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`;
-          localStorage.setItem("sessionId", sid);
-        }
-        setSessionId(sid);
-
-        try {
-          const res = await authFetch(getApiUrl("/auth/me"));
-          if (res.ok) {
-            const data = await res.json();
-            if (data?.username) {
-              // 多用户模式：用登录用户名覆盖 sessionId，实现按用户名隔离
-              if (sid !== data.username) {
-                localStorage.setItem("sessionId", data.username);
-                setSessionId(data.username);
-              }
-            }
-            // data.username 为 null → 单用户模式，维持上面已设置的随机 sid，不做任何改动
-          }
-        } catch (e) {
-          // 网络异常/未启用认证等场景：静默降级，维持随机 sessionId（不影响现有单用户模式体验）
-          console.warn("[Auth] /auth/me 请求失败，维持现有 sessionId:", e);
-        }
-      };
-      initSessionId();
+      // 用户管理模块 批次1 Phase1：初始化 sessionId（先用兜底随机值，不阻塞首屏；
+      // 真正的用户名覆盖逻辑见下方独立 useEffect，复用 useAuthInfo() 已发出的
+      // /auth/me 请求，不再重复发起第二次）
+      let sid = localStorage.getItem("sessionId");
+      if (!sid) {
+        sid = `session_${Date.now()}_${Math.random()
+          .toString(36)
+          .substr(2, 9)}`;
+        localStorage.setItem("sessionId", sid);
+      }
+      setSessionId(sid);
 
       // 新增 tabId：仅用于前端UI层区分多标签页，不参与任何数据隔离判断
       // （详见 docs/user_management_module_design.md §四 4.2）
@@ -275,6 +265,24 @@ function ThreePanelInterfaceInner() {
       }
     }
   }, []);
+
+  // 用户管理模块 批次1 Phase1（2026-07-02 重构）：用登录用户名覆盖 sessionId。
+  // 原实现在本组件内单独再发一次 /auth/me 请求；本组件顶部已经调用了
+  // useAuthInfo()（供头像菜单/强制改密使用，同样会请求 /auth/me），这里改为直接
+  // 复用其结果，避免同一页面重复发送两次 /auth/me——减少一次网络往返，缓解刷新
+  // 页面时并发请求扎堆导致的头像按钮/TaskType 卡片"要等几秒才出现"的问题。
+  useEffect(() => {
+    if (!mounted) return;
+    const username = authInfo.user?.username;
+    if (!username) return; // 单用户模式或尚未加载完成：维持现有随机 sessionId，不做改动
+    const current = localStorage.getItem("sessionId");
+    if (current !== username) {
+      localStorage.setItem("sessionId", username);
+      setSessionId(username);
+    }
+  }, [mounted, authInfo.user?.username]);
+
+
 
   // 按 session 维度持久化/恢复 折叠状态 与 手动锁
   useEffect(() => {
@@ -754,11 +762,27 @@ function ThreePanelInterfaceInner() {
   };
 
   useEffect(() => {
-    if (sessionId) {
+    if (workspaceSessionId) {
       loadWorkspaceFiles();
       loadWorkspaceTree();
     }
-  }, [sessionId]);
+  }, [workspaceSessionId]);
+
+  // 管理员浏览指定工作区：拉取可选 session 列表（仅 admin 需要，普通用户不渲染切换入口）
+  useEffect(() => {
+    if (!authInfo.isAdmin) return;
+    (async () => {
+      try {
+        const res = await authFetch(getApiUrl("/admin/workspace/sessions"));
+        if (res.ok) {
+          const data = await res.json();
+          setAvailableWorkspaceSessions(data.sessions || []);
+        }
+      } catch (e) {
+        console.warn("[Admin] 获取可浏览工作区列表失败:", e);
+      }
+    })();
+  }, [authInfo.isAdmin]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -792,10 +816,10 @@ function ThreePanelInterfaceInner() {
   }, []);
 
   const loadWorkspaceFiles = async () => {
-    if (!sessionId) return;
+    if (!workspaceSessionId) return;
     try {
       const response = await authFetch(
-        `${getApiUrl(API_URLS.WORKSPACE_FILES)}?session_id=${sessionId}`
+        `${getApiUrl(API_URLS.WORKSPACE_FILES)}?session_id=${workspaceSessionId}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -807,10 +831,10 @@ function ThreePanelInterfaceInner() {
   };
 
   const loadWorkspaceTree = async () => {
-    if (!sessionId) return;
+    if (!workspaceSessionId) return;
     try {
       const res = await authFetch(
-        `${getApiUrl(API_URLS.WORKSPACE_TREE)}?session_id=${sessionId}`
+        `${getApiUrl(API_URLS.WORKSPACE_TREE)}?session_id=${workspaceSessionId}`
       );
       if (res.ok) {
         const data = await res.json();
@@ -851,6 +875,10 @@ function ThreePanelInterfaceInner() {
     setExpanded((prev) => ({ ...prev, [p]: !prev[p] }));
 
   const deleteFile = async (p: string) => {
+    if (isBrowsingOtherWorkspace) {
+      toast({ description: "只读模式：浏览他人工作区时无法删除文件", variant: "destructive" });
+      return;
+    }
     try {
       const url = `${getApiUrl(API_URLS.WORKSPACE_DELETE_FILE)}?path=${encodeURIComponent(
         p
@@ -866,6 +894,10 @@ function ThreePanelInterfaceInner() {
   };
 
   const deleteDir = async (p: string) => {
+    if (isBrowsingOtherWorkspace) {
+      toast({ description: "只读模式：浏览他人工作区时无法删除目录", variant: "destructive" });
+      return;
+    }
     try {
       const url = `${getApiUrl(API_URLS.WORKSPACE_DELETE_DIR)}?path=${encodeURIComponent(
         p
@@ -882,6 +914,10 @@ function ThreePanelInterfaceInner() {
 
   // 移动：将工作区内的文件/文件夹移动到指定目录（空字符串表示根目录）
   const moveToDir = async (srcPath: string, dstDir: string) => {
+    if (isBrowsingOtherWorkspace) {
+      toast({ description: "只读模式：浏览他人工作区时无法移动文件", variant: "destructive" });
+      return;
+    }
     try {
       const url = `${
         API_CONFIG.BACKEND_BASE_URL
@@ -901,6 +937,10 @@ function ThreePanelInterfaceInner() {
   };
 
   const uploadToDir = async (dirPath: string, files: FileList | File[]) => {
+    if (isBrowsingOtherWorkspace) {
+      toast({ description: "只读模式：浏览他人工作区时无法上传文件", variant: "destructive" });
+      return;
+    }
     try {
       setIsUploading(true);
       const form = new FormData();
@@ -3692,30 +3732,38 @@ function ThreePanelInterfaceInner() {
           {/* Left Panel - Workspace Tree */}
           <ResizablePanel defaultSize={25} minSize={15}>
             <div className="flex flex-col min-h-0 min-w-0 h-full">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800 h-12">
-                <h2 className="text-sm font-medium text-gray-600 dark:text-gray-400">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800 h-12 gap-2">
+                <h2 className="text-sm font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">
                   Files
                 </h2>
+                {/* 用户管理模块 批次1 补充（2026-07-02）：管理员浏览指定工作区入口，
+                    仅admin可见，详见 docs/user_management_module_design.md §二十六 */}
+                {authInfo.isAdmin && (
+                  <select
+                    className="flex-1 min-w-0 h-6 text-[11px] rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 px-1"
+                    value={adminViewSessionId || ""}
+                    onChange={(e) => setAdminViewSessionId(e.target.value || null)}
+                  >
+                    <option value="">我的工作区</option>
+                    {availableWorkspaceSessions.map((s) => (
+                      <option key={s.session_id} value={s.session_id}>
+                        {s.session_id}
+                        {!s.is_registered_user ? "（旧会话）" : ""}
+                        {` · ${s.file_count}个文件`}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <div
-                  className="flex items-center gap-1"
+                  className="flex items-center gap-1 flex-shrink-0"
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={async (e) => {
                     e.preventDefault();
                     const items = Array.from(e.dataTransfer.files || []);
                     if (!items.length) return;
-                    const form = new FormData();
-                    items.forEach((f) => form.append("files", f));
                     const dir = contextTarget?.is_dir ? contextTarget.path : "";
-                    try {
-                      const url = `${getApiUrl(API_URLS.WORKSPACE_UPLOAD_TO)}?dir=${encodeURIComponent(
-                        dir
-                      )}&session_id=${encodeURIComponent(sessionId)}`;
-                      await authFetch(url, { method: "POST", body: form });
-                      await loadWorkspaceTree();
-                      await loadWorkspaceFiles();
-                    } catch (err) {
-                      console.error(err);
-                    }
+                    // 复用已带只读模式校验的 uploadToDir（避免绕过admin浏览他人工作区时的写保护）
+                    await uploadToDir(dir, items);
                   }}
                 >
                   <input
@@ -3726,21 +3774,23 @@ function ThreePanelInterfaceInner() {
                     className="hidden"
                     accept="*"
                   />
-                  {/* 全选 / 取消全选 文字按钮 */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`h-6 px-2 text-xs ${
-                      isAllSelected || isPartialSelected
-                        ? "text-blue-500 hover:text-blue-700"
-                        : "text-gray-500 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
-                    }`}
-                    onClick={toggleSelectAll}
-                  >
-                    {isAllSelected ? "取消全选" : "全选"}
-                  </Button>
+                  {/* 全选 / 取消全选 文字按钮（浏览他人工作区时隐藏，只读不支持选择删除） */}
+                  {!isBrowsingOtherWorkspace && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`h-6 px-2 text-xs ${
+                        isAllSelected || isPartialSelected
+                          ? "text-blue-500 hover:text-blue-700"
+                          : "text-gray-500 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
+                      }`}
+                      onClick={toggleSelectAll}
+                    >
+                      {isAllSelected ? "取消全选" : "全选"}
+                    </Button>
+                  )}
                   {/* 批量删除（有选中时显示，替代原清空按钮） */}
-                  {selectedPaths.size > 0 && (
+                  {!isBrowsingOtherWorkspace && selectedPaths.size > 0 && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -3754,43 +3804,59 @@ function ThreePanelInterfaceInner() {
                 </div>
               </div>
 
+              {isBrowsingOtherWorkspace && (
+                <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-b border-amber-200 dark:border-amber-900">
+                  <span>
+                    正在浏览「{adminViewSessionId}」的工作区（管理员视角，只读）
+                  </span>
+                  <button
+                    className="underline hover:text-amber-900 dark:hover:text-amber-200 flex-shrink-0"
+                    onClick={() => setAdminViewSessionId(null)}
+                  >
+                    返回我的工作区
+                  </button>
+                </div>
+              )}
+
               <div
                 ref={treeContainerRef}
                 className="flex-[0.3] min-h-0 overflow-y-auto overflow-x-hidden pl-3 pr-1 py-2"
               >
-                <div
-                  className={`mb-2 rounded border border-dashed flex items-center justify-center h-20 text-xs select-none ${
-                    dropActive
-                      ? "bg-blue-50 border-blue-300 text-blue-600"
-                      : "bg-gray-50 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-500"
-                  }`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDropActive(true);
-                  }}
-                  onDragLeave={() => setDropActive(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setDropActive(false);
-                    const files = e.dataTransfer.files;
-                    if (files && files.length) uploadToDir("", files);
-                  }}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {/* 独立隐藏 input 兼容点击上传 */}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    accept="*"
-                  />
-                  <div className="flex items-center gap-2">
-                    <Upload className="h-4 w-4" />
-                    <span>拖拽或点击此处上传（workspace 根目录）</span>
+                {!isBrowsingOtherWorkspace && (
+                  <div
+                    className={`mb-2 rounded border border-dashed flex items-center justify-center h-20 text-xs select-none ${
+                      dropActive
+                        ? "bg-blue-50 border-blue-300 text-blue-600"
+                        : "bg-gray-50 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700 text-gray-500"
+                    }`}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDropActive(true);
+                    }}
+                    onDragLeave={() => setDropActive(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDropActive(false);
+                      const files = e.dataTransfer.files;
+                      if (files && files.length) uploadToDir("", files);
+                    }}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {/* 独立隐藏 input 兼容点击上传 */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      accept="*"
+                    />
+                    <div className="flex items-center gap-2">
+                      <Upload className="h-4 w-4" />
+                      <span>拖拽或点击此处上传（workspace 根目录）</span>
+                    </div>
                   </div>
-                </div>
+                )}
                 {uploadMsg && (
                   <div className="px-2 pb-2 text-[11px] text-gray-500">
                     {uploadMsg}
@@ -3949,7 +4015,7 @@ function ThreePanelInterfaceInner() {
                         {authInfo.isAdmin && (
                           <DropdownMenuItem
                             onClick={() => {
-                              window.location.href = "/llm-manager";
+                              window.location.href = getLlmManagerUrl();
                             }}
                           >
                             <Cpu className="h-4 w-4" />

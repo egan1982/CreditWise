@@ -86,12 +86,23 @@ def test_config(tmp_path):
 
 
 @pytest.fixture
-def app_with_auth(test_config, monkeypatch):
+def app_with_auth(test_config, tmp_path, monkeypatch):
     """创建带认证中间件的测试 FastAPI 应用"""
     import API.auth_middleware as auth_mod
 
     # 让 _find_config_path 返回我们的临时配置文件
     monkeypatch.setattr(auth_mod, "_find_config_path", lambda: test_config)
+
+    # 用户管理模块 批次2 补充加固（2026-07-02）：账户锁定状态隔离。
+    # 背景：_get_state_path() 硬编码返回真实项目路径 config/login_state.json，
+    # 与本机开发服务器（甚至线上部署）读写的是同一份磁盘文件。TestAccountLockout
+    # 类测试会故意连续失败登录触发"admin"账户锁定，若不隔离，这份锁定状态会真实写入
+    # 磁盘——不仅污染后续在同一进程内运行的其他测试（会看到意外的429而非401/200，
+    # 已实测复现），还可能在本机同时跑着真实开发服务器时，把正在被人工测试使用的
+    # 真实"admin"账户凭空锁定。这里同样用 monkeypatch 让状态文件落在 tmp_path，
+    # 与 _find_config_path 的隔离方式保持一致。
+    state_path = tmp_path / "login_state.json"
+    monkeypatch.setattr(auth_mod, "_get_state_path", lambda: state_path)
 
     app = FastAPI()
     auth = SimpleAuth()
@@ -190,17 +201,25 @@ class TestOptionsPreflightPass:
 
 
 class TestMissingAuthorization:
-    """测试 #3: 无 Authorization → 401"""
+    """测试 #3: 无 Authorization → 401
 
-    def test_no_auth_header(self, client):
-        """#3 无认证 header 返回 401"""
+    用户管理模块 批次2 补充加固（2026-07-02）：401 响应是否携带
+    `WWW-Authenticate` 头，现在取决于请求是 AJAX/fetch 调用还是真实页面导航
+    （见 `BasicAuthMiddleware.dispatch` 里 `is_html_navigation` 分支）——
+    AJAX 调用不再带该头，避免浏览器抢先弹出原生认证框、打断前端自定义的
+    `LoginDialog` 重试流程（原生弹窗在部分内嵌浏览器环境下会卡死无法交互）。
+    真实页面导航（`Accept: text/html`）仍保留该头，走浏览器原生认证是预期行为。
+    """
+
+    def test_no_auth_header_ajax_no_www_authenticate(self, client):
+        """#3 无认证 header，AJAX请求（无 text/html Accept）→ 401，不带 WWW-Authenticate"""
         response = client.get("/workspace/files")
         assert response.status_code == 401
-        assert "WWW-Authenticate" in response.headers
+        assert "WWW-Authenticate" not in response.headers
 
-    def test_401_has_basic_challenge(self, client):
-        """#3 401 响应包含 Basic realm"""
-        response = client.get("/workspace/files")
+    def test_no_auth_header_html_navigation_has_www_authenticate(self, client):
+        """#3 无认证 header，真实页面导航（Accept: text/html）→ 401，携带 Basic realm 挑战"""
+        response = client.get("/workspace/files", headers={"Accept": "text/html"})
         assert response.status_code == 401
         assert "Basic" in response.headers.get("WWW-Authenticate", "")
 

@@ -103,6 +103,89 @@ except Exception as e:
     print(f"[ERROR] Unexpected error importing LLM Manager: {e}")
 
 
+def _generate_bootstrap_password(length: int = 14) -> str:
+    """生成一个高强度随机密码，避开易混淆字符（0/O/1/l/I）"""
+    import secrets
+    import string
+
+    alphabet = "".join(
+        c for c in (string.ascii_letters + string.digits + "!@#%^&*")
+        if c not in "0Ol1I"
+    )
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _ensure_bootstrap_admin_if_empty(username: str = "admin"):
+    """用户管理模块 批次2 补充：全新部署零账户自动兜底。
+
+    仅在"数据库0账户 且 config/users.yaml 不存在或其中也没配置任何账户"这一
+    真正的空状态下才会创建账户，避免覆盖任何已有的合法配置（无论是数据库还是
+    yaml 路径）。创建的密码只在本次进程内存中短暂存在，用于随后打印到启动日志，
+    不落盘、不写入任何日志文件之外的持久化位置。
+
+    Returns:
+        {"username": ..., "password": ...} 如果本次创建了新账户；
+        None 如果已存在可用账户（数据库或yaml任一有账户），未做任何改动。
+    """
+    try:
+        from deepanalyze.core.task_manager.database import get_task_manager_db
+        from deepanalyze.core.task_manager.user_service import UserService, UsernameConflictError
+
+        get_task_manager_db()  # 确保 users 表已创建
+        if UserService.count_users() > 0:
+            return None  # 数据库里已有账户，无需兜底
+    except Exception as e:
+        logger.warning(f"[WARN] 检测数据库账户数失败，跳过自动兜底创建: {e}")
+        return None
+
+    # 数据库为空，再检查 yaml 是否已配置了账户（合法的存量/灾备路径，不应被覆盖）
+    try:
+        from auth_middleware import load_users_config
+        yaml_users = load_users_config().get("users") or []
+        if yaml_users:
+            return None  # yaml 中已有账户，走 yaml 鉴权，无需兜底
+    except FileNotFoundError:
+        pass  # yaml 不存在，属于"真正的空状态"，继续走下面的自动创建
+    except Exception as e:
+        # yaml 存在但格式错误等：保守起见不覆盖，交给原有 except 分支报错处理，
+        # 避免自动创建的账户和一份"看起来配置过但实际有问题"的yaml产生歧义
+        logger.warning(f"[WARN] config/users.yaml 存在但读取失败，跳过自动兜底创建: {e}")
+        return None
+
+    password = _generate_bootstrap_password()
+    try:
+        UserService.create_user(
+            username=username,
+            password=password,
+            role="admin",
+            description="系统首次启动自动创建的初始管理员账户（零账户兜底）",
+            must_change_password=True,
+            created_by="startup_auto_bootstrap",
+        )
+    except UsernameConflictError:
+        # 极小概率的启动竞态（如多进程同时首启）：已被别的进程创建，直接放弃本次创建
+        return None
+    return {"username": username, "password": password}
+
+
+def _print_bootstrap_admin_banner(cred: dict) -> None:
+    """在启动日志中醒目打印一次性初始管理员密码。"""
+    banner = (
+        "\n" + "=" * 70 + "\n"
+        "[SECURITY] 首次启动自动创建了初始管理员账户（数据库中此前没有任何账户）\n"
+        f"           用户名: {cred['username']}\n"
+        f"           密码  : {cred['password']}\n"
+        "           该密码仅在此处显示一次，请立即记录！\n"
+        "           首次登录后会被强制要求修改密码。\n"
+        + "=" * 70 + "\n"
+    )
+    print(banner)
+    logger.warning(
+        f"[SECURITY] 自动创建初始管理员账户: username={cred['username']}"
+        "（密码已打印到标准输出，不会写入日志文件）"
+    )
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application"""
     app = FastAPI(title=API_TITLE, version=API_VERSION)
@@ -117,12 +200,30 @@ def create_app() -> FastAPI:
     if os.getenv("ENABLE_AUTH", "false").lower() == "true":
         try:
             from auth_middleware import SimpleAuth, BasicAuthMiddleware
+
+            # 用户管理模块 批次2 补充：零账户自动兜底（fail-closed 修复）
+            # 背景：此前若 ENABLE_AUTH=true 但 users 表为空且 config/users.yaml 不存在
+            # （典型场景：全新部署，忘了先跑 init_admin.py），SimpleAuth() 会抛
+            # FileNotFoundError；下面的 except 分支会捕获它但**不重新抛出**，导致
+            # BasicAuthMiddleware 根本没被挂载——服务在完全无鉴权状态下正常对外运行，
+            # 是典型的 fail-open（该失败但没失败，反而降级成了"当作没启用鉴权"）。
+            # 这里在构造 SimpleAuth() 之前主动补一个自动创建：只有在"数据库0账户 且
+            # yaml不存在/yaml中也没配置任何账户"这一真正的空状态下才触发，生成一个
+            # 随机高强度密码（而非固定默认密码，理由见 scripts/init_admin.py 顶部说明），
+            # 创建后 SimpleAuth() 就能在数据库模式下正常初始化，无需再要求 yaml 存在，
+            # 从根上消除了"忘记bootstrap→静默无鉴权"这条路径。
+            _bootstrap_cred = _ensure_bootstrap_admin_if_empty()
+            if _bootstrap_cred:
+                _print_bootstrap_admin_banner(_bootstrap_cred)
+
             auth = SimpleAuth()
             app.add_middleware(BasicAuthMiddleware, auth=auth)
             # 用户管理模块 批次2 Phase10：暴露给 /auth/change-password 复用现有账户锁定机制（M19决策）
             app.state.auth = auth
             logger.info("[OK] Basic Auth 认证中间件已启用")
         except FileNotFoundError as e:
+            # 走到这里说明是"yaml存在但格式错误/其他非零账户异常"之外的场景，理论上
+            # 已被上面的自动兜底消化；仍保留此分支作为防御性兜底日志，避免静默吞掉未知问题。
             logger.error(f"[ERROR] 认证配置缺失: {e}")
             print(f"[ERROR] 认证配置缺失: {e}")
         except ImportError as e:
@@ -911,6 +1012,64 @@ def create_app() -> FastAPI:
 
         return {"success": True, "merged": merge_result}
 
+    # 用户管理模块 批次1 补充：管理员浏览指定工作区（M2026-07-02决策，只读）
+    # 详见 docs/user_management_module_design.md §二十六
+    #
+    # 背景：resolve_owned_session_id 对 admin 早已放行"按客户端传参查看任意
+    # session"，但前端从未提供发现机制（admin 不知道磁盘上有哪些 session 可选）
+    # 也没有切换入口，导致这项后端已具备的能力实际上无法被使用（例如admin看不到
+    # 单用户模式遗留在旧随机session目录下的文档）。本接口只做"列出可选项"，
+    # 不改动任何既有鉴权逻辑。
+    @app.get("/admin/workspace/sessions")
+    async def list_workspace_sessions(request: Request):  # pyright: ignore[reportUnusedFunction]
+        """列出 workspace/ 下所有 session 目录，供管理员选择要浏览哪个工作区。
+
+        仅 admin 可调用（中间件 ADMIN_ONLY_PREFIXES 已拦截，此处不再重复校验）。
+        每个 session 标注是否对应当前数据库中的真实注册用户，便于前端区分
+        "正常账户" 与 "遗留的旧随机session"。
+        """
+        from pathlib import Path
+        from datetime import datetime
+        from config import WORKSPACE_BASE_DIR
+        from deepanalyze.core.task_manager.user_service import UserService
+
+        # 已注册用户名集合（用于标注 is_registered_user）
+        try:
+            total_users = UserService.count_users()
+            registered = {
+                u["username"]
+                for u in UserService.list_users(limit=max(total_users, 1)).get("items", [])
+            }
+        except Exception as e:
+            logger.warning(f"[WARN] 读取用户列表失败，is_registered_user 将全部标为 False: {e}")
+            registered = set()
+
+        base = Path(WORKSPACE_BASE_DIR)
+        sessions = []
+        if base.exists():
+            for entry in sorted(base.iterdir(), key=lambda p: p.name):
+                if not entry.is_dir():
+                    continue
+                try:
+                    stat = entry.stat()
+                    # 轻量文件计数：递归遍历但设上限，避免超大目录拖慢列表接口
+                    file_count = 0
+                    for _ in entry.rglob("*"):
+                        file_count += 1
+                        if file_count >= 5000:
+                            break
+                    sessions.append({
+                        "session_id": entry.name,
+                        "is_registered_user": entry.name in registered,
+                        "file_count": file_count,
+                        "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    })
+                except Exception as e:
+                    logger.warning(f"[WARN] 读取 workspace 子目录 {entry.name} 信息失败，跳过: {e}")
+                    continue
+
+        return {"sessions": sessions}
+
     @app.get("/proxy")
     async def proxy(url: str):
         """CORS proxy for previewing local server files (SSRF-protected)"""
@@ -959,6 +1118,36 @@ def create_app() -> FastAPI:
             dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
             
             if dev_mode:
+                # 开发模式下 create_app(enable_frontend=False) 只注册了 /api/* 路由，
+                # 不提供 index.html/scripts/shared 等静态资源。Vite 开发服务器（:3001）
+                # 的 vite.config.js 把整个 /llm-manager 前缀都代理到本服务，包括
+                # /llm-manager/scripts/main.js、/llm-manager/shared/* 这些静态资源——
+                # 若本服务不显式提供这两个路径，会 404，导致前端脚本加载失败（渠道列表
+                # 卡在"加载中"、Tab 切换无响应）。这里直接从 frontend 源码目录提供文件
+                # （而非构建产物），路径遍历防护对齐现有 SPA fallback 的处理方式。
+                _llm_frontend_dir = Path(__file__).parent.parent / "llm_manager_integrated" / "frontend"
+
+                def _serve_llm_frontend_asset(subdir: str, rel_path: str):
+                    from fastapi import HTTPException
+                    from fastapi.responses import FileResponse
+                    base_dir = (_llm_frontend_dir / subdir).resolve()
+                    candidate = (base_dir / rel_path.lstrip("/")).resolve()
+                    try:
+                        candidate.relative_to(base_dir)
+                    except ValueError:
+                        raise HTTPException(status_code=404, detail="Not Found")  # 路径逃逸，拒绝
+                    if not candidate.is_file():
+                        raise HTTPException(status_code=404, detail="Not Found")
+                    return FileResponse(str(candidate))
+
+                @app.get("/llm-manager/scripts/{r:path}", include_in_schema=False)
+                async def llm_manager_dev_scripts(r: str):  # pyright: ignore[reportUnusedFunction]
+                    return _serve_llm_frontend_asset("scripts", r)
+
+                @app.get("/llm-manager/shared/{r:path}", include_in_schema=False)
+                async def llm_manager_dev_shared(r: str):  # pyright: ignore[reportUnusedFunction]
+                    return _serve_llm_frontend_asset("shared", r)
+
                 llm_manager_app = llm_manager.create_app(
                     config={"app_title": "LLM API Manager for DeepAnalyze"},
                     as_subapp=True, enable_frontend=False, prefix="/llm-manager")

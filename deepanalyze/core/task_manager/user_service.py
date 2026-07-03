@@ -301,6 +301,53 @@ class UserService:
         return user_dict
 
     @classmethod
+    def get_login_failure_reason(cls, username: str, password: str) -> str:
+        """用户管理模块 批次2 补充加固（2026-07-03）：登录失败具体原因判定。
+
+        背景：`verify_password` 对"密码错误/账户不存在/已禁用/已过期"统一返回
+        `None`，导致过期账户即使输入完全正确的密码，前端也只能提示"用户名或
+        密码错误"——用户实测反馈这个提示在账户过期场景下有误导性，容易被误以为
+        是密码记错了，而不是账户本身已过期需要联系管理员处理。
+
+        本方法仅在 `verify_password` 已返回 `None` 之后被调用（登录失败路径），
+        用于给前端提供更准确的错误提示，供 `SimpleAuth.authenticate()` 构造
+        detail 文案。
+
+        安全边界：**只有当密码校验本身通过时**，才会区分返回"disabled"/
+        "expired"这类账户状态信息；密码错误或用户不存在统一返回
+        "invalid_credentials"——尚未持有正确密码的攻击者无法借此探测到"这个
+        用户名存在""这个账户被禁用/过期"等信息，与既有的防时序攻击设计目标
+        一致，不构成新的信息泄露面。
+        """
+        _require_bcrypt()
+        user_dict = cls.get_by_username(username, include_disabled=True)
+        if user_dict is None:
+            bcrypt.hashpw(b"dummy_password", bcrypt.gensalt())  # 防时序攻击泄露用户名存在性
+            return "invalid_credentials"
+
+        stored_hash = user_dict.get("password_hash", "").encode("utf-8")
+        try:
+            if not bcrypt.checkpw(password.encode("utf-8"), stored_hash):
+                return "invalid_credentials"
+        except Exception:
+            return "invalid_credentials"
+
+        # 密码校验通过，才继续判断具体是"禁用"还是"过期"
+        if not user_dict.get("enabled", True):
+            return "disabled"
+
+        valid_until = user_dict.get("valid_until")
+        if valid_until:
+            try:
+                if date.today() > date.fromisoformat(valid_until):
+                    return "expired"
+            except ValueError:
+                return "invalid_credentials"
+
+        # 理论上不应到达此处（说明 verify_password 本应校验成功），保守兜底
+        return "invalid_credentials"
+
+    @classmethod
     def set_password(cls, username: str, new_password: str, must_change_password: bool = False) -> None:
         """管理员重置密码 / 用户自助改密 共用底层：明文入 → bcrypt 哈希 → 落库"""
         password_hash = _hash_password(new_password)

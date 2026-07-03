@@ -187,7 +187,8 @@
 | **批次1完成内容** | 1. ✅ **workspace 基于用户名隔离**：`session_id`前端改为从`/auth/me`获取的登录用户名，后端27处路由强制从认证身份派生所有权<br>2. ✅ **任务历史按用户隔离**：`/sop/history`列表+13个记录端点强制按用户过滤<br>3. ✅ **数据迁移**：自助认领旧会话接口 + admin批量迁移脚本<br>4. ✅ **账户合并小工具**：`merge_user_data`服务 + `/admin/users/merge` API |
 | **批次2完成内容** | 1. ✅ **TD3技术选型**：确定自建，不引入`fastapi-users`<br>2. ✅ **数据模型**：`users`表 + `UserService` + yaml一次性导入脚本<br>3. ✅ **账号管理API**：`/auth/mode`、`/auth/profile`、`/auth/change-password`、`/admin/users`全套CRUD、reset-password；`SimpleAuth`数据源动态切换（DB优先/yaml兜底，无需重启即可切换）<br>4. ✅ **前端**：`AccountSettingsDialog`（改密+个人信息+强制改密模式）、`UserManagerPage`+`/user-manager`独立页面（列表/新建/编辑/重置密码/合并账户/一次性密码展示/有效期临期高亮）、头像身份菜单（按角色差异化）<br>5. ✅ **文档同步**：`intranet_deployment_guide.md`§3.3、`user_manual.md`§3.1/§3.2 已改为以 Web UI 为主路径描述 |
 | **回归测试** | 后端全量90项单测全通过（Phase1/5_6/9/10），无回归；前端因项目未配置JS测试框架，以人工代码审查+复用既有UI组件模式的方式验证（未执行实际浏览器运行验证，建议部署后人工走一遍关键路径） |
-| **详细设计与实施记录** | 📋 统一详见 [`user_management_module_design.md`](./user_management_module_design.md)§九「批次1 Phase划分」+ §十七「批次2 Phase划分」（含实施清单、已知未覆盖项） |
+| **部署链路加固（2026-07-02补充）** | 上线后复核部署链路发现并修复三个串联问题：①`ENABLE_AUTH=true`零账户时旧代码fail-open（静默降级无鉴权）——新增首个账户零配置自动创建消除该状态；②Docker挂载单个不存在的`users.yaml`文件会被自动建成空目录，绕过①的修复——改为挂载整个`config/`目录；③`deploy_linux.sh`旧版无论是否选择编辑都会留下占位哈希yaml，被①误判为"已配置"从而永久锁死登录——改为交互二选一，不选手动配置就不创建该文件。详见`user_management_module_design.md`§二十 |
+| **详细设计与实施记录** | 📋 统一详见 [`user_management_module_design.md`](./user_management_module_design.md)§九「批次1 Phase划分」+ §十七「批次2 Phase划分」+ §二十「部署链路加固」（含实施清单、已知未覆盖项） |
 | **需求出处（历史文档引用，已归档为本条目）** | `docs/intranet_deployment_guide.md` §5/§6、`docs/online_multiuser_deployment_assessment.md` §五、`docs/project_development_review.md` §7.1 中原"workspace用户名隔离/用户自助改密码/任务历史按用户隔离/数据隔离"相关行，均已同步更新为完成状态并指向本条目 |
 
 ### 19. tests/ 目录测试基础设施历史债务（2026-07-02 排查发现）

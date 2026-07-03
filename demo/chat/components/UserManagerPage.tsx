@@ -43,6 +43,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Loader2, ArrowLeft, Plus, KeyRound, Users, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { authFetch, getApiUrl } from "@/lib/config";
@@ -123,6 +133,12 @@ export default function UserManagerPage() {
 
   // 一次性密码展示
   const [revealPassword, setRevealPassword] = useState<{ username: string; password: string } | null>(null);
+  // 用户管理模块 批次2 补充优化（2026-07-03）：重置密码增加二次确认，避免误触
+  // "钥匙"图标按钮直接重置——原逻辑点击即执行，没有任何确认步骤，而重置密码是
+  // 立即失效旧密码的操作，误触代价不小（用户此前登录状态会被打断，需要重新拿
+  // 一次性新密码登录）。与下方"禁用/启用"按钮不同：禁用可以再点一次启用撤销，
+  // 重置密码撤销不了（旧密码已经不存在了），因此单独为它加确认弹窗。
+  const [resetConfirmRow, setResetConfirmRow] = useState<UserRow | null>(null);
 
   // 合并账户
   const [mergeOpen, setMergeOpen] = useState(false);
@@ -487,7 +503,7 @@ export default function UserManagerPage() {
                           size="sm"
                           className="h-8 min-w-[44px]"
                           title="重置密码"
-                          onClick={() => handleResetPassword(row)}
+                          onClick={() => setResetConfirmRow(row)}
                         >
                           <KeyRound className="h-4 w-4" />
                         </Button>
@@ -686,6 +702,30 @@ export default function UserManagerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 重置密码二次确认弹窗 */}
+      <AlertDialog open={!!resetConfirmRow} onOpenChange={(open) => !open && setResetConfirmRow(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认重置「{resetConfirmRow?.username}」的密码？</AlertDialogTitle>
+            <AlertDialogDescription>
+              重置后该用户当前使用的密码会立即失效，需要用新生成的一次性密码重新登录。此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (resetConfirmRow) handleResetPassword(resetConfirmRow);
+                setResetConfirmRow(null);
+              }}
+            >
+              确认重置
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 一次性密码展示弹窗（新建用户 / 重置密码 共用） */}
       <Dialog open={!!revealPassword} onOpenChange={(open) => !open && setRevealPassword(null)}>

@@ -419,7 +419,11 @@
 
     <!-- 模型配置样式 -->
     <link rel="stylesheet" href="/llm-manager/shared/css/model-config.css">
-    
+
+    <!-- Basic Auth 支持：必须在 main.js 等其他脚本之前加载，
+         负责给后续所有 fetch 请求注入认证凭证（详见文件头注释） -->
+    <script src="/llm-manager/shared/js/auth.js"></script>
+
     <!-- 主脚本 -->
     <script src="/llm-manager/scripts/main.js"></script>
     

@@ -31,6 +31,7 @@ import yaml
 from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response, JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 try:
     import bcrypt
@@ -45,13 +46,22 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 def _find_config_path() -> Path:
-    """查找 users.yaml 配置文件路径"""
+    """查找 users.yaml 配置文件路径
+
+    用 is_file() 而非 exists()：Docker bind mount 一个宿主机不存在的文件路径时，
+    Docker 会在容器内自动创建一个同名空目录（而非文件）来兜底——若用 exists() 判断，
+    这个"意外生成的空目录"会被误判为"配置已存在"，随后 open() 时抛出
+    IsADirectoryError（而非本函数约定的 FileNotFoundError），导致上层
+    SimpleAuth/零账户自动兜底逻辑（见 API/main.py _ensure_bootstrap_admin_if_empty）
+    的异常类型判断失效，静默退化为无鉴权。is_file() 对目录返回 False，
+    使这种情况被正确视为"配置不存在"，保持异常类型契约一致。
+    """
     candidates = [
         Path(__file__).parent.parent / "config" / "users.yaml",
         Path("config") / "users.yaml",
     ]
     for p in candidates:
-        if p.exists():
+        if p.is_file():
             return p
     raise FileNotFoundError(
         "用户配置文件未找到！请创建 config/users.yaml\n"
@@ -99,8 +109,19 @@ AUTH_WHITELIST = [
     "/openapi.json",
     # 前端静态资源（JS/CSS/图片等）
     "/_next",                    # Next.js 静态资源
-    "/llm-manager/static",       # LLM Manager 静态资源
+    "/llm-manager/static",       # LLM Manager 静态资源（生产同源部署）
+    # 用户管理模块 批次2 补充加固（2026-07-02）：LLM Manager 开发模式静态资源
+    # （main.py 里 _serve_llm_frontend_asset 提供的 /llm-manager/scripts/*、
+    # /llm-manager/shared/* 两个路由，对应源码目录而非构建产物）。这些是纯前端
+    # 静态代码/样式文件，本身不含敏感数据，公开可读没有安全问题；且必须白名单
+    # 放行——浏览器 <script src>/<link> 标签加载资源不会带 Authorization 头，
+    # 若被鉴权拦截会直接 404/401，导致 LLM Manager 页面 main.js 加载失败，
+    # 表现为渠道列表卡在"加载中"、各 Tab 点击无响应（与此前修复的开发模式
+    # 404 问题是同一组文件，但这次是被鉴权拦住，而非路由缺失）。
+    "/llm-manager/scripts",
+    "/llm-manager/shared",
 ]
+
 
 # 不需要认证的精确路径（非前缀匹配）
 # "/" 和 "/favicon.ico" 只返回前端 HTML/图标，不含敏感数据
@@ -134,6 +155,21 @@ ADMIN_ONLY_PREFIXES = [
     "/admin/",  # 用户管理模块 批次1 Phase6：账户合并等admin专属接口统一前缀
 ]
 
+# 用户管理模块 批次2 补充加固（2026-07-02）：ADMIN_ONLY_PREFIXES 例外白名单。
+#
+# 背景：`/llm-manager/api/manage/` 这个前缀下混杂了两类接口——真正的渠道管理
+# 操作（创建/编辑/删除渠道，理应 admin-only）和少数"只读、供所有用户使用"的接口
+# （如 `/channels/active-configs`，后端注释明确写着"用于三列式前端选择"——
+# `demo/chat/components/ModelSelector.tsx` 里聊天界面的模型下拉框就是调这个接口
+# 获取可选渠道列表）。粗粒度按前缀整体拦截，导致普通用户点开模型选择器直接收到
+# 403，表现为"无可用配置"，即使管理员已经配置好了渠道。
+#
+# 这里用精确路径做例外豁免（而非放宽整个前缀，避免误放行真正的管理操作），
+# 后续如有新的"只读、面向全体用户"的 manage/ 子路径，在此追加即可。
+ADMIN_PREFIX_EXCEPTIONS = [
+    "/llm-manager/api/manage/channels/active-configs",
+]
+
 # LLM Manager 管理页面（非 API 路由）— 仅 admin
 ADMIN_ONLY_EXACT = [
     "/llm-manager",
@@ -163,6 +199,8 @@ def _is_whitelisted(path: str) -> bool:
 
 def _is_admin_route(path: str) -> bool:
     """检查是否为 admin-only 路由"""
+    if path in ADMIN_PREFIX_EXCEPTIONS:
+        return False
     for prefix in ADMIN_ONLY_PREFIXES:
         if path.startswith(prefix):
             return True
@@ -170,6 +208,8 @@ def _is_admin_route(path: str) -> bool:
         if path == exact:
             return True
     return False
+
+
 
 
 # =============================================================================
@@ -362,6 +402,48 @@ class SimpleAuth:
             "must_change_password": False,       # yaml 模式不支持强制改密流程
         }
 
+    def _get_failure_reason(self, username: str, password: str) -> str:
+        """用户管理模块 批次2 补充加固（2026-07-03）：登录失败具体原因判定（分发）。
+
+        仅在 `self.verify()` 已返回 None（登录失败）之后调用，根据当前数据源
+        （DB优先/yaml兜底）分发到对应实现。返回值："invalid_credentials"（默认，
+        密码错误/账户不存在/格式异常时的保守兜底）、"disabled"、"expired"。
+        安全边界见 `UserService.get_login_failure_reason` docstring：只有密码
+        校验本身通过时才会区分"disabled"/"expired"，避免向未持有正确密码的
+        攻击者泄露账户状态。
+        """
+        if self._is_db_backed_now():
+            from deepanalyze.core.task_manager.user_service import UserService
+            return UserService.get_login_failure_reason(username, password)
+        return self._get_yaml_failure_reason(username, password)
+
+    def _get_yaml_failure_reason(self, username: str, password: str) -> str:
+        """`_get_failure_reason` 的 yaml 模式实现，逻辑对齐 `_verify_yaml`。"""
+        user = self.users.get(username)
+        if not user:
+            bcrypt.hashpw(b"dummy_password", bcrypt.gensalt())
+            return "invalid_credentials"
+
+        stored_hash = user.get("password_hash", "").encode("utf-8")
+        try:
+            if not bcrypt.checkpw(password.encode("utf-8"), stored_hash):
+                return "invalid_credentials"
+        except Exception:
+            return "invalid_credentials"
+
+        # yaml 模式无禁用概念（无软删除），密码校验通过后只需判断是否过期
+        valid_until = user.get("valid_until", "")
+        if valid_until and str(valid_until).strip():
+            try:
+                from datetime import date
+                expiry = date.fromisoformat(str(valid_until).strip())
+                if date.today() > expiry:
+                    return "expired"
+            except ValueError:
+                return "invalid_credentials"
+
+        return "invalid_credentials"
+
     def authenticate(self, request: Request) -> dict:
         """
         从请求中提取并验证 Basic Auth 凭证
@@ -405,6 +487,30 @@ class SimpleAuth:
         # 验证凭证
         user = self.verify(username, password)
         if not user:
+            # 用户管理模块 批次2 补充加固（2026-07-03）：区分"密码错误"与
+            # "密码正确但账户已禁用/已过期"，避免统一提示"用户名或密码错误"
+            # 误导用户以为自己记错了密码（实测反馈：过期账户、禁用账户输入
+            # 完全正确的密码登录时均复现此问题）。
+            #
+            # 安全边界：_get_failure_reason 内部保证只有密码本身校验通过时才
+            # 会返回"disabled"/"expired"，密码错误时始终是"invalid_credentials"，
+            # 不会向尚未持有正确密码的攻击者泄露账户状态。
+            reason = self._get_failure_reason(username, password)
+
+            if reason == "disabled":
+                logger.warning(f"登录被拒（账户已禁用，密码正确）: {username} (IP: {client_ip})")
+                # 密码本身是对的，不属于"猜密码"行为，不计入失败次数/触发锁定
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="账号已被禁用，请联系管理员",
+                )
+            if reason == "expired":
+                logger.warning(f"登录被拒（账户已过期，密码正确）: {username} (IP: {client_ip})")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="账号已过期，请联系管理员",
+                )
+
             self._record_failure(username)
             remaining = self.max_failures - self._failure_tracker[username]["count"]
             logger.warning(
@@ -453,11 +559,27 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
             return self._patch_cors(request, response)
 
         # 3. 认证
+        #
+        # 用户管理模块 批次2 补充加固（2026-07-02）：认证性能瓶颈修复。
+        # 背景：self.auth.authenticate() 内部会走到 bcrypt.checkpw() 做密码校验，
+        # 这是一次CPU密集型的**同步阻塞**运算（bcrypt刻意设计得慢以抵御暴力破解，
+        # 默认cost factor下单次校验通常在几十到一两百毫秒量级）。Basic Auth无状态，
+        # 每次HTTP请求都要重新携带凭证、重新校验一次——此前这里是直接同步调用，
+        # 运行在单个asyncio事件循环线程上，会整段阻塞事件循环。页面刷新时前端会
+        # 几乎同时发出六到十个左右需要认证的请求（/auth/me、/workspace/files、
+        # /workspace/tree、/sop/tasks、/sop/history、渠道列表等），这些请求的bcrypt
+        # 校验被迫在同一条线程上排队串行执行，实测是用户反馈"刷新后多个互不相关的
+        # 区域都要等几秒才出来"的主要瓶颈来源（而不是网络延迟或对应业务逻辑本身慢）。
+        # 用 run_in_threadpool 把这个同步阻塞调用丢到线程池执行：bcrypt底层C扩展
+        # 计算期间会释放GIL，多个请求的校验可以在不同线程上真正并行，不再互相排队
+        # 阻塞事件循环，能大幅缓解这个问题（但无法降为0，bcrypt本身耗时是安全特性，
+        # 不应通过降低cost factor去"优化"）。
         try:
-            user = self.auth.authenticate(request)
+            user = await run_in_threadpool(self.auth.authenticate, request)
         except HTTPException as exc:
             accept = request.headers.get("accept", "")
-            if "text/html" in str(accept):
+            is_html_navigation = "text/html" in str(accept)
+            if is_html_navigation:
                 html = f"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{exc.status_code}</title></head><body><h1>{exc.detail}</h1></body></html>"
                 response = Response(
                     content=html,
@@ -466,10 +588,24 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
                     headers=dict(exc.headers) if exc.headers else {},
                 )
             else:
+                # 用户管理模块 批次2 补充加固：JSON/AJAX 响应主动去掉 WWW-Authenticate 头
+                # （2026-07-02）。
+                # 背景：前端自己实现了一套 401 处理流程（authFetch 捕获 401 → 弹出自定义
+                # LoginDialog 让用户重新输入 → 用新凭证重试请求），本不需要浏览器插手。
+                # 但只要 401 响应带着 WWW-Authenticate: Basic，浏览器网络层会在这套 JS
+                # 逻辑还没来得及处理响应之前，就抢先弹出**原生**账号密码框——不仅体验重复
+                # （自定义弹窗 + 原生弹窗都可能出现），原生弹窗在部分内嵌浏览器/WebView环境
+                # 下还会卡死无法交互（表现为"点击保存后弹出登录框但无法进行任何交互"）。
+                # fetch/XHR 发出的请求默认 Accept 里不含 text/html（上面 is_html_navigation
+                # 分支能区分真实页面导航 vs. AJAX调用），因此这里只对 AJAX 场景去掉该头，
+                # 真实的整页导航（生产同源部署访问首页）仍保留，走浏览器原生认证是预期行为。
+                headers = dict(exc.headers) if exc.headers else {}
+                headers.pop("WWW-Authenticate", None)
+                headers.pop("www-authenticate", None)
                 response = JSONResponse(
                     status_code=exc.status_code,
                     content={"detail": exc.detail},
-                    headers=dict(exc.headers) if exc.headers else {},
+                    headers=headers,
                 )
             return self._patch_cors(request, response)
 
