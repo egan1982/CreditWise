@@ -1,21 +1,24 @@
 """
-Basic Auth 认证中间件 — 内网多用户版
+自定义 CWAuth 认证中间件 — 内网多用户版
 
 功能：
-- HTTP Basic Auth 认证（bcrypt 密码验证）
+- 自定义 `CWAuth` 认证方案（bcrypt 密码验证；用户管理模块 批次3/2026-07-03
+  从标准 `Basic` 改名为自定义方案名，编码方式仍是 base64("user:pass") 不变，
+  仅 Authorization 头前缀不同——目的是让浏览器不再对凭证做原生识别/缓存/
+  自动重发，彻底解决"生产模式下退出登录后浏览器又自动用旧账号登录"的问题，
+  详见 `SimpleAuth.authenticate` docstring）
 - 角色级别访问控制（admin/user）
 - 账户锁定机制（连续失败 N 次后锁定）
 - 登录审计日志
 - 动态 CORS Origin 处理（兼容 credentials）
-- 白名单路由（健康检查、API 文档、SSE 等）
+- 白名单路由（健康检查、API 文档、SSE、"/"及"/llm-manager"页面壳子等）
 
 请求流程：
-    REQUEST → 白名单检查 → Basic Auth 验证 → 角色检查 → PASS/REJECT
+    REQUEST → 白名单检查 → CWAuth 凭证验证 → 角色检查 → PASS/REJECT
 
 Admin-only 路由（role=admin 才能访问）：
     /llm-manager/api/manage/*   — 渠道管理
     /llm-manager/api/logs/*     — API 日志
-    /llm-manager/               — 管理页面
     /llm-manager/api/monitoring/* — 系统监控
 """
 
@@ -485,7 +488,32 @@ class SimpleAuth:
 
     def authenticate(self, request: Request) -> dict:
         """
-        从请求中提取并验证 Basic Auth 凭证
+        从请求中提取并验证凭证（自定义 `CWAuth` 认证方案）
+
+        用户管理模块 批次3（2026-07-03）：认证方案从标准 `Basic` 改为自定义
+        `CWAuth`（编码方式不变，仍是 base64("username:password")，只改了
+        Authorization 头里的方案名）。
+
+        根因：即便页面壳子（`/`、`/llm-manager`）已加入白名单不再触发 401、
+        不再返回 `WWW-Authenticate` 头，只要浏览器**历史上**曾经通过原生 Basic
+        Auth 弹窗成功登录过这个"域名+realm"一次（哪怕是本次修复上线前测试时
+        触发的），浏览器就会把这份凭证缓存，并**自动**附加到该域名下所有后续
+        同源请求上——不仅是整页导航，连 JS 用 `fetch()` 发起的 AJAX 请求，
+        只要该次调用没有显式设置 `Authorization` 头（例如退出登录后
+        localStorage 已清空，`authFetch` 就不会主动加这个头），浏览器也会
+        抢先把缓存的旧 Basic 凭证注入进去——`/auth/me` 探测请求因此仍带着
+        旧账号的凭证，后端一看凭证有效就直接放行，导致"退出登录"完全失效。
+        这是纯浏览器网络层行为，`clearAuth()` 清 localStorage 对它没有任何
+        作用，仅仅去掉页面壳子的 401 挑战头治不好已经被浏览器缓存过的旧凭证。
+
+        修复：浏览器只对它自己"认识"的认证方案（`Basic`/`Digest`/`NTLM`/
+        `Negotiate`）做这种缓存+自动注入，对不认识的自定义方案名（如这里的
+        `CWAuth`）没有任何特殊处理——纯粹是一个不透明的字符串，前端要不要发送
+        这个头、发什么值，完全由 JS（`lib/config.ts` / `shared/js/auth.js`）
+        自己控制，不会被浏览器绕过。即使浏览器仍留有旧的 `Authorization: Basic
+        ...` 缓存并继续尝试自动注入，后端这里也只认 `CWAuth ` 前缀，旧缓存的
+        `Basic` 凭证会被直接判定为"未提供有效认证"，自然失效，不需要用户手动
+        清浏览器缓存或重启浏览器。
 
         Returns:
             认证成功的用户字典
@@ -495,11 +523,10 @@ class SimpleAuth:
         """
         auth_header = request.headers.get("Authorization", "")
 
-        if not auth_header.startswith("Basic "):
+        if not auth_header.startswith("CWAuth "):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Missing authorization",
-                headers={"WWW-Authenticate": "Basic realm=\"CreditWise\""},
             )
 
         try:
@@ -510,7 +537,6 @@ class SimpleAuth:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authorization header",
-                headers={"WWW-Authenticate": "Basic realm=\"CreditWise\""},
             )
 
         client_ip = request.client.host if request.client else "unknown"
@@ -558,7 +584,6 @@ class SimpleAuth:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials",
-                headers={"WWW-Authenticate": "Basic realm=\"CreditWise\""},
             )
 
         self._reset_failures(username)
@@ -618,33 +643,26 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         except HTTPException as exc:
             accept = request.headers.get("accept", "")
             is_html_navigation = "text/html" in str(accept)
+            # 用户管理模块 批次3（2026-07-03）：认证方案改为自定义 `CWAuth` 后
+            # （见 `SimpleAuth.authenticate` docstring 详细根因说明），
+            # `authenticate()` 已不再在任何 401 响应上附带 `WWW-Authenticate`
+            # 头——浏览器不认识 `CWAuth` 方案，即使带上这个头也不会有任何原生
+            # 弹窗/凭证缓存行为，因此这里不再需要区分"页面导航要保留该头、
+            # AJAX要主动去掉该头"，HTML 与 JSON 两个分支只是内容格式不同
+            # （文本页面 vs. 结构化 JSON），保留是为了防御性兼容极少数场景下
+            # 直接整页导航到受保护接口的情况（现有 SPA 架构下所有真实页面入口
+            # `/`、`/llm-manager` 已在白名单，理论上不会再触达这里）。
             if is_html_navigation:
                 html = f"<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{exc.status_code}</title></head><body><h1>{exc.detail}</h1></body></html>"
                 response = Response(
                     content=html,
                     status_code=exc.status_code,
                     media_type="text/html",
-                    headers=dict(exc.headers) if exc.headers else {},
                 )
             else:
-                # 用户管理模块 批次2 补充加固：JSON/AJAX 响应主动去掉 WWW-Authenticate 头
-                # （2026-07-02）。
-                # 背景：前端自己实现了一套 401 处理流程（authFetch 捕获 401 → 弹出自定义
-                # LoginDialog 让用户重新输入 → 用新凭证重试请求），本不需要浏览器插手。
-                # 但只要 401 响应带着 WWW-Authenticate: Basic，浏览器网络层会在这套 JS
-                # 逻辑还没来得及处理响应之前，就抢先弹出**原生**账号密码框——不仅体验重复
-                # （自定义弹窗 + 原生弹窗都可能出现），原生弹窗在部分内嵌浏览器/WebView环境
-                # 下还会卡死无法交互（表现为"点击保存后弹出登录框但无法进行任何交互"）。
-                # fetch/XHR 发出的请求默认 Accept 里不含 text/html（上面 is_html_navigation
-                # 分支能区分真实页面导航 vs. AJAX调用），因此这里只对 AJAX 场景去掉该头，
-                # 真实的整页导航（生产同源部署访问首页）仍保留，走浏览器原生认证是预期行为。
-                headers = dict(exc.headers) if exc.headers else {}
-                headers.pop("WWW-Authenticate", None)
-                headers.pop("www-authenticate", None)
                 response = JSONResponse(
                     status_code=exc.status_code,
                     content={"detail": exc.detail},
-                    headers=headers,
                 )
             return self._patch_cors(request, response)
 

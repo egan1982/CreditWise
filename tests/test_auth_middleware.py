@@ -37,9 +37,17 @@ from API.auth_middleware import SimpleAuth, BasicAuthMiddleware, _is_whitelisted
 # =============================================================================
 
 def _make_basic_header(username: str, password: str) -> dict:
-    """构造 Basic Auth header"""
+    """构造认证 header
+
+    用户管理模块 批次3（2026-07-03）：认证方案从标准 `Basic` 改为自定义
+    `CWAuth`（编码方式不变，仍是 base64("user:pass")），理由见
+    `API/auth_middleware.py::SimpleAuth.authenticate` docstring——避免浏览器
+    对标准 Basic 方案做原生缓存/自动重发，导致"退出登录"被浏览器绕过。
+    函数名沿用 `_make_basic_header` 只是为了不改动本文件里已有的13处调用点，
+    实际构造的是 `CWAuth` 方案的 header。
+    """
     encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
-    return {"Authorization": f"Basic {encoded}"}
+    return {"Authorization": f"CWAuth {encoded}"}
 
 
 def _hash_password(password: str) -> str:
@@ -203,12 +211,14 @@ class TestOptionsPreflightPass:
 class TestMissingAuthorization:
     """测试 #3: 无 Authorization → 401
 
-    用户管理模块 批次2 补充加固（2026-07-02）：401 响应是否携带
-    `WWW-Authenticate` 头，现在取决于请求是 AJAX/fetch 调用还是真实页面导航
-    （见 `BasicAuthMiddleware.dispatch` 里 `is_html_navigation` 分支）——
-    AJAX 调用不再带该头，避免浏览器抢先弹出原生认证框、打断前端自定义的
-    `LoginDialog` 重试流程（原生弹窗在部分内嵌浏览器环境下会卡死无法交互）。
-    真实页面导航（`Accept: text/html`）仍保留该头，走浏览器原生认证是预期行为。
+    用户管理模块 批次3（2026-07-03更新）：认证方案从标准 `Basic` 改为自定义
+    `CWAuth` 后（详见 `SimpleAuth.authenticate` docstring），401 响应**不再
+    携带** `WWW-Authenticate` 头——无论是 AJAX 调用还是真实页面导航都一样，
+    不再需要区分。旧版本（批次2）里"AJAX不带该头、页面导航保留该头触发浏览器
+    原生认证"的设计，本质上是靠这个头触发浏览器原生 Basic Auth 弹窗，但正是
+    这个原生弹窗会导致浏览器缓存凭证并在退出登录后自动重发——现在既然已经不
+    用 `Basic` 方案，也不再需要靠这个头触发任何浏览器行为，所以两种场景统一
+    都不发送该头。
     """
 
     def test_no_auth_header_ajax_no_www_authenticate(self, client):
@@ -217,11 +227,12 @@ class TestMissingAuthorization:
         assert response.status_code == 401
         assert "WWW-Authenticate" not in response.headers
 
-    def test_no_auth_header_html_navigation_has_www_authenticate(self, client):
-        """#3 无认证 header，真实页面导航（Accept: text/html）→ 401，携带 Basic realm 挑战"""
+    def test_no_auth_header_html_navigation_no_www_authenticate(self, client):
+        """#3 无认证 header，真实页面导航（Accept: text/html）→ 401，同样不带
+        WWW-Authenticate（CWAuth方案下无需再靠此头触发浏览器原生认证）"""
         response = client.get("/workspace/files", headers={"Accept": "text/html"})
         assert response.status_code == 401
-        assert "Basic" in response.headers.get("WWW-Authenticate", "")
+        assert "WWW-Authenticate" not in response.headers
 
 
 class TestInvalidBase64:
@@ -229,13 +240,13 @@ class TestInvalidBase64:
 
     def test_bad_base64(self, client):
         """#4 非法 Base64 编码"""
-        response = client.get("/workspace/files", headers={"Authorization": "Basic !!!invalid!!!"})
+        response = client.get("/workspace/files", headers={"Authorization": "CWAuth !!!invalid!!!"})
         assert response.status_code == 401
 
     def test_missing_colon(self, client):
         """#4 Base64 内容缺少冒号分隔符"""
         encoded = base64.b64encode(b"nocolon").decode()
-        response = client.get("/workspace/files", headers={"Authorization": f"Basic {encoded}"})
+        response = client.get("/workspace/files", headers={"Authorization": f"CWAuth {encoded}"})
         assert response.status_code == 401
 
 

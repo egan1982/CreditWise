@@ -142,8 +142,11 @@
         submitBtn.textContent = "登录中…";
       }
       var encoded = btoa(username + ":" + password);
+      // 用户管理模块 批次3（2026-07-03）：方案名从 Basic 改为自定义 CWAuth，
+      // 理由见文件顶部注释——避免浏览器把这次登录探测识别为标准 Basic Auth
+      // 并缓存+后续自动重发，导致"退出登录"被浏览器原生凭证缓存绕过。
       _originalFetch(getBackendOrigin() + "/auth/me", {
-        headers: { Authorization: "Basic " + encoded },
+        headers: { Authorization: "CWAuth " + encoded },
       })
         .then(function (res) {
           if (!res.ok) {
@@ -269,7 +272,7 @@
         return promptLogin().then(function (newAuth) {
           if (!newAuth) return response; // 用户取消，返回原始401响应
           var retryHeaders = new Headers(init.headers || {});
-          retryHeaders.set("Authorization", "Basic " + newAuth);
+          retryHeaders.set("Authorization", "CWAuth " + newAuth);
           return _originalFetch(
             input,
             Object.assign({}, init, { headers: retryHeaders })

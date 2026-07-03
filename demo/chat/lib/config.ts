@@ -197,9 +197,18 @@ async function promptLogin(): Promise<string | null> {
 /**
  * 带认证的 fetch 封装
  *
- * - 自动从 localStorage 读取 Basic Auth 凭证并注入 Authorization header
+ * - 自动从 localStorage 读取凭证并注入 Authorization header
  * - 首次请求或凭证过期（401）时，通过 LoginDialog 弹窗让用户输入账号密码
  * - 用法与原生 fetch 完全一致
+ *
+ * 用户管理模块 批次3（2026-07-03）：Authorization 头方案从标准 `Basic` 改为
+ * 自定义 `CWAuth`（编码方式不变，仍是 base64("user:pass")）。根因：浏览器对
+ * 它自己认识的 `Basic` 方案会做原生缓存+自动重发——只要浏览器历史上曾经
+ * （哪怕是上线前测试时）成功用 Basic 凭证登录过这个域名一次，之后即使
+ * localStorage 已被 `clearAuth()` 清空、这里没有主动设置 Authorization 头，
+ * 浏览器也会**自己**把缓存的旧凭证注入进 fetch 请求，导致"退出登录"形同虚设、
+ * 刷新页面后又自动用旧账号登录。改成浏览器不认识的自定义方案名后，浏览器不再
+ * 对这个头做任何缓存/自动注入，是否发送、发送什么值完全由这里的 JS 决定。
  *
  * @example
  *   const res = await authFetch(getApiUrl('/sop/tasks'));
@@ -211,7 +220,7 @@ export const authFetch = async (url: string | URL | Request, init?: RequestInit)
   // 注入 Authorization header（如有缓存凭证）
   const headers = new Headers(init?.headers);
   if (auth) {
-    headers.set('Authorization', `Basic ${auth}`);
+    headers.set('Authorization', `CWAuth ${auth}`);
   }
 
   const response = await fetch(url, { ...init, headers });
@@ -223,7 +232,7 @@ export const authFetch = async (url: string | URL | Request, init?: RequestInit)
     if (!newAuth) return response;
 
     const retryHeaders = new Headers(init?.headers);
-    retryHeaders.set('Authorization', `Basic ${newAuth}`);
+    retryHeaders.set('Authorization', `CWAuth ${newAuth}`);
     return fetch(url, { ...init, headers: retryHeaders });
   }
 
@@ -281,7 +290,7 @@ if (typeof window !== 'undefined') {
     if (!hadAuthHeader) {
       const auth = getStoredAuth();
       if (auth) {
-        existingHeaders.set('Authorization', `Basic ${auth}`);
+        existingHeaders.set('Authorization', `CWAuth ${auth}`);
       }
     }
 
@@ -298,7 +307,7 @@ if (typeof window !== 'undefined') {
     if (!newAuth) return response; // 用户取消登录，原样返回 401
 
     const retryHeaders = new Headers(init?.headers);
-    retryHeaders.set('Authorization', `Basic ${newAuth}`);
+    retryHeaders.set('Authorization', `CWAuth ${newAuth}`);
     return _originalFetch(input, { ...init, headers: retryHeaders });
   };
 }

@@ -81,8 +81,12 @@ export default function LoginDialog() {
     //   （如"账号已过期，请联系管理员"），这里直接展示后端返回的detail。
     try {
       const encoded = btoa(`${trimmedUsername}:${password}`);
+      // 用户管理模块 批次3（2026-07-03）：方案名从 `Basic` 改为自定义
+      // `CWAuth`，理由见 lib/config.ts::authFetch 顶部注释——避免浏览器把
+      // 这次登录探测识别为标准 Basic Auth 并缓存+后续自动重发，导致"退出
+      // 登录"被浏览器原生凭证缓存绕过。
       const res = await fetch(getApiUrl("/auth/me"), {
-        headers: { Authorization: `Basic ${encoded}` },
+        headers: { Authorization: `CWAuth ${encoded}` },
       });
 
       if (!res.ok) {
