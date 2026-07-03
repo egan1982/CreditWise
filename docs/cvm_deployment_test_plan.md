@@ -6,15 +6,28 @@
 
 ## 一、当前环境
 
+> 2026-07-03 更新（第四轮测试后）：分支已合并至 `main`，认证方案已从标准 `Basic` 升级为自定义 `CWAuth`（详见第四轮测试记录），CVM当前以 **Docker在线多用户模式**（`docker compose up -d`，`restart: unless-stopped`）长期常驻运行，作为最终生产状态。
+
+| 维度 | 状态（2026-07-03） |
+|------|------|
+| Git 分支 | `main`（第四轮测试期间已合并，不再有 `feature/intranet-multiuser` 独立分支） |
+| Docker 容器 | `creditwise-api`（Docker在线多用户模式常驻，`restart: unless-stopped`，镜像 `creditwise:latest` ~1.48GB） |
+| 端口 | 8200（API+前端） + 8100（文件下载服务） |
+| 认证 | 已启用，认证方案为自定义 `CWAuth`（非标准 `Basic`，浏览器不会弹原生登录框，见第四轮测试记录） |
+| 用户 | admin, fjzheng（管理员）；sylarswwang, gurayzhang, laughingtan, webberwu（普通用户） |
+| 数据 | `llm_manager.db` + `task_manager.db` + `workspace/` + `execution_states/` |
+| 其他 | 同主机运行 AI_Trader 项目，端口不冲突 |
+
+<details>
+<summary>历史环境状态（第一~三轮测试时，2026-06-12~16，已过时，仅存档）</summary>
+
 | 维度 | 状态 |
 |------|------|
 | Git 分支 | `feature/intranet-multiuser` (commit `5f38226`，落后 main 7 commits) |
 | Docker 容器 | `creditwise-api`（运行 10 天，镜像 `creditwise:latest` 1.5GB） |
-| 端口 | 8200（API+前端） + 8100（文件下载服务） |
-| 认证 | 已启用 Basic Auth |
-| 用户 | admin, fjzheng（管理员）；sylarswwang, gurayzhang, laughingtan, webberwu（普通用户） |
-| 数据 | `llm_manager.db` + `task_manager.db` + `workspace/` + `execution_states/` |
-| 其他 | 同主机运行 AI_Trader 项目，端口不冲突 |
+| 认证 | 已启用 Basic Auth（标准方案，第四轮测试期间升级为 CWAuth） |
+
+</details>
 
 ---
 
@@ -191,6 +204,8 @@ sudo bash scripts/deploy_linux.sh  # 选 [2] 内网多用户
 
 ### 验证通过标准
 
+> 以下为第一~三轮测试（2026-06-12~16）的历史清单；第四轮（2026-07-03）四种部署方式全部通过的清单见下方。
+
 - [x] 测试 1：Docker 单用户模式 — 无认证可访问，端口自检通过
 - [x] 测试 2：Docker 多用户 + service.sh — 401 保护，从 .env 读配置，6 用户正常
 - [x] 测试 3：离线 Docker 部署 — 端口/磁盘自检通过，服务健康（Docker Py3.12 wheels）
@@ -198,6 +213,16 @@ sudo bash scripts/deploy_linux.sh  # 选 [2] 内网多用户
 - [x] 全部模式：8200+8100 双端口正常监听
 - [x] 全部模式：`curl /health` 返回 `{"status":"healthy"}`
 - [x] LLM Manager UI：样式正常，Tab 横向，数据自动加载，模型配置面板可用（第二轮 6/16）
+
+### 第四轮（2026-07-03）验证通过标准
+
+- [x] 测试1：Docker单用户模式 — 无认证访问，浏览器验证通过
+- [x] 测试2：非Docker手动部署（多用户） — CSS/DEV_MODE/PEP695 三个bug修复后全部通过，浏览器验证通过
+- [x] 测试3：Docker离线部署 — 完整走通"构建→打包→解压→加载→部署"全流程，`.next`误打包修复后重新完整验证一遍
+- [x] 测试4：Docker在线多用户部署（CVM最终常驻状态） — 真实6账户迁移，浏览器人工验证登录/退出登录切账号/`/llm-manager`页面全部通过
+- [x] 生产模式退出登录无法切换账号（架构级问题）— 已通过CWAuth认证方案改造根治
+- [x] 账户锁定并发竞态+误锁定 — 已修复并验证（并发同凭证不误锁，不同凭证暴力破解防护不受影响）
+- [x] LLM Manager 403无权限提示 — 已修复，非admin用户看到明确提示而非卡在加载中
 
 ---
 
@@ -326,3 +351,76 @@ git pull origin main
 | `authFetch` 无条件弹窗 | 无凭证即弹登录 | `cf606f8`: 仅 401 触发 |
 | LLM Manager 未构建 | 部署脚本漏写 | `918d8f2`: 补充 Vite 构建 |
 | LF 换行 PS 5.1 不兼容 | `write_to_file` 写 LF | 文档：要求 `pwsh 7+` |
+
+---
+
+### 第四轮测试（2026-07-03 | 代码版本从 `12b3cb7` 起至本轮结束）
+
+> 测试目标：CVM 重新部署测试，**四种部署方式全部覆盖**——Docker单用户模式、非Docker手动多用户部署、Docker离线部署、Docker在线多用户部署（作为CVM最终常驻状态，迁移6个存量真实账户）。测试前先清理CVM残留的testuser测试账户、备份关键配置、拉取main最新代码。
+
+#### 测试总览
+
+| 测试 | 结果 | 说明 |
+|------|:--:|------|
+| 测试1：Docker单用户模式 | ✅ | `ENABLE_AUTH=false`，无认证直接访问，浏览器验证通过 |
+| 测试2：非Docker手动部署（多用户） | ✅ | 期间发现并修复 `executor.py` PEP695语法兼容性 + `deploy_manual.sh` 缺 `DEV_MODE=false` + Tailwind `--content` 覆盖config导致CSS残缺（4KB→29KB） |
+| 测试3：Docker离线部署 | ✅ | `prepare_offline.sh`（构建镜像+打包源码）→ 隔离目录解压 → `deploy_offline.sh`（仅`docker load`+`compose up`，不触发build）→ 功能验证；期间发现并修复离线包误打包 `.next` 缓存（~240MB），修复后重新完整跑通一遍全流程验证 |
+| 测试4：Docker在线多用户部署（CVM最终常驻状态） | ✅ | `/data/CreditWise` 真实生产目录直接 `docker compose up -d`，挂载真实 `.env`/`config/users.yaml`（6个真实账户）/数据库，`restart: unless-stopped`；浏览器人工验证登录、退出登录切账号、`/llm-manager`页面全部通过 |
+
+#### 测试期间发现并修复的问题（共7个，均已提交推送）
+
+| # | 问题 | 根因 | 修复 | Commit |
+|:-:|------|------|------|--------|
+| 1 | `executor.py` PEP695类型语法在CVM Python版本下语法错误 | 目标机Python版本低于PEP695（3.12）要求 | 改用兼容写法 | （测试2早期） |
+| 2 | `deploy_manual.sh` 缺少 `DEV_MODE=false` | 脚本未显式设置，容器默认走开发模式逻辑 | 补充环境变量设置 | （测试2） |
+| 3 | `deploy_manual.sh` 编译产物CSS只有4KB（应~29KB），LLM Manager页面无样式 | Tailwind CLI `--content` 参数**完全覆盖**（非合并）`tailwind.config.js`里更完整的content配置，此前`docker/Dockerfile`同类问题已于`0282342`修复，但`deploy_manual.sh`独立维护一份构建逻辑未同步 | 去掉硬编码的 `--content` 参数，改为读取 `tailwind.config.js` | 本轮部署脚本修复 |
+| 4 | **生产模式下退出登录无法切换账号**（架构级问题，详见下方专项说明） | 浏览器对标准 `Basic` 认证方案的原生缓存/自动重发是协议层行为 | 认证方案从 `Basic` 改为自定义 `CWAuth` | `870cf91`（+前置的白名单调整 `04b21ad`） |
+| 5 | LLM Manager前端非admin用户遇403无明确提示（卡在"加载中"） | `/llm-manager`页面壳子公开后，非admin调用管理API会403，但前端统一走 `alert()`，未做403专门识别 | 四个数据加载函数新增403识别，展示"🔒无权限访问"提示 | `12b3cb7` |
+| 6 | `prepare_offline.sh` 误打包 `demo/chat/.next`（Next.js本地构建缓存，~240MB） | rsync排除列表遗漏`.next`；离线部署走Dockerfile多阶段构建，完全不依赖这份本地缓存 | 新增 `--exclude='.next'` | `911edc7` |
+| 7 | 账户锁定计数器并发竞态，导致浏览器缓存的失效凭证被误判成多次"主动输错密码"提前触发锁定 | `_failure_tracker`无锁保护，多线程读写竞态；全局fetch拦截器把同一份缓存凭证并发附加到多个后台请求，各自独立计入失败 | ①加`threading.Lock`保证原子性；②同一凭证2秒窗口内去重，不同密码仍正常计数 | `5199715` |
+
+#### 专项说明：生产模式"退出登录无法切换账号"问题的完整排查过程
+
+这是本轮测试中**排查耗时最长、涉及改动最深**的问题，分两步才彻底解决：
+
+1. **现象**：CVM等同源生产部署下，用户点"退出登录"（清localStorage+刷新页面）后，浏览器仍自动用原账号登录，无法切换到另一账号；浏览器无痕窗口经实测也不可靠。
+
+2. **第一步修复（不充分）**：把 `/`、`/llm-manager`、`/llm-manager/` 三个页面壳子纳入认证白名单，公开可加载，鉴权改为页面加载后的AJAX探测（`/auth/me`）+自定义登录框。**CVM实测用户浏览器仍复现问题**。
+
+3. **排查发现真正根因**：浏览器对标准 `Basic` 认证方案有**协议层面**的原生缓存/自动重发机制——只要浏览器历史上（哪怕是本次修复上线前）曾用 `Basic` 凭证认证成功过一次，之后会对该域名下**所有**请求（包括JS未显式设置`Authorization`头的AJAX调用）自动注入缓存凭证，仅去掉页面壳子的401挑战头无法清除已经被浏览器缓存的旧凭证。
+
+4. **第二步修复（真正根治）**：认证方案从标准 `Basic` 改为自定义方案名 `CWAuth`（编码方式不变，仍是`base64("user:pass")`，只改`Authorization`头的方案前缀词）。浏览器只对它"认识"的方案（`Basic`/`Digest`/`NTLM`/`Negotiate`）做缓存+自动注入，自定义方案名对浏览器只是不透明字符串——即使浏览器仍留有旧`Basic`缓存并继续自动重发，后端也只认`CWAuth`前缀，旧凭证被直接判定无效。涉及改动：`API/auth_middleware.py`、`demo/chat/lib/config.ts`、`demo/chat/components/LoginDialog.tsx`、`llm_manager_integrated/frontend/shared/js/auth.js`。
+
+5. **修复过程中的衍生小坑**：`llm_manager_integrated/frontend/shared/js/auth.js`全局fetch拦截器里有一处 `"Basic " + auth` 首次改造时漏改（另外两处改了），导致"主界面登录后点开LLM渠道管理仍反复要求登录"，后续单独修复补齐。另有静态资源（`auth.js`/`main.js`）缺少 `Cache-Control` 头，导致浏览器复用了改造前的旧版本文件，顺手加了 `Cache-Control: no-cache`。
+
+6. **验证结论**：此修复**不会**重新引入"首屏JS未加载完前怎么鉴权"的历史顾虑——原设计前提"首页导航需要认证保护"被移除（页面壳子本身不含敏感数据，公开加载无风险），真正的身份判断动作发生在JS加载完成后主动发起的`/auth/me`探测，此时自定义登录框已可用。
+
+#### 测试3（离线部署）完整流程验证记录
+
+由于离线部署的"真实场景"是外网机器构建、内网机器部署两台不同机器，本次测试用**同一台CVM分别扮演两个角色**验证（该机器本身有外网访问能力，`prepare_offline.sh`第1步`docker compose build`本身需要外网这一事实也确认了这一点）：
+
+```
+1. [外网角色] cd /data/CreditWise && bash scripts/prepare_offline.sh
+   → 构建完整Docker镜像 → docker save导出tar → rsync打包source/ → tar.gz压缩
+   → 产出 creditwise_offline_bundle.tar.gz（~650-700MB）
+
+2. [传输模拟] 解压到全新隔离目录（非/data/CreditWise生产目录，避免碰生产数据）
+   mkdir /data/offline_deploy_testN && tar -xzf .../creditwise_offline_bundle.tar.gz
+
+3. [内网角色] cd offline_bundle/source && bash scripts/deploy_offline.sh
+   → docker load加载镜像（验证：全程无docker compose build被触发）
+   → 交互选择部署模式（2=多用户）
+   → 生成.env（自动生成加密密钥）+ docker compose up -d
+   → 健康检查通过
+
+4. 复制真实config/users.yaml（只读复制，不改动生产文件）到隔离目录，重启容器验证真实账户登录
+
+5. curl全面验证：/health、/（白名单200）、/llm-manager/（200）、main.css大小、
+   /workspace/files（401）、旧Basic方案（401，确认CWAuth生效）
+
+6. 测试完成后 docker compose down + 清理隔离目录，不影响生产
+```
+
+`.next`误打包问题修复后，**完整重跑了一遍上述全部6步**，确认：`demo`目录从248M降至5.6M、离线包体积减少约57MB（压缩后）、所有功能验证项依然全部通过。
+
+---
