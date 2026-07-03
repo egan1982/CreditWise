@@ -23,7 +23,9 @@ Admin-only 路由（role=admin 才能访问）：
 """
 
 import base64
+import hashlib
 import json
+import threading
 import time
 import logging
 from collections import defaultdict
@@ -293,11 +295,20 @@ class SimpleAuth:
         self.max_failures = settings.get("max_login_failures", 5)
         self.lockout_duration = settings.get("lockout_duration_minutes", 15) * 60
 
-        # 登录失败追踪: {username: {"count": int, "last_failure": float}}
+        # 登录失败追踪: {username: {"count": int, "last_failure": float, "last_credential": str}}
+        # "last_credential" 是失败密码的 sha256 哈希（仅用于短时间窗口内去重比较，
+        # 不存储明文/可逆信息），详见 _record_failure 的去重逻辑说明。
         self._failure_tracker: dict = defaultdict(
-            lambda: {"count": 0, "last_failure": 0.0}
+            lambda: {"count": 0, "last_failure": 0.0, "last_credential": ""}
         )
-        
+
+        # CVM部署测试发现（2026-07-03）：authenticate() 经 run_in_threadpool 跑在
+        # 多个线程里，_failure_tracker 是普通 dict，"读取-加一-写回" 不是原子操作，
+        # 多个并发请求同时失败时会出现竞态（如日志里"剩余次数"从4跳到2又重复出现
+        # 一次2，说明两次独立的失败事件的自增互相覆盖了）。加锁保证
+        # _record_failure/_is_locked/_reset_failures 三者的读写序列化。
+        self._failure_lock = threading.Lock()
+
         # 从磁盘恢复登录失败状态（重启后锁定依然有效）
         self._load_failures()
 
@@ -339,6 +350,7 @@ class SimpleAuth:
                 self._failure_tracker[username] = {
                     "count": int(tracker.get("count", 0)),
                     "last_failure": float(tracker.get("last_failure", 0.0)),
+                    "last_credential": str(tracker.get("last_credential", "")),
                 }
             if data:
                 logger.info(f"已从磁盘恢复登录失败状态 ({len(data)} 条记录)")
@@ -346,7 +358,7 @@ class SimpleAuth:
             logger.warning(f"读取登录状态文件失败，将丢弃旧状态: {e}")
 
     def _save_failures(self) -> None:
-        """将登录失败状态写入磁盘"""
+        """将登录失败状态写入磁盘（调用方需已持有 self._failure_lock）"""
         state_path = _get_state_path()
         try:
             with open(state_path, "w", encoding="utf-8") as f:
@@ -356,28 +368,60 @@ class SimpleAuth:
 
     def _is_locked(self, username: str) -> bool:
         """检查账户是否被锁定"""
-        tracker = self._failure_tracker.get(username)
-        if not tracker:
+        with self._failure_lock:
+            tracker = self._failure_tracker.get(username)
+            if not tracker:
+                return False
+            if tracker["count"] >= self.max_failures:
+                elapsed = time.time() - tracker["last_failure"]
+                if elapsed < self.lockout_duration:
+                    return True
+                # 锁定时间已过，重置
+                self._failure_tracker[username] = {
+                    "count": 0, "last_failure": 0.0, "last_credential": ""
+                }
+                self._save_failures()
             return False
-        if tracker["count"] >= self.max_failures:
-            elapsed = time.time() - tracker["last_failure"]
-            if elapsed < self.lockout_duration:
-                return True
-            # 锁定时间已过，重置
-            self._failure_tracker[username] = {"count": 0, "last_failure": 0.0}
-            self._save_failures()
-        return False
 
-    def _record_failure(self, username: str) -> None:
-        """记录登录失败"""
-        self._failure_tracker[username]["count"] += 1
-        self._failure_tracker[username]["last_failure"] = time.time()
-        self._save_failures()
+    def _record_failure(self, username: str, password: str) -> int:
+        """记录登录失败，返回记录后的当前失败次数（供调用方计算剩余次数）。
+
+        CVM部署测试发现（2026-07-03）：`authenticate()` 会在**每一次**带
+        Authorization 头的请求上被调用，不区分"用户刚在登录框里主动输入的新
+        密码"还是"前端全局 fetch 拦截器/authFetch 自动从 localStorage 读出
+        一份已经失效的缓存凭证、原样重发"。当浏览器缓存了一份过期/错误的凭证
+        （例如用户很久以前在这个域名下登录过某账户，之后密码变更或换了套后端
+        配置），页面刷新时会同时发起多个后台数据请求（workspace/tree、
+        workspace/files 等），全局拦截器给每一个并发请求都注入了**同一份**
+        缓存凭证，这些请求各自独立打到服务端、各自独立失败，若不做去重，会在
+        几毫秒内被计成 N 次不同的"登录失败"——实测复现：5次失败全部发生在同一
+        请求批次的9毫秒内，账户在用户毫无察觉、未做任何主动操作的情况下被锁定。
+
+        修复：对"同一个用户名+同一份密码"的失败，在极短时间窗口（2秒，足够覆盖
+        一批并发请求，又远小于人类连续两次手动输错密码的正常间隔）内去重，只计
+        一次。不同的密码（即使时间上紧邻，如真实的brute-force尝试）仍会分别计数，
+        不影响原有的爆破防护效果。密码本身不落盘，只持久化其 sha256 哈希用于
+        比较。
+        """
+        cred_hash = hashlib.sha256(password.encode("utf-8", errors="ignore")).hexdigest()
+        with self._failure_lock:
+            tracker = self._failure_tracker[username]
+            now = time.time()
+            if tracker.get("last_credential") == cred_hash and (now - tracker["last_failure"]) < 2.0:
+                return tracker["count"]
+            tracker["count"] += 1
+            tracker["last_failure"] = now
+            tracker["last_credential"] = cred_hash
+            self._save_failures()
+            return tracker["count"]
 
     def _reset_failures(self, username: str) -> None:
         """登录成功后重置"""
-        self._failure_tracker[username] = {"count": 0, "last_failure": 0.0}
-        self._save_failures()
+        with self._failure_lock:
+            self._failure_tracker[username] = {
+                "count": 0, "last_failure": 0.0, "last_credential": ""
+            }
+            self._save_failures()
 
     def verify(self, username: str, password: str) -> Optional[dict]:
         """
@@ -576,8 +620,8 @@ class SimpleAuth:
                     detail="账号已过期，请联系管理员",
                 )
 
-            self._record_failure(username)
-            remaining = self.max_failures - self._failure_tracker[username]["count"]
+            current_count = self._record_failure(username, password)
+            remaining = self.max_failures - current_count
             logger.warning(
                 f"登录失败: {username} (IP: {client_ip}, 剩余 {max(0, remaining)} 次)"
             )

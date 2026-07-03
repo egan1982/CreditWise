@@ -254,17 +254,46 @@ class TestAccountLockout:
     """测试 #5: 账户锁定 → 429"""
 
     def test_lockout_after_failures(self, client):
-        """#5 连续失败后账户锁定"""
-        wrong_headers = _make_basic_header("admin", "wrongpassword")
+        """#5 连续失败后账户锁定
 
-        # 触发 max_login_failures (3次) 失败
-        for _ in range(3):
+        CVM部署测试发现（2026-07-03）：_record_failure 新增了"同一份凭证短时间
+        窗口内重复失败去重"逻辑（详见 auth_middleware.py 该方法 docstring），
+        目的是避免前端全局拦截器用同一份已失效的缓存凭证并发发起多个后台请求时，
+        被误判成多次"用户主动输错密码"从而错误触发锁定。因此这里改用**不同**的
+        错误密码模拟真实的暴力破解场景（攻击者每次尝试不同猜测）——这类场景
+        应该、也确实仍会被正常计数并触发锁定，不受本次去重修复影响。
+        """
+        # 触发 max_login_failures (3次) 失败，每次用不同的错误密码
+        # （模拟真实暴力破解：不同猜测都应计数；若用同一个错误密码重复提交，
+        # 2秒内会被去重逻辑判定为同一次尝试的并发副本，不重复计数，这是预期
+        # 行为而非bug——见 TestFailureDedup 类的专项测试）
+        for i in range(3):
+            wrong_headers = _make_basic_header("admin", f"wrongpassword{i}")
             resp = client.get("/workspace/files", headers=wrong_headers)
             assert resp.status_code == 401
 
-        # 第 4 次应该返回 429
-        resp = client.get("/workspace/files", headers=wrong_headers)
+        # 第 4 次（换一个新的错误密码）应该返回 429
+        resp = client.get("/workspace/files", headers=_make_basic_header("admin", "wrongpassword3"))
         assert resp.status_code == 429
+
+    def test_same_wrong_credential_deduped_within_window(self, client):
+        """#5补充：同一份错误凭证在短时间窗口内重复失败只计一次，不会被
+        并发的自动重试请求误判成多次"用户主动输错密码"进而提前触发锁定。
+
+        对应CVM部署测试实测复现的真实场景：浏览器缓存一份已失效的旧凭证，
+        页面刷新时多个后台请求（workspace/tree、workspace/files等）几乎
+        同时（9毫秒内）各自独立发起、各自独立失败，本应算作"同一份错误凭证
+        的一次失效"，而非5次不同的登录尝试。
+        """
+        wrong_headers = _make_basic_header("admin", "samewrongpassword")
+
+        # 连续5次用**完全相同**的错误凭证请求（模拟并发请求风暴），
+        # 由于去重窗口内是同一份凭证，应该只计1次失败，不会触发锁定（阈值3）
+        for _ in range(5):
+            resp = client.get("/workspace/files", headers=wrong_headers)
+            assert resp.status_code == 401  # 始终是401（未锁定），不是429
+
+
 
 
 class TestBcryptFailure:

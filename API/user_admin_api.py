@@ -187,7 +187,11 @@ async def change_own_password(request: Request, body: ChangePasswordRequest) -> 
     verify_result = UserService.verify_password(username, body.old_password)
     if verify_result is None:
         if auth is not None:
-            auth._record_failure(username)
+            # CVM部署测试发现（2026-07-03）：_record_failure 签名新增 password
+            # 参数（用于短时间窗口内同一份错误凭证的并发去重，详见
+            # auth_middleware.py::_record_failure docstring），这里传入本次
+            # 校验失败的旧密码
+            auth._record_failure(username, body.old_password)
         raise HTTPException(status_code=400, detail="旧密码不正确")
 
     if auth is not None:

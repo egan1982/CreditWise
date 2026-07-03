@@ -48,7 +48,12 @@ class _FakeAuthForLockout:
     def _is_locked(self, username: str) -> bool:
         return self._counts.get(username, 0) >= self.max_failures
 
-    def _record_failure(self, username: str) -> None:
+    def _record_failure(self, username: str, password: str = "") -> None:
+        # CVM部署测试发现（2026-07-03）：真实 SimpleAuth._record_failure 新增了
+        # password 参数用于短时间窗口内同一份凭证的并发去重（详见
+        # auth_middleware.py 该方法 docstring）。这个 Fake 仅用于验证
+        # /auth/change-password 端点是否正确调用了锁定机制的整数计数接口，
+        # 不测试去重细节，因此忽略 password，行为保持不变（每次调用都计数）。
         self._counts[username] = self._counts.get(username, 0) + 1
 
     def _reset_failures(self, username: str) -> None:
