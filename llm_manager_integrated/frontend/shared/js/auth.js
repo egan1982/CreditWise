@@ -261,7 +261,12 @@
     var headers = new Headers(init.headers || {});
     if (isSameOrigin && !headers.has("Authorization")) {
       var auth = getStoredAuth();
-      if (auth) headers.set("Authorization", "Basic " + auth);
+      // 用户管理模块 批次3（2026-07-03）：方案名从 Basic 改为自定义 CWAuth，
+      // 理由见文件顶部注释。此处此前漏改（与另外两处 saveAuth/retry 不一致），
+      // 是导致"主界面登录后点开LLM渠道管理仍反复要求登录"的直接原因——
+      // localStorage 里的凭证被正确读出，却被塞进了后端已不再接受的 Basic
+      // 方案头，永远收到401。
+      if (auth) headers.set("Authorization", "CWAuth " + auth);
     }
 
     return _originalFetch(input, Object.assign({}, init, { headers: headers })).then(
