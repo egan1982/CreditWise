@@ -12,7 +12,7 @@
 |------|------|
 | ✅ 已实现/已验证/已完成 | 24个 |
 | ⚠️ 部分实现 | 4个 |
-| 📋 待实施/待开发 | 14个（原新增的"用户管理与数据隔离相关"1项已于2026-07-02完成开发，详见第18项；新增1项：全量测试基础设施历史债务排查发现，详见第19项） |
+| 📋 待实施/待开发 | 15个（原新增的"用户管理与数据隔离相关"1项已于2026-07-02完成开发，详见第18项；新增1项：全量测试基础设施历史债务排查发现，详见第19项；新增1项：CVM部署测试发现的已知限制/技术债，详见第20项） |
 
 ---
 
@@ -205,6 +205,16 @@
 | **范围判断** | 以上除已修复项外，均为**测试代码本身的维护债务**（非生产代码 bug），且与用户管理模块（批次1/2）改动无关；因分布散（6+文件）、成因各异，修复工作量不亚于独立一个小 Phase，故不纳入批次1/2 范围，登记后按需排期 |
 | **优先级** | P3（不阻塞功能开发，但长期积累会持续削弱 `pytest tests/` 全量回归的可信度） |
 
+### 20. CVM部署测试发现的已知限制/技术债（2026-07-03排查发现；限制①已于当日修复）
+
+> 背景：本轮 CVM（TencentOS/RPM系）重新部署测试（Docker单用户/非Docker手动部署）期间，除已当场修复的代码/脚本 bug（`executor.py` PEP695语法兼容性、`deploy_manual.sh` 缺少 `DEV_MODE=false`、`deploy_manual.sh` Tailwind `--content`覆盖config导致CSS不完整）外，还发现2个不阻塞本次部署的已知限制，登记如下；限制①经用户确认后已于当日完成架构级修复。
+
+| 项目 | 内容 |
+|------|------|
+| **限制①（✅ 2026-07-03已修复）：生产模式下 Basic Auth 退出登录无法真正切换账号** | **现象**：同源生产部署（`DEV_MODE=false`+`ENABLE_AUTH=true`）下，用户点"退出登录"后浏览器自动用**原生缓存**的 Basic Auth 凭证重新登录，无法切换账号；浏览器无痕窗口经实测也不可靠。**根因**：整页导航访问 `/`（及 `/llm-manager`）时若未认证，中间件保留 `WWW-Authenticate` 头触发浏览器原生弹窗，一旦登录成功浏览器会长期缓存该凭证，JS的 `clearAuth()` 清不掉这份浏览器原生缓存。**影响范围**：写在共享后端代码 `API/auth_middleware.py` 里，Docker多用户模式与非Docker手动多用户模式同等程度受影响（Docker单用户模式因 `ENABLE_AUTH=false` 不涉及）。<br>**✅ 修复方案（已实施并推送，commit `04b21ad`）**：把 `/`、`/llm-manager`、`/llm-manager/` 三个页面壳子路径纳入 `AUTH_WHITELIST_EXACT`，公开可加载（`demo/chat`是`output:'export'`纯静态导出+llm_manager_integrated的Vite构建产物，HTML/JS本身不含用户数据，公开无安全风险），鉴权完全交给页面加载后的 AJAX 探测（`/auth/me`）+ 自定义 `LoginDialog`/`shared/js/auth.js` 登录框处理——即让生产模式复用开发模式本就验证有效、从未出现此问题的鉴权路径；相应把 `/llm-manager` 页面级的 admin 角色前置检查从 `ADMIN_ONLY_EXACT` 移除（改为空列表占位），真正的权限边界完全下放到 `/llm-manager/api/manage/*` 等具体管理 API（`ADMIN_ONLY_PREFIXES`，仍强制403），与 `/user-manager` 等其它前端 admin 专属路由的权限模式保持一致。**验证结论：不会重新引入"首屏JS未加载完前怎么鉴权"的历史顾虑**——原前提"首页导航需要认证保护"被移除，首页壳子本身不含敏感数据，无需在JS加载前做任何身份判断。<br>**验证结果**：`tests/test_auth_middleware.py`等77项回归测试全通过（同步更新了2处断言：`/llm-manager/`不再是admin-only路由、改为验证已加入白名单）；CVM实测确认 `curl` 无认证访问 `/`（含`Accept: text/html`模拟真实浏览器导航）返回200且不带`WWW-Authenticate`头，`/llm-manager/`同样200，`/workspace/files`等真实数据API仍返回401，安全边界未受影响。 |
+| **限制②（低优先级）：`deploy_manual.sh` 系统依赖检测硬编码 `dpkg`，RPM系发行版下完全失效** | **现象**：`deploy_manual.sh` 的系统依赖检测逻辑硬编码调用 `dpkg -s` 判断系统库是否已安装，但在 RPM 系发行版（如本次CVM实测的 TencentOS，用 yum/rpm 而非 dpkg）上该命令根本不存在，导致检测环节**静默失效**——不报错、不提示"检测不到"，直接跳过，可能使真实缺失的系统库延迟到后续编译/运行阶段才暴露，报错信息也不够精确。<br>**发现于**：2026-07-03 CVM非Docker手动部署测试（测试2）。<br>**影响范围**：仅限非Docker手动部署路径（`deploy_manual.sh`）且仅限目标机器是 RPM 系发行版（CentOS/RHEL/TencentOS/Fedora等）；Docker部署路径不受影响（依赖已固化在镜像内，构建时用的是 Debian 系基础镜像的包管理器，与此无关）。<br>**优先级**：低（未阻塞本次CVM测试实际部署成功；不修复的直接后果仅是"库缺失时报错时机后移、提示不够精确"，不影响能否部署成功）。<br>**建议修复方向**：改为先探测 `/etc/os-release` 判断发行版系，再分支调用 `dpkg -s`（Debian系）或 `rpm -q`（RPM系）；或统一改用更通用的探测方式（如直接用 `python -c "import xxx"` 探测Python库依赖，不依赖系统包管理器命令）。 |
+| **登记来源** | `docs/cvm_deployment_test_plan.md` 本轮重新部署测试（Docker单用户模式 ✅ 通过、非Docker手动部署 ✅ 核心流程通过，测试期间发现并修复4个真实bug：executor.py PEP695语法/deploy_manual.sh缺DEV_MODE/deploy_manual.sh CSS构建/退出登录无法切账号，另登记限制②待排期） |
+
 ---
 
 ## 📝 说明
@@ -215,6 +225,7 @@
 4. 本报告基于2026-04-15的代码库核实及最新文档状态同步结果更新
 5. 2026-07-01 补充：新增部署类文档（`intranet_deployment_guide.md`）中登记的用户管理相关待实现任务（第18项）；2026-07-02 更新：第18项批次1已开发完成并通过测试，第18项标题及相关引用（6c/18a/后续迭代列表）已统一指向 `user_management_module_design.md`§九
 6. 2026-07-02 补充：批次1回归测试期间排查发现并修复了 `pytest tests/` 整目录扫描崩溃的阻塞性 bug（`test_oot_validation.py` stdout劫持），顺带登记暴露出的一批独立测试维护债务（第19项，P3，与用户管理模块无关）
+7. 2026-07-03 补充：CVM重新部署测试期间登记2项已知限制/技术债（第20项）：①生产模式Basic Auth退出登录无法切换账号——**已于当日修复**（`auth_middleware.py`白名单调整，commit `04b21ad`，77项回归测试通过+CVM实测验证）；②`deploy_manual.sh`依赖检测硬编码dpkg在RPM系发行版失效（低优先级，待排期）
 
 ---
 
@@ -275,6 +286,7 @@
 | **19** | `analysis_prompt_refactor_plan.md` | Prompt 工程优化 Phase 2，需根据新增 SOP 任务重新评估提示词框架方案 | Phase 2: ~2天 |
 | **20** | `strategy_diagnosis_plan.md` | 策略诊断 SOP 任务：Swap Set + 人数/金额双口径 + 业务/风险影响评估（框架文档已创建，待细化） | ~7-8天 |
 | **21** | 📋 `tests/` 目录测试基础设施历史债务（第19项） | 2个ImportError（历史重构遗留）+9个`_parse_suggested_params`路径过时+8个`test_sop_api.py::app`导入过时+17个既有断言/状态污染失败，均非生产bug | 待评估 |
+| **22** | 📋 `deploy_manual.sh`依赖检测硬编码dpkg，RPM系发行版失效（第20项限制②） | 改为先探测`/etc/os-release`分支调用`dpkg -s`/`rpm -q`，或统一改用`python -c "import xxx"`探测 | ~0.5天 |
 
 > 详细方案见 [`taskSOP_solution/task_management_module_design.md` Phase 25](./taskSOP_solution/task_management_module_design.md#phase-25删除历史记录级联清理已完成)
 > 详细方案见 [`taskSOP_solution/report_config_driven_plan.md` Phase 1.7](./taskSOP_solution/report_config_driven_plan.md#phase-17导出报告补充新增稳定性指标待实施)
@@ -321,7 +333,9 @@ Week 6（2026-06-02）:
   ├─ [P3] multimodal_chat_plan
   ├─ [P3] right_panel_unified_architecture_plan
   ├─ [P3] release_readiness_plan Phase 2-5 (按需推进)
-  └─ [P3] 📋 tests/ 测试基础设施历史债务（第19项，2026-07-02新增登记，待排期）
+  ├─ [P3] 📋 tests/ 测试基础设施历史债务（第19项，2026-07-02新增登记，待排期）
+  ├─ [P3] ✅ 生产模式Basic Auth退出登录无法切换账号（第20项限制①，2026-07-03登记并当日修复：/、/llm-manager纳入白名单）
+  └─ [P4] 📋 deploy_manual.sh依赖检测硬编码dpkg（第20项限制②，2026-07-03新增登记，低优先级）
 
 远期:
   ├─ [P4] analysis_prompt_refactor_plan Phase 2（需根据新增SOP任务重新评估提示词框架方案）
