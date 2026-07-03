@@ -95,9 +95,19 @@ SOURCE_DIR="$BUNDLE_DIR/source"
 mkdir -p "$SOURCE_DIR"
 
 # 使用 rsync 排除不需要的文件（macOS/Linux 均自带）
+#
+# CVM离线部署测试发现（2026-07-03）：此前排除列表遗漏了 demo/chat/.next
+# （Next.js 本地构建缓存目录，约242MB），而真正需要的产物 demo/chat/dist
+# （静态导出输出，仅约3MB）本身就会被打包进去。.next 对离线部署完全无用——
+# 本脚本第[1/4]步的镜像构建走的是 Dockerfile 多阶段构建（frontend-builder
+# 阶段独立执行 npm run build 并只 COPY dist/ 到最终镜像），根本不读取/依赖
+# 宿主机这份本地 .next 缓存；source/ 目录本身在 deploy_offline.sh 里也只是
+# 提供运行时配置文件（.env/config/）+ bind mount 目录，同样不会被重新构建。
+# 排除后每份离线包可节省约240MB。
 rsync -a \
     --exclude='.git' \
     --exclude='node_modules' \
+    --exclude='.next' \
     --exclude='workspace' \
     --exclude='execution_states' \
     --exclude='task_results' \
