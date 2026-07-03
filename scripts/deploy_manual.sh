@@ -133,10 +133,20 @@ if [ "$HAS_NODE" = true ]; then
         cd "$PROJECT_ROOT/llm_manager_integrated/frontend"
         npm install
         npm run build 2>/dev/null || echo -e "${YELLOW}  ⚠️ Vite 构建失败${NC}"
-        npx tailwindcss -i ./styles/main.css -o "$PROJECT_ROOT/llm_manager_integrated/static/assets/main.css" --minify \
-            --content "./index.html" \
-            --content "./scripts/**/*.js" \
-            --content "./shared/**/*.js" 2>/dev/null
+        # CVM部署测试发现（2026-07-03）：此前这里硬编码传了 --content 参数，
+        # 而 tailwindcss CLI 的 --content 会**完全覆盖**（而非合并）
+        # tailwind.config.js 里的 content 配置——旧参数集合
+        # （index.html + scripts/**/*.js + shared/**/*.js）比 config 里实际
+        # 声明的（还包含 components/**/*.{js,ts} + styles/**/*.{css,scss}，
+        # 且用 .{js,ts} 而非 .js）更窄，导致大量 utility class 未被扫描进产物，
+        # 生成的 main.css 只有4KB左右（正常应是几十KB），/llm-manager 页面
+        # 呈现无样式的纯HTML列表。这个 --content 覆盖问题本身在 2026-06-16
+        # 的 docker/Dockerfile 里已经修复过（commit 0282342），但当时只改了
+        # Dockerfile，deploy_manual.sh 是另一份独立维护的等价构建逻辑，未同步
+        # 到这个修复，导致同一个bug在非Docker部署路径上独立复现。现在去掉
+        # --content 参数，改为让 tailwindcss 读取 tailwind.config.js 的
+        # content 配置（与 Dockerfile、deploy_manual.ps1 三处保持一致）。
+        npx tailwindcss -i ./styles/main.css -o "$PROJECT_ROOT/llm_manager_integrated/static/assets/main.css" --minify 2>/dev/null
         sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
         sed -i 's| https://cdn.tailwindcss.com||g' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
         sed -i 's|http://localhost:8200 ||g' "$PROJECT_ROOT/llm_manager_integrated/static/assets/index.html"
