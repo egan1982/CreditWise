@@ -173,9 +173,16 @@ else
 fi
 
 # 多用户配置
+# CVM部署测试发现（2026-07-03）：原逻辑无论 config/users.yaml 是否已存在都会
+# 打印"请编辑"提示，容易让运维误以为账户尚未配置——实际上零配置自动兜底逻辑
+# （API/main.py::_ensure_bootstrap_admin_if_empty）已能在 users.yaml 不存在时
+# 自动创建初始admin账户，这里区分两种情况给出准确提示。
 if [ "$ENABLE_AUTH" = "true" ]; then
-    [ -f "config/users.yaml" ] || cp config/users.yaml.example config/users.yaml
-    echo -e "${YELLOW}  ⚠️ 请编辑 config/users.yaml 配置用户${NC}"
+    if [ -f "config/users.yaml" ]; then
+        echo -e "${GREEN}  ✓ 用户配置已存在: config/users.yaml${NC}"
+    else
+        echo -e "${GREEN}  ✓ 未配置 users.yaml，将由零配置自动兜底逻辑生成初始admin账户（首次启动后查看 logs/server.log 获取一次性密码）${NC}"
+    fi
 fi
 
 # 预创建目录
@@ -186,6 +193,15 @@ mkdir -p workspace execution_states task_results logs
 # =============================================================================
 echo -e "${GREEN}[5] 启动服务${NC}"
 echo "启动后端 (端口 8200)..."
+# CVM部署测试发现（2026-07-03）：此前未显式设置 DEV_MODE，而 API/main.py 中
+# `os.getenv("DEV_MODE", "true")` 默认值为 "true"（开发模式）——导致非Docker
+# 手动部署默认以开发模式启动：① 主应用 "/" 不会返回 demo/chat/dist/index.html
+# 构建产物，而是返回纯JSON状态信息；② LLM Manager 子系统会认为前端跑在
+# Vite dev server(:3001)，但手动部署场景下该dev server并未启动。显式导出
+# DEV_MODE=false，与 docs/intranet_deployment_guide.md §4.2 描述的生产部署
+# 行为对齐。
+export DEV_MODE=false
+export API_HOST=0.0.0.0
 nohup python API/main.py > logs/server.log 2>&1 &
 PID=$!
 echo "  进程 PID: $PID"
