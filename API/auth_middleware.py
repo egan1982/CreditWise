@@ -127,11 +127,43 @@ AUTH_WHITELIST = [
 # "/" 和 "/favicon.ico" 只返回前端 HTML/图标，不含敏感数据
 # 所有数据操作 API（/workspace/*、/sop/*、/v1/*）仍需认证
 # "/auth/mode" 用户管理模块 批次2 Phase10：登录前需探测是否启用认证，供前端决定是否渲染登录框
+#
+# 用户管理模块 批次3（2026-07-03）：新增 "/"、"/llm-manager"、"/llm-manager/" 三个
+# 页面壳白名单，修复"生产模式下退出登录无法切换账号"的技术债。
+#
+# 根因回顾：此前整页导航访问这些路径时，若未认证，中间件会保留
+# `WWW-Authenticate` 响应头触发浏览器**原生** Basic Auth 弹窗；一旦用户通过原生
+# 弹窗登录成功一次，浏览器会把凭证与"域名+realm"绑定长期缓存——JS 层
+# `clearAuth()` 清 localStorage 对这份浏览器原生缓存完全无效，导致刷新页面后
+# 自动用旧凭证重新登录，无法切换账号（浏览器无痕/隐私窗口经实测也不能可靠规避，
+# 见 docs/project_status_summary.md 第20项限制①）。
+#
+# 修复思路：这两个页面都是纯静态导出的 SPA 壳子（demo/chat 是
+# `output:'export'` 的 Next.js 静态导出；llm_manager_integrated/frontend 是
+# Vite 构建产物），HTML/JS 本身不含任何用户数据，公开加载无安全风险。真正需要
+# 判断身份的动作全部发生在 JS 加载完成后主动发起的 AJAX 请求（`/auth/me`、
+# `/llm-manager/api/manage/*` 等），这些请求走的是 authFetch/全局 fetch 拦截器
+# （demo/chat 的 lib/config.ts、llm_manager_integrated 的 shared/js/auth.js），
+# 401 响应已经主动去掉 WWW-Authenticate 头（见下方 dispatch() 第591行注释），
+# 只会弹自定义登录框，不会触发浏览器原生弹窗，从而也不会产生原生凭证缓存——这正是
+# 本机开发模式（Next dev server :3000 独立于本中间件之外）从未出现此问题的原因，
+# 现在让生产模式的页面壳子复用同一条已验证有效的鉴权路径。
+#
+# 安全边界：仅豁免"页面壳子"这三个路径本身的 HTTP 层认证/角色前置检查，不代表
+# 放开权限——`/llm-manager/api/manage/*` 等真正的管理操作 API 仍在
+# ADMIN_ONLY_PREFIXES 里强制要求 admin 角色（403），`/llm-manager` 原来挂在
+# ADMIN_ONLY_EXACT 的角色前置检查一并移除（见下方该常量的说明），角色判断改为
+# 与 `/user-manager` 等其它 admin 专属前端路由一致的模式——由前端 JS 根据
+# `/auth/me` 返回的 role 字段决定渲染什么内容，真正的数据操作仍受后端 API 层
+# 强制拦截，不因页面壳子公开而放宽。
 AUTH_WHITELIST_EXACT = [
     "/favicon.ico",
     "/placeholder-logo.png",
     "/placeholder-user.jpg",
     "/auth/mode",
+    "/",
+    "/llm-manager",
+    "/llm-manager/",
 ]
 
 # 静态资源后缀白名单（浏览器直接加载，无法注入 Authorization header）
@@ -170,11 +202,18 @@ ADMIN_PREFIX_EXCEPTIONS = [
     "/llm-manager/api/manage/channels/active-configs",
 ]
 
-# LLM Manager 管理页面（非 API 路由）— 仅 admin
-ADMIN_ONLY_EXACT = [
-    "/llm-manager",
-    "/llm-manager/",
-]
+# LLM Manager 管理页面（非 API 路由）— 角色前置检查
+#
+# 用户管理模块 批次3（2026-07-03）：`/llm-manager`、`/llm-manager/` 已上移至
+# `AUTH_WHITELIST_EXACT`（页面壳子公开，理由见该常量上方注释），中间件层面的
+# `_is_whitelisted()` 会在 dispatch() 第2步直接放行，永远不会走到下方
+# `_is_admin_route()` 的角色检查这一步——此列表因此保持为空，仅作为历史记录/
+# 类型占位保留。真正的 admin 权限边界现在完全由 `ADMIN_ONLY_PREFIXES` 里的
+# `/llm-manager/api/manage/*` 等数据操作 API 承担（非 admin 用户加载页面壳子后，
+# 调用这些 API 仍会收到 403，行为与 `/user-manager` 等其它 admin 专属前端路由
+# 一致：页面本身不做服务端拦截，权限判断下放到 API 调用层 + 前端按 role 决定
+# 渲染内容）。
+ADMIN_ONLY_EXACT: list[str] = []
 
 
 def _is_whitelisted(path: str) -> bool:

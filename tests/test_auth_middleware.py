@@ -309,11 +309,21 @@ class TestAdminRouteAccess:
         response = client.get("/llm-manager/api/manage/channels", headers=headers)
         assert response.status_code == 403
 
-    def test_user_blocked_from_llm_manager_page(self, client):
-        """#9 普通用户不能访问 LLM Manager 页面"""
+    def test_llm_manager_page_shell_now_public(self, client):
+        """#9（用户管理模块 批次3，2026-07-03更新）：`/llm-manager/` 页面壳子已
+        改为公开白名单（修复"生产模式退出登录无法切换账号"技术债，详见
+        auth_middleware.py 中 AUTH_WHITELIST_EXACT 上方注释），中间件层面不再
+        对页面壳子做角色前置检查——普通用户甚至未认证请求都能拿到页面壳子的
+        200，真正的 admin 权限边界下放到 `/llm-manager/api/manage/*` 等具体
+        管理 API（见上方 test_user_blocked_from_manage 仍验证 403），与
+        `/user-manager` 等其它前端 admin 专属路由的权限模式保持一致。
+        """
         headers = _make_basic_header("testuser", TEST_USER_PASSWORD)
         response = client.get("/llm-manager/", headers=headers)
-        assert response.status_code == 403
+        assert response.status_code == 200
+        # 未认证请求同样应放行到页面壳子（不触发浏览器原生 Basic Auth 弹窗）
+        response_no_auth = client.get("/llm-manager/")
+        assert response_no_auth.status_code == 200
 
 
 class TestLockoutTimeout:
@@ -342,11 +352,21 @@ class TestHelperFunctions:
         assert _is_whitelisted("/v1/chat/completions") is False
         assert _is_whitelisted("/sop/status/abc/stream") is True
         assert _is_whitelisted("/sop/status/abc") is False
+        # 用户管理模块 批次3（2026-07-03）：修复"生产模式退出登录无法切换账号"
+        # 技术债——"/"、"/llm-manager"、"/llm-manager/" 页面壳子改为公开白名单，
+        # 详见 auth_middleware.py 中 AUTH_WHITELIST_EXACT 上方注释
+        assert _is_whitelisted("/") is True
+        assert _is_whitelisted("/llm-manager") is True
+        assert _is_whitelisted("/llm-manager/") is True
 
     def test_is_admin_route(self):
         assert _is_admin_route("/llm-manager/api/manage/channels") is True
         assert _is_admin_route("/llm-manager/api/logs") is True
-        assert _is_admin_route("/llm-manager/") is True
+        # 用户管理模块 批次3（2026-07-03）：`/llm-manager/` 页面壳子已上移至
+        # AUTH_WHITELIST_EXACT（中间件层面不再拦截，直接放行到前端静态资源），
+        # 角色前置检查改为完全由 ADMIN_ONLY_PREFIXES 里的具体管理 API 承担，
+        # 页面壳子本身不再是 admin-only 路由
+        assert _is_admin_route("/llm-manager/") is False
         assert _is_admin_route("/llm-manager/api/proxy/chat/completions") is False
         assert _is_admin_route("/v1/chat/completions") is False
         assert _is_admin_route("/sop/execute") is False
