@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Union
 
 import pandas as pd
 
@@ -41,7 +41,16 @@ if TYPE_CHECKING:
 from .registry import get_registry
 
 # JSON serializable type alias
-type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+#
+# CVM部署测试发现（2026-07-03）：原写法 `type JsonValue = str | int | ... | list[JsonValue] | ...`
+# 是 PEP 695 类型别名语句，需要 Python 3.12+ 才能解析；但项目文档/部署脚本
+# （deploy_manual.sh、intranet_deployment_guide.md）声明的最低版本要求是
+# Python ≥3.10，实测在 Python 3.11.6 环境下直接 SyntaxError，导致本模块
+# 无法导入，进而使 Chat API 和 SOP Task API 两个核心路由均加载失败。
+# 改为 typing.Union + 字符串 forward reference 写法，兼容 Python 3.10+，
+# 行为等价（配合上方 `from __future__ import annotations`，递归引用不会在
+# 模块加载时立即求值，不影响运行时逻辑）。
+JsonValue = Union[str, int, float, bool, None, "list[JsonValue]", "dict[str, JsonValue]"]
 
 logger = logging.getLogger(__name__)
 
