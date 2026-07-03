@@ -1201,7 +1201,12 @@ def create_app() -> FastAPI:
                     idx = _llm_assets / "index.html"
                     if not idx.exists():
                         raise HTTPException(status_code=404, detail="LLM Manager frontend not built")
-                    return HTMLResponse(content=idx.read_text(encoding="utf-8"))
+                    # 同下方 llm_manager_static_files 的 Cache-Control 理由：避免更新后
+                    # 浏览器仍复用旧缓存的页面壳子
+                    return HTMLResponse(
+                        content=idx.read_text(encoding="utf-8"),
+                        headers={"Cache-Control": "no-cache"},
+                    )
                 
                 @app.get("/llm-manager", include_in_schema=False)
                 async def llm_manager_prod_redirect():
@@ -1209,6 +1214,16 @@ def create_app() -> FastAPI:
                     return RedirectResponse(url="/llm-manager/", status_code=302)
                 
                 # Serve Vite build output (assets, scripts, shared, favicon)
+                #
+                # CVM部署测试发现（2026-07-03）：这些静态文件（尤其 shared/js/auth.js、
+                # scripts/main.js）文件名固定不带content hash（不同于demo/chat的Next.js
+                # 构建产物，chunk文件名会随内容变化自动带哈希强制刷新缓存），此前
+                # FileResponse 未显式设置 Cache-Control，浏览器会按启发式策略缓存——
+                # 实测复现：本次CWAuth认证方案改造更新了auth.js后，用户浏览器仍在用
+                # 改造前缓存的旧版本（仍发送Basic方案），导致反复要求登录。加上
+                # `Cache-Control: no-cache` 强制浏览器每次都带 If-None-Match 向服务器
+                # 校验 ETag 是否变化（未变化时仍走 304，不会增加实际流量/延迟成本），
+                # 内容真正变化时能立即拿到最新文件，不再需要用户手动强刷。
                 @app.get("/llm-manager/{r:path}", include_in_schema=False)
                 async def llm_manager_static_files(r: str):
                     from fastapi import HTTPException
@@ -1217,7 +1232,11 @@ def create_app() -> FastAPI:
                         raise HTTPException(status_code=404)
                     ext = file.suffix.lower()
                     mime_map = {".css":"text/css",".js":"application/javascript",".html":"text/html",".ico":"image/x-icon",".woff2":"font/woff2"}
-                    return FileResponse(str(file), media_type=mime_map.get(ext,"application/octet-stream"))
+                    return FileResponse(
+                        str(file),
+                        media_type=mime_map.get(ext, "application/octet-stream"),
+                        headers={"Cache-Control": "no-cache"},
+                    )
                 
                 print("[OK] LLM_Manager integrated (Production Mode)")
                 print(f"   - UI: http://{API_HOST}:{API_PORT}/llm-manager")
