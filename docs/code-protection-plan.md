@@ -1,10 +1,11 @@
 # DeepAnalyze (CreditWise) 代码保护方案
 
-> **版本**: 1.2（新增 Layer 1 必要性评估 + Cython 分阶段验证策略）
-> **日期**: 2026-07-01
+> **版本**: 1.3（新增用户管理模块（批次1/批次2，SQLite账户体系+CWAuth认证）的增量评估）
+> **日期**: 2026-07-07
 > **目标**: 避免源代码直接在新服务器/PC 上部署，保护核心风控算法知识产权
 > **v1.1 修正摘要**: 1) 更正 exec/eval 风险模块识别（executor.py 无风险可编译，validators.py 才是真实风险点）；2) License 机制由对称加密（Fernet，存在自证矛盾）改为非对称签名（Ed25519）；3) 机器指纹改为绑定宿主机 machine-id，避免 Docker 容器重建导致指纹漂移；4) 明确排除含 FastAPI 路由装饰器的模块，避免破坏 OpenAPI/依赖注入；5) 修复 Dockerfile 中 `.pyd` 在 Linux 阶段不存在、源码未被清理、`input()` 交互确认在 RUN 阶段静默失效等实操 bug；6) 澄清 Cython 未加类型标注时的真实性能/保护效果，避免预期偏差。
 > **v1.2 修正摘要**: 1) 重新评估机器指纹绑定的必要性 —— 若部署场景是"内部多服务器/PC"而非"交付给不受控的外部客户"，**默认降级为轻量方案**（部署审批 + 环境变量开关），Ed25519 签名+机器指纹绑定保留作为面向外部客户场景的可选升级项，见 §3.0；2) 基于实际代码扫描核实 Cython 兼容性风险：待编译文件不涉及 `match/case`、walrus、PEP604 联合类型、`inspect.signature` 反射、pickle/多进程序列化，风险低于预期；但存在超大单文件（400KB+）触发 C 编译器限制的真实风险，新增"分阶段验证"实施策略，见 §4.7。
+> **v1.3 修正摘要**（2026-07-07，用户管理模块上线后的增量评估，**不改变分层架构/主线策略**）：1) 新增 `API/user_admin_api.py`（含8处 `@router.*` 路由装饰器）纳入 `DO_NOT_COMPILE`，原理与 `sop_api.py` 等同——编译会破坏 OpenAPI/依赖注入，见 §1.5、§4.3；2) 认证/账户基础设施三个文件（`auth_middleware.py`、`user_service.py`、`user_migration_service.py`，均无路由装饰器/无 eval/exec）评估为**可选编译**，归入 P2 分组，理由和取舍见 §1.5；3) 明确结论：用户管理模块属于"认证基础设施"，不涉及本方案原定位保护的"核心风控算法IP"，**Layer2 已有编译清单（14个核心算法/报告引擎文件）无需变更**。
 
 ---
 
@@ -79,6 +80,19 @@
 > 2. 真正含 `eval()` 的文件是 `validators.py`（第 40 行 `eval(rule_expr, safe_globals)`），虽然通过 `safe_globals={'__builtins__': {}}` 做了部分沙箱化，但对象方法调用未受限，仍存在理论沙箱逃逸风险，应作为编译决策的重点审计对象。
 > 3. `rule_mining.py` 已在源码层面完成安全加固：内部通过 `_safe_eval_rule()` 使用 `pd.eval()` 替代裸 `eval()`（源码注释标明 "Use safe rule evaluation instead of eval()"），说明该文件本身不存在动态执行风险，可直接编译。
 > 4. `sop_api.py` / `chat_api.py` / `export_api.py` 含 FastAPI 路由装饰器，FastAPI 的 OpenAPI 生成和依赖注入依赖运行时函数签名反射，Cython 编译（尤其 `binding=False`）会破坏其功能，**不建议对这些文件做 Cython 编译**，详见 §4.3 `DO_NOT_COMPILE`。
+
+### 1.5 用户管理模块新增文件评估（2026-07-07 补充，回答"新增用户管理大模块后本方案是否需要重新制定"）
+
+> **结论先行**：**不需要重新制定/推翻本方案**。用户管理模块（账户 CRUD、SQLite 存储、CWAuth 认证、登录锁定）解决的是"认证基础设施"问题，与本方案原定位保护的"核心风控算法知识产权"（评分卡开发、规则挖掘等 §1.4 核心资产）是两类不同性质的资产，**Layer 2 已有的 14 个核心算法/报告引擎编译清单完全不受影响，无需变更**。仅需对新增文件做一次增量分类，结论如下：
+
+| 新增/大幅扩充的文件 | 大小 | FastAPI 路由装饰器 | `eval`/`exec` | 分类结论 |
+|---|---:|:---:|:---:|---|
+| `API/user_admin_api.py`（批次2 Phase10 新增） | 13.7 KB | **8 处**（`/auth/*` + `/admin/users*`） | 无 | **必须归入 `DO_NOT_COMPILE`**——与 `sop_api.py`/`chat_api.py` 同理，编译会破坏 OpenAPI 生成/依赖注入 |
+| `API/auth_middleware.py`（本次 CWAuth 改造 + 锁定并发修复后由 ~15KB 扩至 37.4 KB） | 37.4 KB | 0 处（是中间件类，非路由文件） | 无 | 编译**技术上安全**，但内容是认证中间件（bcrypt 密码校验、锁定阈值、CWAuth 方案实现），不属于"风控算法IP"——**评估为可选编译**，见下方取舍说明 |
+| `deepanalyze/core/task_manager/user_service.py`（批次2 Phase9/10 新增） | 19.7 KB | 0 处 | 无 | 账户 CRUD 服务（bcrypt 哈希、用户名校验），非算法逻辑——**评估为可选编译** |
+| `deepanalyze/core/task_manager/user_migration_service.py`（批次1 新增） | 6.9 KB | 0 处 | 无 | yaml→SQLite 迁移脚本，一次性工具属性更强——**评估为可选编译，优先级最低** |
+
+**是否要把 `auth_middleware.py`/`user_service.py`/`user_migration_service.py` 纳入实际编译，取决于你对"认证实现细节是否算需要保密的资产"的判断**（例如：账户锁定的具体阈值/去重窗口、CWAuth 方案名、bcrypt 参数——这些泄露的后果是"更容易研究绕过认证的手法"，而非"核心算法被复制"，性质与 §1.4 的算法文件不同）。由于三者均无路由装饰器/无动态执行风险，编译**没有技术副作用**，本次修订默认将其归入 §4.2/§4.3 的 **P2 可选编译分组**（与 `AI_analysis_prompts.py` 同级），实际是否编译由你决定，不影响 Layer 2 主线的默认执行路径。
 
 ---
 
@@ -523,12 +537,16 @@ DYNAMIC_MODULES = [
 # FastAPI 的 OpenAPI schema 生成与依赖注入依赖 inspect.signature() 反射函数签名，
 # Cython 编译（尤其 binding=False）会导致签名信息丢失，引发路由参数校验失败、
 # /docs 文档生成异常等问题。因此这些文件应保留为 .py，不纳入编译范围。
+# （v1.3新增）user_admin_api.py 是用户管理模块批次2 Phase10新增的路由文件（8 处
+# @router.*：/auth/mode、/auth/profile、/auth/change-password、/admin/users*），
+# 同理不建议编译，详见 §1.5。
 DO_NOT_COMPILE = [
     "API/sop_api.py",
     "API/chat_api.py",
     "API/export_api.py",
     "API/admin_api.py",
     "API/file_api.py",
+    "API/user_admin_api.py",
 ]
 ```
 
@@ -580,6 +598,12 @@ CORE_MODULES = [
     "deepanalyze/analysis/score_transformer.py",
     # P2: 无 FastAPI 装饰器的纯数据/模板模块，可选编译
     "API/AI_analysis_prompts.py",
+    # P2（v1.3新增）: 用户管理模块的认证基础设施，无路由装饰器/无eval-exec，编译无技术
+    # 副作用，但内容不属于"核心风控算法IP"，是否实际编译取决于是否将"认证实现细节"
+    # 视为需要保密的资产，见 §1.5：
+    "API/auth_middleware.py",
+    "deepanalyze/core/task_manager/user_service.py",
+    "deepanalyze/core/task_manager/user_migration_service.py",
 ]
 
 # 含真实 eval() 动态执行风险，需先审计 safe_globals 沙箱是否可靠，再决定是否编译
@@ -595,6 +619,7 @@ DO_NOT_COMPILE = [
     "API/export_api.py",    # 2 处 @router.*
     "API/admin_api.py",     # 2 处 @router.*
     "API/file_api.py",      # 6 处 @router.*
+    "API/user_admin_api.py", # 8 处 @router.*（v1.3新增，用户管理模块批次2 Phase10）
 ]
 
 
