@@ -3,7 +3,8 @@
 > **审计日期**：2026-07-15
 > **审计对象**：`docs/code-protection-plan.md`（v1.4，2026-07-14）
 > **审计目标**：评估方案是否满足核心约束——"代码编译/加密后，仍可在新服务器上通过 Docker 离线部署"
-> **审计结论**：**通过**（方案架构合理），经三轮审计合并，最终确认 **7 个实施前必须补齐的衔接缺口**（5 个第一轮 + 2 个第二轮独立新增）和 **6 项独立确认的合理设计**
+> **审计结论**：**通过**（方案架构合理），经四轮审计合并，最终确认 **9 项发现**（8 个待处置缺口 + 1 项流程建议）
+> **⚠️ 核查对象性质声明（第四轮新增，2026-07-15）**：本报告 §3-§9 对 `build_cython.py`、`docker/Dockerfile.compiled`、`API/deploy_guard.py`、`API/license_validator.py` 的审查，其对象均为 `code-protection-plan.md` 文档中的**拟定代码草稿**，这些文件在代码库中**尚未创建**。仅 `scripts/prepare_offline.sh`、`docker/docker-compose.yml`、`scripts/deploy_offline.sh` 是真实存在的已部署脚本。阅读时请注意区分"对草稿的静态推演"与"对已实现系统的实测"，详见 §10.1。
 
 ---
 
@@ -18,6 +19,7 @@
 - [7. 实施建议](#7-实施建议)
 - [8. Second Opinion（第二轮独立审计）](#8-second-opinion第二轮独立审计2026-07-15)
 - [9. 第三轮裁决：对 Second Opinion 的逐项评估](#9-第三轮裁决对-second-opinion-的逐项评估2026-07-15)
+- [10. 最终审计意见（第四轮，含事实核查与技术纠错）](#10-最终审计意见第四轮含事实核查与技术纠错2026-07-15)
 
 ---
 
@@ -564,3 +566,107 @@ $BUNDLE_DIR/images/creditwise-latest.tar     → Docker 镜像（在 source/ 同
 *第三轮裁决日期：2026-07-15*
 *裁决依据：§8 Second Opinion 全文 + `docs/code-protection-plan.md` v1.4 + 项目代码 `main` @ `0a7f68b` 实际核查*
 *审计文件版本：v1.1（新增 §9 第三轮裁决，2026-07-15）*
+
+---
+
+## 10. 最终审计意见（第四轮，含事实核查与技术纠错，2026-07-15）
+
+> **裁决执行方**：第四轮独立复核，对 §1-§9 全部结论进行事实层面的交叉验证
+> **裁决方法**：直接读取代码库中**真实存在**的文件（而非依赖前三轮审计对文档代码块的转述），逐项核实关键断言
+
+### 10.1 元层面问题（优先于所有技术细节）：审计对象的真实存在性
+
+对 §1-§9 反复引用的关键文件做了存在性核查：
+
+| 文件 | 前三轮引用方式 | 实际状态 |
+|------|------|:---:|
+| `build_cython.py` | 三轮反复"逐行审查"其逻辑 | ❌ **不存在**——仅为 `code-protection-plan.md` §4.4 代码块草稿 |
+| `docker/Dockerfile.compiled` | "对 COPY 阶段目录进行了逐行审查" | ❌ **不存在**——仅为 §5.1.1 代码块草稿 |
+| `API/deploy_guard.py` | 判定应归入 `KEEP_CLEAR` | ❌ **不存在**——仅为 §3.0 代码块草稿 |
+| `API/license_validator.py` | 同上 | ❌ **不存在**——仅为 §3.2 代码块草稿 |
+| `scripts/prepare_offline.sh` | "现状"描述 | ✅ **存在**（本轮已读取全文核对） |
+| `docker/docker-compose.yml` | "现状"描述 | ✅ **存在**（本轮已读取全文核对） |
+| `scripts/deploy_offline.sh` | 未直接引用但影响 §9.5 判断 | ✅ **存在**（本轮已读取相关片段核对） |
+
+**结论**：前三轮审计使用"逐行审查""追溯了完整的数据流""核实"等措辞，容易让读者误以为存在一套已部署、有真实缺陷的系统。**实际上被审计的保护机制代码 0 行落地**，纯粹是对方案文档中拟定代码的静态推演。这个推演本身是有价值的（提前发现设计缺陷），但**必须明确标注推演性质**，避免后续读者（尤其是接手实施的开发者）误判进度和风险等级。
+
+### 10.2 发现一项实质性技术错误：§9.1 用于降级 Gap #3 严重度的论据不成立
+
+第三轮裁决（§9.1）为了将 Second Opinion 提出的 Gap #3 严重度从 🔴+ 降回 🔴，给出理由：
+
+> "`build_cython.py` 默认只编译 P0+P1（`--yes` 不加 `--all`），这些文件按方案设计本就不被编译。在默认执行路径下，'文件不存在→SKIP→源码保留'是符合预期的行为。"
+
+**核查方式**：逐行核对 `code-protection-plan.md` §4.4 中 `build_cython.py` 的完整源码（第 638-880 行）。
+
+**核查结果——该论据不成立**：
+
+```python
+CORE_MODULES = [
+    # P0 ... P1 ...
+    "API/AI_analysis_prompts.py",                               # P2
+    "API/auth_middleware.py",                                    # P2 ← 无条件在 CORE_MODULES 里
+    "deepanalyze/core/task_manager/user_service.py",              # P2
+    "deepanalyze/core/task_manager/user_migration_service.py",    # P2
+]
+
+DYNAMIC_MODULES = [
+    "deepanalyze/analysis/task_SOP/validators.py",
+]
+
+# main() 中的实际逻辑：
+modules = CORE_MODULES.copy()      # ← 4 个 P2 文件已经无条件在里面
+if args.all:
+    modules += DYNAMIC_MODULES     # ← --all 只额外加入 validators.py，与 P2 完全无关
+```
+
+**4 个 P2 文件在 `CORE_MODULES` 列表中是无条件存在的**，不存在"P0+P1 默认编译，P2 需要 `--all` 才编译"这个分档机制——`--all` 唯一的作用是把 `validators.py` 加进来。这意味着：**运行默认命令 `python build_cython.py --yes --replace`（`Dockerfile.compiled` 中实际写的那一条 `RUN` 指令，无需任何额外参数）就会立即命中这 4 个文件的 SKIP 分支**，不需要用户主动选择 `--all` 才触发。
+
+**修正结论**：Second Opinion（第二轮）原始的严重度判断——Gap #3 应为 🔴+（默认路径即触发静默失败，而非仅"清单不一致"）——是准确的。**第三轮裁决 §9.1 用于降级评级的技术理由基于对代码的误读，应予撤销，严重度维持 🔴+**。
+
+### 10.3 本轮对第三轮裁决其余主张的复核结果
+
+除 §9.1 外，第三轮裁决（§9.2-§9.5）的其余 4 项裁决经本轮独立复核，**结论维持不变**：
+
+| 裁决点 | 复核结果 |
+|--------|:---:|
+| §9.2 反驳"import 触发 argparse"陷阱论 | ✅ 维持——`if __name__ == "__main__":` 是标准 Python 语义保护，该项技术论证确实不成立 |
+| §9.3 采纳"deploy_guard.py/license_validator.py 未分类" | ✅ 维持——核对 §4.3 全部四个清单，确认两个文件确实未被任何清单提及 |
+| §9.4 采纳".py.bak 防御性清理" | ✅ 维持——零成本防御措施，合理 |
+| §9.5 采纳"source/ 最小文件集"方案 | ✅ 维持，且本轮**直接读取了 `deploy_offline.sh` 源码**予以强化确认：该脚本只依赖 `docker-compose.yml`/`.env`/`config/`/`scripts/`/镜像 tar 包，完全不读取 `source/` 下的 `.py` 源文件——"最小文件集"方案在事实层面成立，优于"全量 rsync 再逐个删除" |
+
+### 10.4 对 Gap #1 / Gap #2 的独立事实强化（基于真实文件，非文档转述）
+
+本轮直接读取了真实存在的 `scripts/prepare_offline.sh`（全文 185 行）和 `docker/docker-compose.yml`（全文 77 行），确认：
+
+- `docker-compose.yml` 第 24 行 `dockerfile: docker/Dockerfile`——明确指向标准 Dockerfile，与 `Dockerfile.compiled`（若创建）之间**没有任何切换机制**。**Gap #1 成立，且是三轮审计中唯一基于真实现有文件、无需任何假设即可验证成立的结论**。
+- `prepare_offline.sh` 第 107-127 行的 rsync `--exclude` 列表（`.git`/`node_modules`/`.next`/`workspace`/`*.db` 等）**不包含任何 `.py` 文件的排除规则**——`source/` 目录会原样打包全部 Python 源码。**Gap #2 成立，且比文档描述的更直接**：不需要"部署方具备宿主机文件系统访问权限"这个前提条件，`source/` 里的 `.py` 就是明文文件，只要拿到离线包（`creditwise_offline_bundle.tar.gz`）解压即可读取，攻击面等同于直接分发源码 tarball。
+
+**这两个 Gap 应作为全部 9 项发现中最高优先级**：一是事实基础最扎实（唯二基于真实代码而非文档草稿的发现），二是即使后续 Layer 2 Cython 编译从未实施，仅这两个 Gap 存在就已经让整个"代码保护方案"名不副实——因为当前 `prepare_offline.sh` 产出的离线包，源码依然 100% 明文可读。
+
+### 10.5 最终修正后的九项清单（含严重度纠错）
+
+| # | 问题 | 发现轮 | 事实基础 | 最终严重度 | 处置 |
+|:-:|------|:---:|:---:|:---:|------|
+| 1 | `prepare_offline.sh` 与 `Dockerfile.compiled` 未连接 | 第一轮 | ✅ 真实文件 | 🔴 **最高优先级** | 新增 `docker-compose.compiled.yml` + `--protected` 参数 |
+| 2 | 离线包 `source/` 泄露源码 | 第一轮 | ✅ 真实文件 | 🔴 **最高优先级** | `--protected` 模式改为最小文件集复制 |
+| 3 | `Dockerfile.compiled` COPY/删除清单硬编码不一致 | 第一轮 | ⚠️ 文档草稿推演 | 🔴+（**本轮纠正回升**，第三轮降级理据有误） | 目录级 COPY + `compiled_files.txt` 清单文件机制；SKIP 文件在 stderr 输出 warning，无论是否 `--all` |
+| 4 | 缺少统一入口脚本 | 第一轮 | ⚠️ 文档草稿推演 | 🟡 | `scripts/build_protected.sh` |
+| 5 | 验收标准未覆盖离线部署路径 | 第一轮 | ⚠️ 文档草稿推演 | 🟡 | §6.2 补充离线部署验收项 |
+| A | `deploy_guard.py`/`license_validator.py` 未分类 | 第二轮 | ⚠️ 文档草稿推演 | 🟡 | 加入 `KEEP_CLEAR` |
+| B | `.py.bak` 潜在残留风险 | 第二轮 | ⚠️ 文档草稿推演 | 🟡 | `RUN find /app -name "*.py.bak" -delete` |
+| C | 保护模式下 `source/` 存在必要性（已合并至 #2） | 第二轮 | ✅ 真实文件 | 已合并 | 见 #2 |
+| D（本轮新增） | 审计措辞未区分"文档推演"与"实测系统" | 第四轮 | — | 🟡 流程 | 后续版本审计报告须在开头声明核查对象的真实/草稿属性 |
+
+### 10.6 结论
+
+1. **方案架构本身维持"通过"判定**——三层解耦、Cython 选型诚实披露、Ed25519 修正对称加密缺陷等设计判断经四轮审计反复验证均成立。
+2. **Gap #1、Gap #2 是最高优先级**，且是唯二基于真实代码文件的发现，无论后续 Layer 2/3 如何实施，这两项不修复则"代码保护"整体不成立。
+3. **Gap #3 严重度纠正为 🔴+**，第三轮裁决的降级理由存在代码误读，本轮予以撤销修正。
+4. **第三轮裁决 §9.2-§9.5 的其余结论维持有效**，均经本轮独立复核确认。
+5. **流程建议**：后续对"仅存在于文档中的拟定代码"进行审计时，报告应显著标注"本节核查对象为方案文档中的代码草稿，非已实现/已部署系统"，避免误导。
+
+---
+
+*第四轮审计日期：2026-07-15*
+*裁决依据：直接读取 `scripts/prepare_offline.sh`、`docker/docker-compose.yml`、`scripts/deploy_offline.sh` 真实源码 + `docs/code-protection-plan.md` v1.4 全文代码块逐行核对 + §1-§9 全部结论交叉验证*
+*审计文件版本：v1.2（新增 §10 第四轮最终审计意见，2026-07-15）*
