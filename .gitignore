@@ -26,6 +26,7 @@ openapi.json
 
 # Database files (contain sensitive API keys)
 *.db
+*.db.bak_*
 llm_manager.db
 
 # Environment variables (sensitive API keys)
