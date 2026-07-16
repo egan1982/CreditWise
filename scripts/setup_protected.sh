@@ -77,7 +77,8 @@ if [ "$BUILD_MODE" = "true" ]; then
 
     echo ""
     echo "===[--build] 生成离线部署包==="
-    BUNDLE_DIR="/tmp/creditwise_offline_$(date +%Y%m%d_%H%M%S)"
+    BUNDLE_PARENT="/tmp/creditwise_offline_$(date +%Y%m%d_%H%M%S)"
+    BUNDLE_DIR="$BUNDLE_PARENT/offline_bundle"
     mkdir -p "$BUNDLE_DIR/images" "$BUNDLE_DIR/source/docker" \
              "$BUNDLE_DIR/source/scripts" "$BUNDLE_DIR/source/config"
 
@@ -88,8 +89,8 @@ if [ "$BUILD_MODE" = "true" ]; then
     cp scripts/deploy_offline.sh "$BUNDLE_DIR/source/scripts/"
 
     ARCHIVE_NAME="creditwise_offline_$(date +%Y%m%d_%H%M%S).tar.gz"
-    tar -czf "$ARCHIVE_NAME" -C "$BUNDLE_DIR" .
-    rm -rf "$BUNDLE_DIR"
+    tar -czf "$ARCHIVE_NAME" -C "$BUNDLE_PARENT" offline_bundle
+    rm -rf "$BUNDLE_PARENT"
 
     echo ""
     echo "============================================================"
@@ -98,8 +99,8 @@ if [ "$BUILD_MODE" = "true" ]; then
     echo " 离线包: $PWD/$ARCHIVE_NAME ($(du -sh $ARCHIVE_NAME | cut -f1))"
     echo ""
     echo " 将此文件传输到目标无外网服务器后执行:"
-    echo "   tar -xzf $ARCHIVE_NAME"
-    echo "   cd offline_bundle/source"
+    echo "   tar -xzf $ARCHIVE_NAME -C /opt/CreditWise/"
+    echo "   cd /opt/CreditWise/offline_bundle/source"
     echo "   chmod +x scripts/deploy_offline.sh"
     echo "   ./scripts/deploy_offline.sh"
     echo "============================================================"
