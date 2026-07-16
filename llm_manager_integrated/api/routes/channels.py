@@ -576,6 +576,7 @@ def get_param_limits_for_model(model_name: str) -> dict:
 @router.post("/channels")
 def create_channel(channel: schemas.ChannelCreate, db: Session = Depends(get_db)):
     """创建新渠道"""
+    logger = logging.getLogger(__name__)
     try:
         result = crud.create_channel(db=db, channel=channel)
         
@@ -599,7 +600,6 @@ def create_channel(channel: schemas.ChannelCreate, db: Session = Depends(get_db)
                 })
                 load_balancer.add_channel(lb_channel)
         except Exception as lb_error:
-            logger = logging.getLogger(__name__)
             logger.warning(f"渠道已创建但添加到负载均衡器失败: {lb_error}")
         
         return success_response(
