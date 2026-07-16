@@ -103,16 +103,14 @@ except Exception as e:
     print(f"[ERROR] Unexpected error importing LLM Manager: {e}")
 
 
-def _generate_bootstrap_password(length: int = 14) -> str:
-    """生成一个高强度随机密码，避开易混淆字符（0/O/1/l/I）"""
-    import secrets
-    import string
+def _generate_bootstrap_password() -> str:
+    """生成初始管理员密码。
 
-    alphabet = "".join(
-        c for c in (string.ascii_letters + string.digits + "!@#%^&*")
-        if c not in "0Ol1I"
-    )
-    return "".join(secrets.choice(alphabet) for _ in range(length))
+    默认使用固定密码 'admin123'（首次登录强制改密，固定密码泄露风险可控）。
+    可通过环境变量 BOOTSTRAP_ADMIN_PASSWORD 覆盖。
+    """
+    import os
+    return os.environ.get("BOOTSTRAP_ADMIN_PASSWORD", "admin123")
 
 
 def _ensure_bootstrap_admin_if_empty(username: str = "admin"):
