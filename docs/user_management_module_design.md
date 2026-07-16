@@ -473,7 +473,7 @@ CREATE TABLE users (
 ### 已知局限（未覆盖，留待后续）
 
 - 未在真实Docker环境里实测"bind mount空目录→IsADirectoryError"这条路径本身（本地开发环境是Windows，未安装Docker），修复基于对Docker bind mount行为的既有认知与`is_file()`语义的代码级验证，建议在Linux CVM实际部署一次全新环境验证
-- 自动生成的一次性密码只打印到启动日志，未提供"写入本地文件供无终端访问场景读取"的第二通道；若部署环境的容器日志被立即清空/不可查看，会导致取不到初始密码（届时可用`scripts/init_admin.py --reset-if-exists`应急重置）
+- 首次登录密码默认为固定值 `admin123`（可通过环境变量 `BOOTSTRAP_ADMIN_PASSWORD` 覆盖），无需从日志提取，已消除此问题
 
 ### 二十一、批次2 GUI 首测发现问题（2026-07-02，用户实测反馈）
 
