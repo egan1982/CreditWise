@@ -1,7 +1,7 @@
 # DeepAnalyze (CreditWise) 代码保护方案
 
-> **版本**: 1.5（基于四轮审计 `docs/code-protection-audit.md` §10.5 最终清单的落地修正，可直接用于开发）
-> **日期**: 2026-07-15
+> **版本**: 1.6（CVM Docker 离线部署 + 纯代码包端到端验证通过，16 项实施问题已修复）
+> **日期**: 2026-07-16
 > **目标**: 避免源代码直接在新服务器/PC 上部署，保护核心风控算法知识产权
 > **v1.1 修正摘要**: 1) 更正 exec/eval 风险模块识别（executor.py 无风险可编译，validators.py 才是真实风险点）；2) License 机制由对称加密（Fernet，存在自证矛盾）改为非对称签名（Ed25519）；3) 机器指纹改为绑定宿主机 machine-id，避免 Docker 容器重建导致指纹漂移；4) 明确排除含 FastAPI 路由装饰器的模块，避免破坏 OpenAPI/依赖注入；5) 修复 Dockerfile 中 `.pyd` 在 Linux 阶段不存在、源码未被清理、`input()` 交互确认在 RUN 阶段静默失效等实操 bug；6) 澄清 Cython 未加类型标注时的真实性能/保护效果，避免预期偏差。
 > **v1.2 修正摘要**: 1) 重新评估机器指纹绑定的必要性 —— 若部署场景是"内部多服务器/PC"而非"交付给不受控的外部客户"，**默认降级为轻量方案**（部署审批 + 环境变量开关），Ed25519 签名+机器指纹绑定保留作为面向外部客户场景的可选升级项，见 §3.0；2) 基于实际代码扫描核实 Cython 兼容性风险：待编译文件不涉及 `match/case`、walrus、PEP604 联合类型、`inspect.signature` 反射、pickle/多进程序列化，风险低于预期；但存在超大单文件（400KB+）触发 C 编译器限制的真实风险，新增"分阶段验证"实施策略，见 §4.7。
@@ -17,6 +17,36 @@
 > 7. **[新增]** `scripts/build_protected.sh` 统一入口脚本，串联编译→构建→打包→验证全流程；
 > 8. **[新增]** §6.2 补充离线部署端到端验收项。
 > 完整审计溯源见 `docs/code-protection-audit.md` §10.5-§10.6。
+
+> **v1.6 修正摘要**（2026-07-16，CVM Docker 离线部署 + 纯代码包端到端验证，**16 项实施问题在测试中发现并修复**）：
+> 
+> **编译相关**（3 项）：
+> 1. Dockerfile.compiled `.so` glob 前缀冲突——`rule_mining*.so` 同时匹配 `rule_mining_meta.so`，改为 `{base}.*.so`
+> 2. `build_cython.py` `clean_all()` 排除 `.venv/` 目录（`rglob` 范围过宽误删虚拟环境）
+> 3. `replace_py_files`/`restore_py_files` 修复 `pathlib.with_suffix` 对 `.py.bak` 双后缀问题
+> 
+> **部署脚本**（5 项）：
+> 4. `prepare_offline.sh --protected` 修复 scripts 双层嵌套（`cp -r scripts/`→`cp -r scripts/.`）
+> 5. `deploy_offline.sh` 相对路径改写为绝对路径（Docker Compose 版本间解析不一致，可致跨项目目录污染）
+> 6. `deploy_offline.sh` 不再自动创建 `users.yaml`（含占位符哈希阻塞 v1.6 零配置引导）
+> 7. `deploy_offline.sh` 空 `if` 块语法错误（Bash 不允许 `then/fi` 间仅含注释）
+> 8. 新增 `scripts/setup_protected.sh`——纯代码包首次部署一键初始化（`.env`、加密密钥、`.db` 预创建、Dockerfile 版本对齐）
+> 
+> **LLM Manager**（2 项）：
+> 9. `test-via-proxy` 改为直接查 DB（废弃的 `/api/models` 被认证中间件拦截返回 401）
+> 10. `create_channel` logger 提前定义（修复 `UnboundLocalError`）
+> 
+> **产品体验**（3 项）：
+> 11. admin 初始密码改为固定 `admin123`（随机密码需 `docker logs` 查看体验差，保留 `BOOTSTRAP_ADMIN_PASSWORD` 环境变量覆盖）
+> 12. `deployment_guide.md` 标注预编译包 Python 版本绑定（当前 3.11）
+> 13. 同步更新 `intranet_deployment_guide.md`、`user_manual.md`、`user_management_module_design.md` 相关描述
+> 
+> **新增工具**（3 项）：
+> 14. `--output-dir` 模式——编译 `.pyd/.so` 到独立目录，源码无损（用于本地编译后部署）
+> 15. MinGW-w64 便携编译器自动检测（Windows 无 MSVC 时回退，见 §4.4）
+> 16. `scripts/mingw_env_setup.ps1`——便携式 MinGW 环境变量配置
+> 
+> 完整实施记录见本分支 commit 历史 `ac9074c..64067bf`。
 
 ---
 
@@ -1515,6 +1545,50 @@ echo "============================================================"
 
 但需要处理一个文件命名衔接问题：`deploy_offline.sh` 第 162 行执行的是不带 `-f` 参数的 `docker compose up -d`，按 Docker Compose 约定会读取当前目录下固定文件名 `docker-compose.yml`。而受保护模式打包进 `source/docker/` 的是 `docker-compose.compiled.yml`（不同文件名）。**因此需在 §5.2.1 的 `prepare_offline.sh --protected` 打包步骤中，将 `docker-compose.compiled.yml` 复制后重命名为 `docker-compose.yml`**（已在下方 §5.2.1 代码中体现该重命名逻辑），而不是改动 `deploy_offline.sh` 本身，改动面更小、风险更低。
 
+### 5.3 纯代码包部署：`build_cython.py --output-dir` + `scripts/setup_protected.sh`（v1.6 新增）
+
+> **适用场景**：编译机（Linux）上产出预编译代码包（~31MB），通过邮件/网盘发给目标服务器，目标服务器通过 Docker 部署。
+
+#### 5.3.1 编译机产出
+
+```bash
+# 在 Linux 编译机（如 CVM）上执行
+pip install cython
+python build_cython.py --output-dir dist_protected
+
+# 复制完整项目到 dist_protected/，删除已编译的 .py 源码
+rsync -a --exclude='.git' --exclude='node_modules' ... . dist_protected/
+cd dist_protected && xargs -a compiled_files.txt rm -f
+
+# 打包（约 31MB，16 个 .so + 前端源码 + 配置文件）
+tar -czf creditwise_protected_src.tar.gz dist_protected/
+```
+
+> ⚠️ `.so` 绑定编译时 Python 版本（当前 3.11），详见 `docs/deployment_guide.md` 环境要求。
+
+#### 5.3.2 目标服务器部署（一键流程）
+
+```bash
+tar -xzf creditwise_protected_src.tar.gz
+cd dist_protected
+chmod +x scripts/setup_protected.sh
+
+# 一键初始化：.env + 加密密钥 + .db 预创建 + Dockerfile 版本对齐 + 清理 users.yaml
+./scripts/setup_protected.sh
+
+# 构建 + 启动
+docker compose -f docker/docker-compose.yml up -d
+
+# 登录 admin/admin123（首次登录强制改密）
+```
+
+`setup_protected.sh` 自动处理：
+- 创建 `.env`（`ENABLE_AUTH=true`）
+- 生成 `LLM_MANAGER_ENCRYPTION_KEY`（渠道 API Key 加密存储必需）
+- `touch task_manager.db` / `llm_manager.db`（防止 Docker bind mount 创建为目录）
+- 修复 Dockerfile Python 版本（编译用 3.11，自动将 Dockerfile 的 3.12→3.11）
+- 删除 `config/users.yaml`（含占位符哈希会阻塞 admin 零配置自动引导）
+
 ### 5.4 统一入口脚本：`scripts/build_protected.sh`（v1.5 新增，修正 Gap #4）
 
 > 前述 §4.4（编译）、§5.1（镜像构建）、§5.2（离线打包）是三个独立操作，实施时容易遗漏步骤或执行顺序出错。新增顶层编排脚本，串联"本地试编译验证 → Docker 镜像构建 → 离线打包 → 端到端验证"全流程，作为开发/发布时的唯一入口。
@@ -1737,6 +1811,13 @@ git checkout .                      # 恢复原始源码
 | **`.py.bak` 潜在残留**（新增，v1.5，源自审计 Gap B） | 若未来 Dockerfile 重构改变 COPY 顺序/来源，编译中间产物 `.py.bak` 可能意外进入镜像 | `Dockerfile.compiled` 增加 `RUN find /app -name "*.py.bak" -delete` 防御性清理，见 §5.1.1 |
 | **Traceback 可读性** | 编译后堆栈跟踪不显示源码行号 | 开发环境保留 `.py`，部署版本另备调试工具 |
 | **kaleido 硬依赖** | 图表渲染需系统级 Chromium 共享库 | Docker 镜像中预装好依赖 |
+| **`.so` glob 前缀冲突**（v1.6 已修复） | `rule_mining*.so` glob 同时匹配 `rule_mining_meta.so`，导致 401KB 最大核心模块丢失、SOP API 加载失败 | 改用 `{base}.*.so` 精确 glob（`rule_mining.*.so` 不匹配 `rule_mining_meta.*.so`） |
+| **纯代码包 Python 版本绑定**（v1.6 新增） | `.so` 编译于 CVM Python 3.11，目标服务器必须对齐。Docker 离线包无此问题（Stage1/3 同基础镜像） | `deployment_guide.md` 标注版本要求；`setup_protected.sh` 自动对齐 Dockerfile 版本 |
+| **Docker bind mount `.db` 目录化**（v1.6 新增） | 部署前 `task_manager.db` 不存在时，Docker 在 bind mount 路径创建空目录而非文件，SQLite 报 `unable to open database file` | `setup_protected.sh` 启动前 `touch` 预创建 `.db` 文件 |
+| **`.env` 缺加密密钥**（v1.6 新增） | 纯代码包未运行部署脚本，`.env` 中无 `LLM_MANAGER_ENCRYPTION_KEY`，渠道创建报 `undefined` | `setup_protected.sh` 自动生成并写入；Docker 离线包由 `deploy_offline.sh` 自动生成 |
+| **`deploy_offline.sh` 空 `if` 块**（v1.6 已修复） | Bash 不允许 `then/fi` 间仅含注释，移除 `users.yaml` 创建逻辑后遗留空块导致语法错误 | 添加 `:`（空操作）占位命令 |
+| **`deploy_offline.sh` 相对路径跨项目污染**（v1.6 已修复） | Docker Compose 不同版本对 `volumes` 相对路径解析行为不一致，手动部署时可能挂载到其他项目的旧数据库 | `sed` 将 compose 文件中 `../` 替换为 `$PROJECT_ROOT/` 绝对路径 |
+| **`channels.py` logger 未定义**（v1.6 已修复） | `create_channel` 中 `logger` 在内部 `except` 块才定义，外部 `except` 触发 `UnboundLocalError` | `logger` 提到函数顶部统一初始化 |
 
 ### 7.2 运营风险
 
@@ -1771,8 +1852,10 @@ git checkout .                      # 恢复原始源码
 | `docker/docker-compose.compiled.yml` | **[v1.5 新增]** 与真实 `docker-compose.yml` 对接，供 `prepare_offline.sh --protected` 调用 |
 | `scripts/prepare_offline.sh` | **[v1.5 修改]** 增加 `--protected` 参数（最小文件集打包，见 §5.2.1），非 `--protected` 模式保持原有行为不变 |
 | `scripts/build_protected.sh` | **[v1.5 新增]** 统一入口脚本，串联编译→构建→打包→端到端验证全流程（见 §5.4） |
+| `scripts/setup_protected.sh` | **[v1.6 新增]** 纯代码包首次部署一键初始化（`.env`、加密密钥、`.db` 预创建、Dockerfile 版本对齐），见 §5.3 |
+| `scripts/mingw_env_setup.ps1` | **[v1.6 新增]** Windows 便携式 MinGW-w64 环境变量配置脚本 |
 | `docs/code-protection-plan.md` | 本文档 |
-| `docs/code-protection-audit.md` | 四轮审计报告，本文档 v1.5 的全部变更均可溯源至此文档 §10.5 最终清单 |
+| `docs/code-protection-audit.md` | 四轮审计报告，本文档 v1.6 的全部变更均可溯源至 `feature/code-protection` 分支 commit 历史 |
 
 ### 8.2 常用命令速查
 
@@ -1783,6 +1866,7 @@ python build_cython.py --yes                   # 编译 P0+P1（非交互）
 python build_cython.py --all --yes             # 额外编译待审计模块（validators.py）
 python build_cython.py --include-p2 --yes      # 额外编译 P2（需已扩展 Dockerfile COPY 范围）
 python build_cython.py --yes --replace         # 编译后用产物替换 .py，并输出 compiled_files.txt
+python build_cython.py --output-dir dist_protected  # v1.6: 输出到独立目录，源码无损
 python build_cython.py --clean                 # 清理所有编译产物，恢复 .py
 python build_cython.py --restore                # 恢复 .py.bak → .py
 
@@ -1806,6 +1890,11 @@ docker save creditwise:protected | gzip > creditwise_protected.tar.gz
 ./scripts/build_protected.sh --skip-verify  # 跳过第4步端到端验证，用于快速迭代调试
 # 或单独调用：
 ./scripts/prepare_offline.sh --protected    # 仅构建受保护离线包，不做端到端验证
+
+# === 纯代码包部署（v1.6 新增，见 §5.3）===
+python build_cython.py --output-dir dist_protected   # 编译 .so 到独立目录
+cd dist_protected && ./scripts/setup_protected.sh    # 一键初始化环境
+docker compose -f docker/docker-compose.yml up -d     # Docker 部署启动
 
 # === 测试验证（§4.7.3 CI 强制关卡 + §6.2 验收标准）===
 pytest tests/                                                         # 运行测试套件
