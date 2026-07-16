@@ -119,8 +119,9 @@ COPY --from=compiler /build/compiled_files.txt /tmp/compiled_files.txt
 
 # 按 compiled_files.txt 清单执行"复制 .so + 删除对应 .py 源码"
 # 清单以 build_cython.py 实际编译结果为唯一真相来源，根治 Gap #3
+# 注意：Linux 下 Cython 生成 .so 文件名含平台标签（如 rule_mining.cpython-312-x86_64-linux-gnu.so）
 RUN python - <<'EOF'
-import shutil
+import shutil, glob
 from pathlib import Path
 
 manifest = Path("/tmp/compiled_files.txt").read_text().strip().splitlines()
@@ -132,24 +133,29 @@ for rel_path in manifest:
     if not rel_path:
         continue
 
-    # xxx.py -> xxx.so（同名同目录，Cython build_ext --inplace 的约定）
-    so_name = rel_path[:-3]  # strip ".py"
-    # 在 compiler stage 产物目录中查找 .so 文件
-    so_path = compiled_root / (so_name + ".so")
-    dest_py = app_root / rel_path
-    dest_so = app_root / (so_name + ".so")
+    # 提取模块基础名：deepanalyze/analysis/task_SOP/rule_mining.py → rule_mining
+    module_base = Path(rel_path).stem
+    so_parent = compiled_root / Path(rel_path).parent
 
-    if so_path.exists():
+    # Glob 查找实际的 .so 文件（匹配平台标签后缀）
+    so_candidates = list(so_parent.glob(f"{module_base}*.so")) if so_parent.exists() else []
+
+    if so_candidates:
+        # 通常只有一个匹配，取第一个
+        so_path = so_candidates[0]
+        dest_so = app_root / so_path.relative_to(compiled_root)
         dest_so.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(so_path, dest_so)
-        print(f"copied .so: {dest_so}")
+        print(f"copied .so: {so_path.name} -> {dest_so}")
     else:
         print(
-            f"WARNING: expected .so not found for {rel_path}, "
-            f"skip copy (source will remain, protection NOT applied for this file)"
+            f"WARNING: .so not found for {rel_path} (looked for {module_base}*.so in {so_parent}), "
+            f"protection NOT applied for this file"
         )
         continue
 
+    # 删除对应的 .py 源码
+    dest_py = app_root / rel_path
     if dest_py.exists():
         dest_py.unlink()
         print(f"removed source: {dest_py}")
