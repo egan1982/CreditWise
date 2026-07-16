@@ -1,0 +1,246 @@
+# GYJZ FreeTrail 部署操作指南
+
+> **适用版本**：`feature/GYJZ_FreeTrail` 分支加密纯代码包  
+> **试用截止**：2026-10-31  
+> **目标环境**：Linux 内网服务器（无外网访问）
+
+---
+
+## 前置条件
+
+| 角色 | 机器 | 条件 |
+|------|------|------|
+| 接收方 IT 人员 | 可联网电脑（Windows / Mac / Linux） | 安装 Docker |
+| 目标服务器 | 内网 Linux 服务器（无外网） | 安装 Docker + Docker Compose |
+
+### Docker 安装指引
+
+- **Windows**：下载 [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)，安装后确保右下角 Docker 图标显示 "Engine running"
+- **Mac**：下载 [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)（Apple Silicon 选 Apple Chip 版本，Intel 选 Intel Chip 版本）
+- **Linux**：
+  ```bash
+  curl -fsSL https://get.docker.com | sudo bash
+  sudo systemctl enable --now docker
+  sudo usermod -aG docker $USER   # 需重新登录生效
+  ```
+
+> 验证安装：`docker --version` 输出 24.x 或以上即可。
+
+---
+
+## 一、邮件接收
+
+> 收到 `creditwise_protected_src_GYJZ_FreeTrail.tar.gz`（约 31MB）后保存到可联网电脑的本地目录。
+
+---
+
+## 二、可联网电脑：构建 Docker 离线包
+
+> 以下步骤在**可联网电脑**上操作。本节以 Linux 为例，Windows 使用 Git Bash / WSL，Mac 使用终端。
+
+### 步骤 1：解压纯代码包
+
+```bash
+# Linux / Mac
+tar -xzf creditwise_protected_src_GYJZ_FreeTrail.tar.gz
+
+# Windows（Git Bash / WSL）
+tar -xzf creditwise_protected_src_GYJZ_FreeTrail.tar.gz
+```
+
+解压后目录结构：
+```
+dist_protected/
+├── scripts/
+│   └── setup_protected.sh    ← 下一步要执行的一键构建脚本
+├── docker/
+│   └── docker-compose.yml    ← compose 配置
+├── deepanalyze/              ← 已编译的加密算法（.so）
+├── API/                      ← Web 服务入口
+├── llm_manager_integrated/   ← LLM 管理前端 + 后端
+├── demo/                     ← 主前端
+└── ...                       ← 其他运行时文件
+```
+
+### 步骤 2：执行 setup_protected.sh --build
+
+```bash
+cd dist_protected
+chmod +x scripts/setup_protected.sh
+./scripts/setup_protected.sh --build
+```
+
+脚本自动完成：
+1. 创建 `.env`（环境变量配置）
+2. 生成加密密钥（LLM Manager 渠道 API Key 存储所需）
+3. 预创建 `task_manager.db` / `llm_manager.db`
+4. 对齐 Dockerfile Python 版本（3.12 → 3.11）
+5. `docker compose build`（构建镜像，约 5-10 分钟，需外网拉取基础镜像）
+6. `docker save`（导出镜像为 tar 文件）
+7. 打包为 `creditwise_offline_YYYYMMDD_HHMMSS.tar.gz`
+
+> 构建完成后，终端输出离线包文件名，例如 `creditwise_offline_20260716_173045.tar.gz`。
+
+---
+
+## 三、上传至内网服务器
+
+> 线下传输方式任选：U 盘 / 移动硬盘 / 内网共享文件夹 / SCP 等。
+
+```bash
+# SCP 示例（内网可通时）
+scp creditwise_offline_YYYYMMDD_HHMMSS.tar.gz user@内网服务器IP:/opt/
+
+# 或通过 U 盘直接拷贝到服务器目录
+```
+
+---
+
+## 四、内网 Linux 服务器：部署
+
+> 以下步骤在**内网 Linux 服务器**上操作。以下以解压到 `/opt/CreditWise` 为例。
+
+### 步骤 1：解压离线包
+
+```bash
+mkdir -p /opt/CreditWise
+tar -xzf /opt/creditwise_offline_YYYYMMDD_HHMMSS.tar.gz -C /opt/CreditWise/
+```
+
+解压后 `/opt/CreditWise/` 目录结构：
+```
+/opt/CreditWise/
+├── images/
+│   └── creditwise-latest.tar        ← 预构建的 Docker 镜像
+└── source/
+    ├── docker/
+    │   └── docker-compose.yml       ← compose 配置文件
+    ├── scripts/
+    │   └── deploy_offline.sh        ← 部署脚本
+    ├── config/
+    │   └── users.yaml.example       ← 用户配置模板
+    └── .env                         ← 环境变量
+```
+
+### 步骤 2：执行部署脚本
+
+```bash
+cd /opt/CreditWise/source
+chmod +x scripts/deploy_offline.sh
+./scripts/deploy_offline.sh
+```
+
+脚本交互提示：
+```
+[2/4] 选择部署模式
+  [1] 单用户模式 — 无需登录认证
+  [2] 内网多用户 — Basic Auth 认证
+
+请选择 [1/2] (默认: 2):    ← 输入 2 或直接回车（试用版必须选择此模式）
+```
+
+脚本自动完成：
+1. `docker load`（加载镜像，无需外网）
+2. 交互式选择部署模式
+3. 配置环境变量
+4. `docker compose up -d`（启动服务，**不执行 build**）
+
+### 步骤 3：验证服务状态
+
+```bash
+# 检查容器是否运行
+docker ps | grep creditwise
+
+# 健康检查
+curl http://localhost:8200/health
+# 正常输出: {"status":"healthy"}
+
+# 查看初始 admin 密码（也可以直接用 admin123）
+docker logs creditwise-api 2>&1 | grep "首次启动" -A4
+```
+
+---
+
+## 五、admin 首次登录
+
+| 项目 | 值 |
+|------|------|
+| 浏览器访问 | `http://<服务器IP>:8200` |
+| 用户名 | `admin` |
+| 初始密码 | `admin123` |
+
+> 首次登录会被强制要求修改密码。修改后使用新密码重新登录。
+
+---
+
+## 六、配置 LLM Manager（渠道管理）
+
+1. 登录后进入「LLM Manager」页面
+2. 点击「新建渠道」，填写以下信息：
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| 渠道名称 | 自定义标识 | `DeepSeek-Prod` |
+| 渠道类型 | 选择对应的 API 类型 | `openai` / `deepseek` / `custom` |
+| 基础 URL | API 端点地址 | `https://api.deepseek.com/v1` |
+| API Key | 平台分配的密钥 | `sk-xxxx...` |
+| 模型列表 | 逗号分隔 | `deepseek-chat,deepseek-reasoner` |
+
+3. 点击「测试」验证连通性
+4. 点击「保存」
+
+> 如有多个渠道，重复以上步骤。配置完成后可进入 SOP 任务页执行评分卡 / 规则挖掘。
+
+---
+
+## 七、创建终端用户
+
+1. admin 登录后，点击右上角头像菜单 →「用户管理」
+2. 点击「新建用户」
+3. 填写用户信息：
+
+| 字段 | 说明 |
+|------|------|
+| 用户名 | 登录名（英文），如 `zhangsan` |
+| 角色 | 普通用户选 `user`，管理员选 `admin` |
+| 部门 | 可选，如 `风控部` |
+| 有效期 | 试用版统一截止 2026-10-31（已锁定，无需填写） |
+
+4. 点击「保存」，系统弹出一次性初始密码（请记录后告知对应用户）
+5. 重复以上步骤创建所有需要的用户
+
+> 终端用户首次登录后会被强制修改密码。后续可在「账户设置」中自助改密。
+
+---
+
+## 八、终端用户使用
+
+```
+用户 → 浏览器访问 http://<服务器IP>:8200
+    → 输入分配的用户名 + 一次性密码
+    → 强制修改密码
+    → 进入系统（LLM Manager 配置渠道、执行风控任务）
+```
+
+> 所有用户共享 LLM 渠道配置。SOP 任务（评分卡 / 规则挖掘）每个用户独立执行，互不干扰。
+
+---
+
+## 九、服务管理命令
+
+```bash
+# 查看服务状态
+cd /opt/CreditWise/source && docker compose ps
+
+# 停止服务
+docker compose -f docker/docker-compose.yml down
+
+# 启动服务
+docker compose -f docker/docker-compose.yml up -d
+
+# 查看日志
+docker logs -f creditwise-api
+
+# 重启服务
+docker compose -f docker/docker-compose.yml restart
+```
