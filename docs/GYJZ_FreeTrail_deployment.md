@@ -188,7 +188,7 @@ docker logs creditwise-api 2>&1 | grep "首次启动" -A4
 | 渠道类型 | 选择对应的 API 类型 | `openai` / `deepseek` / `custom` |
 | 基础 URL | API 端点地址 | `https://api.deepseek.com/v1` |
 | API Key | 平台分配的密钥 | `sk-xxxx...` |
-| 模型列表 | 逗号分隔 | `deepseek-chat,deepseek-reasoner` |
+| 模型 | 模型名称 | `deepseek-chat` |
 
 3. 点击「测试」验证连通性
 4. 点击「保存」
