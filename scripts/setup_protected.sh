@@ -48,6 +48,12 @@ mkdir -p workspace execution_states task_results logs config
 # 5. 删除用户配置模板（否则含占位符哈希会阻塞 admin 自动引导）
 rm -f config/users.yaml
 
+# 6. 修复 Dockerfile Python 版本：.so 编译于 Python 3.11，Dockerfile 需对齐
+if grep -q 'python:3.12-slim' docker/Dockerfile 2>/dev/null; then
+    sed -i 's/python:3.12-slim/python:3.11-slim/g' docker/Dockerfile
+    echo "Dockerfile Python 版本已对齐编译环境 (3.12→3.11)"
+fi
+
 echo ""
 echo "============================================================"
 echo " 环境初始化完成"
