@@ -95,6 +95,8 @@ cd docker && ENABLE_AUTH=true docker compose up -d
 ## 二、Docker 离线部署
 
 > 核心思路：在有外网的机器上构建完整 Docker 镜像（含前端编译 + Python 依赖），导出镜像 + 打包源码。内网服务器只需 `docker load` + `docker compose up`，**无需 build**。
+>
+> **⚠️ 试用版（GYJZ FreeTrail）：必须选择内网多用户模式（`deploy_offline.sh` 选项 [2]）。单用户模式跳过认证，试用期限制将不生效。**
 
 ### 环境要求对照
 
