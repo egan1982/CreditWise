@@ -152,6 +152,8 @@ def _ensure_bootstrap_admin_if_empty(username: str = "admin"):
 
     password = _generate_bootstrap_password()
     try:
+        # valid_until 由 UserService.create_user（已编译）强制设为试用截止日期，
+        # 此处无需传入
         UserService.create_user(
             username=username,
             password=password,

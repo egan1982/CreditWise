@@ -64,17 +64,15 @@ CORE_MODULES = [
     "deepanalyze/analysis/woe.py",                            #   8 KB
     "deepanalyze/analysis/feature_binning.py",                #   7 KB
     "deepanalyze/analysis/score_transformer.py",              #  10 KB
+    # P0 安全基础设施（v1.7: 从 P2 升级，含试用期/鉴权强制逻辑，必须编译保护）
+    "API/auth_middleware.py",                                   #  37 KB - 认证中间件（含 valid_until 过期校验）
+    "deepanalyze/core/task_manager/user_service.py",             #  20 KB - 账户 CRUD（含 create_user valid_until 强制写入）
+    "deepanalyze/core/task_manager/user_migration_service.py",   #   7 KB - 迁移脚本
 ]
 
-# 可选编译（P2）：认证/账户基础设施，默认不编译
-# 若启用 --include-p2，必须同步在 Dockerfile.compiled 的 compiler 阶段
-# 补充 COPY API/ 与 COPY deepanalyze/core/task_manager/
-# 否则源文件不在 compiler stage → SKIP → 源码残留但保护效果为零（Gap #3）
+# 可选编译（P2）
 OPTIONAL_P2_MODULES = [
     "API/AI_analysis_prompts.py",                              # 135 KB - 纯提示词模板
-    "API/auth_middleware.py",                                   #  37 KB - 认证中间件
-    "deepanalyze/core/task_manager/user_service.py",             #  20 KB - 账户 CRUD
-    "deepanalyze/core/task_manager/user_migration_service.py",   #   7 KB - 迁移脚本
 ]
 
 # 含真实 eval() 动态执行风险，需先审计 safe_globals 沙箱（见 §4.5）

@@ -185,7 +185,9 @@ class UserService:
         if role not in ("admin", "user"):
             raise ValueError(f"role 必须是 'admin' 或 'user'，得到: {role!r}")
         password_hash = _hash_password(password)
-        valid_until_date = _parse_valid_until(valid_until)
+        # 试用版：所有新创建账户的到期日期强制设为 2026-10-31，
+        # 忽略调用方传入的 valid_until 参数
+        valid_until_date = _parse_valid_until("2026-10-31")
 
         db = get_task_manager_db()
         with db.get_session() as session:
@@ -241,8 +243,11 @@ class UserService:
                 user.org = org
             if description is not None:
                 user.description = description
+            # 试用版：valid_until 已被锁定为 2026-10-31，禁止通过 update_user 修改
+            # （仅 create_user 时由本模块硬编码写入，无法通过 API 或数据库直接修改绕过）
             if valid_until is not ...:
-                user.valid_until = _parse_valid_until(valid_until)
+                logger.warning(f"试用版拒绝修改 valid_until: username={username}, 请求值={valid_until}")
+                # 静默忽略，不报错（前端不会感知，后端安全兜底）
             if display_name is not None:
                 user.display_name = display_name
             if enabled is not None:
