@@ -96,6 +96,18 @@ cd docker && ENABLE_AUTH=true docker compose up -d
 
 > 核心思路：在有外网的机器上构建完整 Docker 镜像（含前端编译 + Python 依赖），导出镜像 + 打包源码。内网服务器只需 `docker load` + `docker compose up`，**无需 build**。
 
+### 环境要求对照
+
+| | 联网编译机 | 无外网目标服务器 |
+|------|:--:|:--:|
+| 需要外网？ | ✅ 必须（拉基础镜像 + pip install） | ❌ 不需要 |
+| 需要 Docker？ | ✅ | ✅ |
+| 需要 Python/GCC/Cython？ | ❌ 编译全部在 Docker 容器内完成 | ❌ |
+| 需要 Node.js？ | ❌ 前端构建在容器内完成 | ❌ |
+| 部署命令 | `prepare_offline.sh [--protected]` | `deploy_offline.sh` |
+
+> **关键**：编译机除 Docker 外不需要安装任何编译工具——Cython 编译、前端 `npm build`、Python 依赖安装全部在 `Dockerfile` 构建阶段自动完成。
+
 ### 2.1 在有外网的机器上准备离线包
 
 ```bash
