@@ -14,6 +14,16 @@ wheels/
 # Virtual environment
 .venv/
 
+# Cython 编译产物（build_cython.py 生成）
+build_cython/
+compiled_files.txt
+dist_protected/
+*.pyd
+*.so
+*.py.bak
+*.c
+*.html
+
 # IDE
 .idea/
 .cursor/

@@ -10,6 +10,7 @@ Cython 编译脚本 —— DeepAnalyze 代码保护方案 Layer 2 核心工具
     python build_cython.py --dry-run          # 预览将编译的模块
     python build_cython.py --clean            # 清理所有编译产物
     python build_cython.py --replace          # 编译后用 .pyd/.so 替换 .py
+    python build_cython.py --output-dir DIR   # 输出到独立目录，源码无损（用于本地编译后部署）
 
 v1.5 设计要点（源自 docs/code-protection-audit.md 四轮审计）:
     - P2 可选模块独立于 CORE_MODULES，需 --include-p2 显式启用，避免默认路径隐式静默失败
@@ -27,6 +28,13 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 BUILD_DIR = "build_cython"
 MANIFEST_PATH = ROOT / "compiled_files.txt"
+
+# MinGW-w64 便携式编译器路径（用于无 MSVC 的 Windows 环境）
+# 可通过环境变量 MINGW64_PATH 覆盖，默认使用 portable-dev-env 下的工具链
+_MINGW64_PATH = os.environ.get(
+    "MINGW64_PATH",
+    str(Path(os.environ.get("PORTABLE_DEV_ENV", ROOT.parent.parent.as_posix())) / "tools" / "mingw64" / "bin")
+)
 
 
 # =============================================================================
@@ -100,9 +108,15 @@ def _get_extension_for_module(mod_path: str) -> str:
     return ".so"  # 默认回退
 
 
-def build_extensions(modules: list[str]) -> list[str]:
+def build_extensions(modules: list[str], output_dir: str | None = None) -> list[str]:
     """
-    编译指定模块为 C 扩展（原地构建）。
+    编译指定模块为 C 扩展。
+
+    Args:
+        modules: 待编译的模块路径列表
+        output_dir: 输出目录（可选）。指定后 .pyd/.so 输出到此目录并保持包结构，
+                    源码不受影响。不指定则 --inplace 编译到源码同级目录。
+
     返回实际成功进入编译流程的模块列表（用于生成清单文件）。
     """
     # 延迟导入，使本脚本作为纯数据模块 import 时不会触发 heavy dependency
@@ -147,6 +161,40 @@ def build_extensions(modules: list[str]) -> list[str]:
         print("没有需要编译的模块")
         return actually_compiled
 
+    # --- 编译器检测（Windows 便携式环境支持 MinGW-w64）---
+    if output_dir:
+        build_lib_abs = str(Path(output_dir).resolve())
+        script_args = ["build_ext", "--build-lib", build_lib_abs]
+    else:
+        script_args = ["build_ext", "--inplace"]
+    mingw_path = None
+
+    if sys.platform == "win32":
+        # 检查 MSVC 是否可用
+        msvc_available = False
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["where", "cl.exe"], capture_output=True, text=True, timeout=5
+            )
+            msvc_available = result.returncode == 0
+        except Exception:
+            pass
+
+        if not msvc_available:
+            # 回退到 MinGW-w64
+            mingw_bin = Path(_MINGW64_PATH)
+            if (mingw_bin / "gcc.exe").exists():
+                mingw_path = str(mingw_bin)
+                os.environ["PATH"] = mingw_path + ";" + os.environ.get("PATH", "")
+                script_args.append("--compiler=mingw32")
+                print(f"[编译器] 使用 MinGW-w64: {mingw_path}")
+            else:
+                print(
+                    f"[编译器] 警告: 未检测到 MSVC 或 MinGW-w64 (路径: {mingw_bin})，"
+                    f"编译可能失败"
+                )
+
     print(f"\n开始编译 {len(extensions)} 个模块...\n")
     setup(
         name="deepanalyze_compiled",
@@ -161,8 +209,9 @@ def build_extensions(modules: list[str]) -> list[str]:
                 "annotation_typing": False,
             },
         ),
-        script_args=["build_ext", "--inplace"],
+        script_args=script_args,
         zip_safe=False,
+        packages=[],  # 只编译扩展模块，不打包 Python 包（避免 flat-layout 发现冲突）
     )
     return actually_compiled
 
@@ -181,7 +230,7 @@ def replace_py_files(modules: list[str]) -> None:
     """编译完成后，将原 .py 重命名为 .py.bak（.pyd/.so 自动优先加载）"""
     for mod_path in modules:
         p = Path(mod_path)
-        bak = p.with_suffix(".py.bak")
+        bak = p.with_suffix(".py.bak") if p.suffix == ".py" else Path(str(p) + ".bak")
         if p.exists():
             p.rename(bak)
             print(f"  BAK: {mod_path} -> {bak.name}")
@@ -191,7 +240,7 @@ def restore_py_files(modules: list[str]) -> None:
     """恢复 .py.bak -> .py（用于开发调试）"""
     for mod_path in modules:
         p = Path(mod_path)
-        bak = p.with_suffix(".py.bak")
+        bak = p.with_suffix(".py.bak") if p.suffix == ".py" else Path(str(p) + ".bak")
         if bak.exists():
             bak.rename(p)
             print(f"  RESTORE: {bak.name} -> {mod_path}")
@@ -199,9 +248,12 @@ def restore_py_files(modules: list[str]) -> None:
 
 def clean_all() -> None:
     """清理所有编译产物和中间文件，恢复开发环境"""
-    # 删除编译产物
+    # 删除编译产物（排除 .venv 虚拟环境目录）
+    skip_dirs = {".venv", "venv", "node_modules", ".git"}
     for pattern in ["*.pyd", "*.so", "*.c", "*.html"]:
         for f in ROOT.rglob(pattern):
+            if any(p.name in skip_dirs for p in f.parents):
+                continue
             f.unlink()
             print(f"  DEL: {f}")
 
@@ -293,6 +345,11 @@ def main():
         "--yes", "-y", action="store_true",
         help="跳过交互确认，用于 CI/Docker 等非交互环境"
     )
+    parser.add_argument(
+        "--output-dir", type=str, default=None, metavar="DIR",
+        help="输出目录：编译 .pyd/.so 到此目录并保持包结构，源码不受影响。"
+             "用于本地编译后部署到其他机器。与 --replace 互斥。"
+    )
     args = parser.parse_args()
 
     # --- 清理/恢复操作 ---
@@ -337,40 +394,63 @@ def main():
               f"{len(DO_NOT_COMPILE)} 个")
         return
 
-    # --- 编译确认 ---
-    print(f"=== DeepAnalyze Cython 编译 ({len(modules)} 个模块) ===\n")
-    print_summary(modules)
+    # --- 编译确认（--output-dir 模式自动跳过确认，源码不受影响）---
+    if args.output_dir:
+        args.yes = True  # 输出到独立目录，不修改源码，无需确认
+        print(f"\n输出目录: {Path(args.output_dir).resolve()}")
+        print("（编译产物输出到独立目录，源码不受影响）")
+    else:
+        print(f"=== DeepAnalyze Cython 编译 ({len(modules)} 个模块) ===\n")
+        print_summary(modules)
 
-    excluded_dynamic = [m for m in DYNAMIC_MODULES if m not in modules]
-    if excluded_dynamic:
-        print(f"\n未包含 {len(excluded_dynamic)} 个待审计模块 (使用 --all 编译):")
-        for m in excluded_dynamic:
-            print(f"  [待审计] {m}")
-    excluded_p2 = [m for m in OPTIONAL_P2_MODULES if m not in modules]
-    if excluded_p2:
-        print(f"\n未包含 {len(excluded_p2)} 个 P2 可选模块 (使用 --include-p2 编译):")
-        for m in excluded_p2:
-            print(f"  [P2可选] {m}")
-    print(f"\n以下模块因含 FastAPI 路由装饰器，任何模式下都不会被编译: "
-          f"{len(DO_NOT_COMPILE)} 个")
+        excluded_dynamic = [m for m in DYNAMIC_MODULES if m not in modules]
+        if excluded_dynamic:
+            print(f"\n未包含 {len(excluded_dynamic)} 个待审计模块 (使用 --all 编译):")
+            for m in excluded_dynamic:
+                print(f"  [待审计] {m}")
+        excluded_p2 = [m for m in OPTIONAL_P2_MODULES if m not in modules]
+        if excluded_p2:
+            print(f"\n未包含 {len(excluded_p2)} 个 P2 可选模块 (使用 --include-p2 编译):")
+            for m in excluded_p2:
+                print(f"  [P2可选] {m}")
+        print(f"\n以下模块因含 FastAPI 路由装饰器，任何模式下都不会被编译: "
+              f"{len(DO_NOT_COMPILE)} 个")
 
-    confirm = "y" if args.yes else input("\n确认编译? [y/N] ")
-    if confirm.lower() != "y":
-        print("已取消")
-        return
+        confirm = "y" if args.yes else input("\n确认编译? [y/N] ")
+        if confirm.lower() != "y":
+            print("已取消")
+            return
 
     # --- 执行编译 ---
-    actually_compiled = build_extensions(modules)
+    actually_compiled = build_extensions(modules, output_dir=args.output_dir)
 
-    # 写入清单文件，供 Dockerfile 按清单删除源码
+    # 写入清单文件
     if actually_compiled:
-        write_compiled_manifest(actually_compiled)
+        if args.output_dir:
+            # 清单写入输出目录
+            manifest_dest = Path(args.output_dir) / "compiled_files.txt"
+            manifest_dest.parent.mkdir(parents=True, exist_ok=True)
+            manifest_dest.write_text("\n".join(actually_compiled), encoding="utf-8")
+            print(f"\n编译清单已写入: {manifest_dest} ({len(actually_compiled)} 个文件)")
+        else:
+            write_compiled_manifest(actually_compiled)
 
-    # 可选：替换源文件
-    if args.replace:
+    # 可选：替换源文件（--output-dir 模式下不执行，源码不受影响）
+    if args.replace and not args.output_dir:
         replace_py_files(actually_compiled)
         print("\n源码已替换为编译产物")
-    else:
+    elif args.output_dir:
+        print("\n编译产物已输出到独立目录，源码未受影响。")
+        print("\n=== 部署步骤 ===")
+        print(f"1. 将项目源码复制到 {args.output_dir}/ ")
+        print(f"   xcopy /E . {args.output_dir}\\ /EXCLUDE:exclude.txt")
+        print(f"   或 rsync -a --exclude-from=exclude.txt . {args.output_dir}/")
+        print(f"2. 按 compiled_files.txt 清单删除输出目录中的 .py 源码:")
+        print(f"   cd {args.output_dir}")
+        print(f"   for /f %f in (compiled_files.txt) do @del \"%f\" 2>nul")
+        print(f"   （或 Linux: xargs -a compiled_files.txt rm -f）")
+        print(f"3. 部署 {args.output_dir}/ 到目标服务器，直接运行。")
+    elif not args.replace:
         print("\n编译完成（源文件保留）")
         print("  提示: 使用 --replace 参数可将 .py 替换为编译产物")
 
