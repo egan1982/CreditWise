@@ -138,7 +138,9 @@ for rel_path in manifest:
     so_parent = compiled_root / Path(rel_path).parent
 
     # Glob 查找实际的 .so 文件（匹配平台标签后缀）
-    so_candidates = list(so_parent.glob(f"{module_base}*.so")) if so_parent.exists() else []
+    # 注意：必须用 {module_base}.*.so 而非 {module_base}*.so，
+    # 否则 rule_mining*.so 会同时匹配 rule_mining.so 和 rule_mining_meta.so
+    so_candidates = list(so_parent.glob(f"{module_base}.*.so")) if so_parent.exists() else []
 
     if so_candidates:
         # 通常只有一个匹配，取第一个
