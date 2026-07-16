@@ -65,7 +65,7 @@ echo "ENABLE_AUTH=true" >> .env
 ./scripts/service.sh start
 ```
 
-首次启动时，若检测到数据库和 `config/users.yaml` 中都没有配置任何账户，服务会**自动生成一个随机密码的 admin 账户**并打印到启动日志，首次登录会被强制要求修改密码：
+首次启动时，若检测到数据库和 `config/users.yaml` 中都没有配置任何账户，服务会**自动创建 admin 账户**（默认密码 `admin123`，首次登录强制改密）。可通过环境变量 `BOOTSTRAP_ADMIN_PASSWORD` 自定义初始密码。
 
 ```bash
 # 查看一次性密码（首次启动后立即查看，只显示一次）
