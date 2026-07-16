@@ -8,7 +8,8 @@
 #
 # 用法：
 #   chmod +x scripts/prepare_offline.sh
-#   ./scripts/prepare_offline.sh
+#   ./scripts/prepare_offline.sh              # 标准模式（现有行为）
+#   ./scripts/prepare_offline.sh --protected   # 受保护模式（Cython 编译 + 最小文件集打包）
 #
 # 产出：creditwise_offline_bundle.tar.gz（约 1.5GB）
 # =============================================================================
@@ -23,11 +24,30 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUNDLE_DIR="$PROJECT_ROOT/offline_bundle"
-IMAGE_NAME="creditwise:latest"
 
-echo "============================================================"
-echo " CreditWise 离线部署 — 准备离线包"
-echo "============================================================"
+# === v1.5 新增：--protected 参数解析 ===
+PROTECTED_MODE=false
+if [ "$1" = "--protected" ]; then
+    PROTECTED_MODE=true
+fi
+
+if [ "$PROTECTED_MODE" = "true" ]; then
+    IMAGE_NAME="creditwise:protected"
+    COMPOSE_FILE="docker-compose.compiled.yml"
+else
+    IMAGE_NAME="creditwise:latest"
+    COMPOSE_FILE="docker-compose.yml"
+fi
+
+if [ "$PROTECTED_MODE" = "true" ]; then
+    echo "============================================================"
+    echo " CreditWise 离线部署 — 准备离线包 [受保护模式]"
+    echo "============================================================"
+else
+    echo "============================================================"
+    echo " CreditWise 离线部署 — 准备离线包"
+    echo "============================================================"
+fi
 echo ""
 echo "此脚本将在当前机器上构建完整 Docker 镜像，打包后传输到内网服务器。"
 echo "预计耗时 5-15 分钟（取决于网络和机器性能）。"
@@ -60,12 +80,15 @@ mkdir -p "$BUNDLE_DIR/images"
 # [1/4] 构建完整 Docker 镜像
 # =============================================================================
 echo -e "${GREEN}[1/4] 构建完整 Docker 镜像${NC}"
+if [ "$PROTECTED_MODE" = "true" ]; then
+    echo "  [受保护模式] 核心算法将在构建阶段编译为 .so，源码不进入镜像"
+fi
 echo "  包含：前端编译（Next.js + Vite + Tailwind）+ Python 依赖安装"
 echo "  需要外网访问，首次构建约 5-10 分钟..."
 echo ""
 
 cd "$PROJECT_ROOT/docker"
-docker compose build
+docker compose -f "$COMPOSE_FILE" build
 
 echo ""
 echo -e "${GREEN}  ✅ Docker 镜像构建完成${NC}"
@@ -86,62 +109,77 @@ echo -e "${GREEN}  ✅ 镜像导出完成: ${IMAGE_SIZE}${NC}"
 echo ""
 
 # =============================================================================
-# [3/4] 打包项目源码
+# [3/4] 打包运行时文件（v1.5：受保护模式改为最小文件集，修正 Gap #2）
 # =============================================================================
-echo -e "${GREEN}[3/4] 打包项目源码${NC}"
-echo "  排除: .git, node_modules, workspace, logs, *.db 等运行时文件"
+echo -e "${GREEN}[3/4] 打包运行时文件${NC}"
 
 SOURCE_DIR="$BUNDLE_DIR/source"
 mkdir -p "$SOURCE_DIR"
 
-# 使用 rsync 排除不需要的文件（macOS/Linux 均自带）
-#
-# CVM离线部署测试发现（2026-07-03）：此前排除列表遗漏了 demo/chat/.next
-# （Next.js 本地构建缓存目录，约242MB），而真正需要的产物 demo/chat/dist
-# （静态导出输出，仅约3MB）本身就会被打包进去。.next 对离线部署完全无用——
-# 本脚本第[1/4]步的镜像构建走的是 Dockerfile 多阶段构建（frontend-builder
-# 阶段独立执行 npm run build 并只 COPY dist/ 到最终镜像），根本不读取/依赖
-# 宿主机这份本地 .next 缓存；source/ 目录本身在 deploy_offline.sh 里也只是
-# 提供运行时配置文件（.env/config/）+ bind mount 目录，同样不会被重新构建。
-# 排除后每份离线包可节省约240MB。
-rsync -a \
-    --exclude='.git' \
-    --exclude='node_modules' \
-    --exclude='.next' \
-    --exclude='workspace' \
-    --exclude='execution_states' \
-    --exclude='task_results' \
-    --exclude='logs' \
-    --exclude='*.db' \
-    --exclude='.env' \
-    --exclude='offline_bundle' \
-    --exclude='creditwise_offline_bundle*' \
-    --exclude='.DS_Store' \
-    --exclude='__pycache__' \
-    --exclude='*.pyc' \
-    --exclude='deepanalyze/SkyRL' \
-    --exclude='deepanalyze/ms-swift' \
-    --exclude='playground' \
-    --exclude='graphiti-ui' \
-    --exclude='.omo' \
-    "$PROJECT_ROOT/" "$SOURCE_DIR/"
+if [ "$PROTECTED_MODE" = "true" ]; then
+    # v1.5 新增：受保护模式不 rsync 全量项目源码。
+    # deploy_offline.sh 运行时完全不读取 source/ 下的 .py 文件——
+    # 容器启动用的是镜像内 /app/，不是宿主机 source/。
+    # 因此只需复制 deploy_offline.sh 实际依赖的最小文件集：
+    # docker-compose.yml（重命名自 compiled 版）、scripts/、config/、.env 模板
+    echo "  [受保护模式] 仅复制运行时必需文件（不含 .py 源码），从源头消除泄露面"
+    mkdir -p "$SOURCE_DIR/docker" "$SOURCE_DIR/scripts" "$SOURCE_DIR/config"
+    # deploy_offline.sh 执行不带 -f 的 docker compose up -d，按约定读取
+    # 当前目录固定文件名 docker-compose.yml。将 compiled 版重命名为标准名，
+    # 避免改动 deploy_offline.sh 本身（改动面更小、风险更低）
+    cp "$PROJECT_ROOT/docker/$COMPOSE_FILE" "$SOURCE_DIR/docker/docker-compose.yml"
+    cp -r "$PROJECT_ROOT/scripts/" "$SOURCE_DIR/scripts/"
+    cp "$PROJECT_ROOT/config/users.yaml.example" "$SOURCE_DIR/config/" 2>/dev/null || true
+    if [ -f "$PROJECT_ROOT/.env.example" ]; then
+        cp "$PROJECT_ROOT/.env.example" "$SOURCE_DIR/.env"
+    fi
+else
+    # 标准模式：保持原有全量 rsync 行为不变
+    echo "  排除: .git, node_modules, workspace, logs, *.db 等运行时文件"
 
-# 确保运行时需要的目录存在
+    # 使用 rsync 排除不需要的文件（macOS/Linux 均自带）
+    rsync -a \
+        --exclude='.git' \
+        --exclude='node_modules' \
+        --exclude='.next' \
+        --exclude='workspace' \
+        --exclude='execution_states' \
+        --exclude='task_results' \
+        --exclude='logs' \
+        --exclude='*.db' \
+        --exclude='.env' \
+        --exclude='offline_bundle' \
+        --exclude='creditwise_offline_bundle*' \
+        --exclude='.DS_Store' \
+        --exclude='__pycache__' \
+        --exclude='*.pyc' \
+        --exclude='deepanalyze/SkyRL' \
+        --exclude='deepanalyze/ms-swift' \
+        --exclude='playground' \
+        --exclude='graphiti-ui' \
+        --exclude='.omo' \
+        "$PROJECT_ROOT/" "$SOURCE_DIR/"
+
+    # 从模板创建默认配置文件（如果不存在）
+    if [ -f "$SOURCE_DIR/.env.example" ]; then
+        cp "$SOURCE_DIR/.env.example" "$SOURCE_DIR/.env" 2>/dev/null || true
+    fi
+    if [ -f "$SOURCE_DIR/config/users.yaml.example" ]; then
+        cp "$SOURCE_DIR/config/users.yaml.example" "$SOURCE_DIR/config/users.yaml" 2>/dev/null || true
+    fi
+fi
+
+# 确保运行时需要的目录存在（两种模式都需要）
 mkdir -p "$SOURCE_DIR"/{workspace,execution_states,task_results,logs,config}
-
-# 从模板创建默认配置文件（如果不存在）
-if [ -f "$SOURCE_DIR/.env.example" ]; then
-    cp "$SOURCE_DIR/.env.example" "$SOURCE_DIR/.env" 2>/dev/null || true
-fi
-if [ -f "$SOURCE_DIR/config/users.yaml.example" ]; then
-    cp "$SOURCE_DIR/config/users.yaml.example" "$SOURCE_DIR/config/users.yaml" 2>/dev/null || true
-fi
-
 # 预创建空的数据库文件（避免 Docker bind mount 将其创建为目录）
 touch "$SOURCE_DIR/llm_manager.db" "$SOURCE_DIR/task_manager.db"
 
 SOURCE_SIZE=$(du -sh "$SOURCE_DIR" | cut -f1)
-echo -e "${GREEN}  ✅ 源码打包完成: ${SOURCE_SIZE}${NC}"
+echo -e "${GREEN}  ✅ 运行时文件打包完成: ${SOURCE_SIZE}${NC}"
+if [ "$PROTECTED_MODE" = "true" ]; then
+    echo "  （标准模式下 source/ 通常数十MB含全部源码；受保护模式应仅为数百KB级别，"
+    echo "   若本次大小明显偏大，请检查是否误复制了源码目录）"
+fi
 echo ""
 
 # =============================================================================
@@ -152,7 +190,11 @@ echo -e "${GREEN}[4/4] 生成离线部署包${NC}"
 BUNDLE_SIZE=$(du -sh "$BUNDLE_DIR" | cut -f1)
 echo "  离线包内容大小: $BUNDLE_SIZE"
 
-ARCHIVE_NAME="creditwise_offline_bundle.tar.gz"
+if [ "$PROTECTED_MODE" = "true" ]; then
+    ARCHIVE_NAME="creditwise_offline_bundle_protected.tar.gz"
+else
+    ARCHIVE_NAME="creditwise_offline_bundle.tar.gz"
+fi
 cd "$PROJECT_ROOT"
 tar -czf "$ARCHIVE_NAME" offline_bundle/
 

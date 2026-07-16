@@ -1,0 +1,71 @@
+# CreditWise Docker Compose 配置 — 代码保护版（v1.5 新增）
+#
+# 与 docker/docker-compose.yml 完全一致，仅两处差异：
+#   1. build.dockerfile 指向 docker/Dockerfile.compiled（编译版）
+#   2. image tag 使用 creditwise:protected
+#
+# 修改 docker/docker-compose.yml 时请同步检查本文件是否需要更新。
+#
+# 使用方式：
+#   docker compose -f docker/docker-compose.compiled.yml up -d
+#   或通过 scripts/prepare_offline.sh --protected 自动调用
+#
+# 首次使用内网多用户模式：与标准版相同，容器首次启动时自动生成随机密码 admin 账户
+
+services:
+  creditwise:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.compiled   # ← 唯一差异
+      args:
+        - OFFLINE_MODE=${OFFLINE_MODE:-false}
+    image: creditwise:protected                # ← 镜像 tag 区分于标准版
+    container_name: creditwise-api
+
+    # 从项目根目录的 .env 文件读取环境变量
+    env_file:
+      - ../.env
+
+    ports:
+      - "8200:8200"   # API 服务 + 前端
+      - "8100:8100"   # 文件下载服务
+
+    volumes:
+      # 持久化数据（容器重启不丢失）
+      - ../workspace:/app/workspace
+      - ../execution_states:/app/execution_states
+      - ../task_results:/app/task_results
+      - ../logs:/app/logs
+      # 数据库文件
+      - ../llm_manager.db:/app/llm_manager.db
+      - ../task_manager.db:/app/task_manager.db
+      # 用户配置目录
+      - ../config:/app/config
+      # .env 文件（供 Python dotenv 读取）
+      - ../.env:/app/.env
+
+    environment:
+      # 服务配置
+      - API_HOST=0.0.0.0
+      - API_PORT=8200
+      - DEV_MODE=false
+      # 认证控制：默认开启（内网多用户），私有化单用户场景显式设 ENABLE_AUTH=false 关闭
+      - ENABLE_AUTH=${ENABLE_AUTH:-true}
+      # CORS（生产模式同源，一般不需要配置）
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      # v1.5 新增：Layer 1 默认轻量部署审批（见 docs/code-protection-plan.md §3.0）
+      # 留空则不启用审批门槛
+      - DEPLOY_APPROVAL_TOKEN_EXPECTED=${DEPLOY_APPROVAL_TOKEN_EXPECTED:-}
+      - DEPLOY_APPROVAL_TOKEN=${DEPLOY_APPROVAL_TOKEN:-}
+      # v1.5 新增：Layer 1 可选完整方案（面向外部客户，见 §3.1）
+      # 默认不配置即跳过验证
+      - LICENSE_PUBLIC_KEY=${LICENSE_PUBLIC_KEY:-}
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3

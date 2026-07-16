@@ -1,0 +1,183 @@
+# ============================================
+# CreditWise 代码保护版 Docker 镜像（v1.5）
+# 与 docker/Dockerfile 结构对齐，新增 Cython 编译阶段
+#
+# 差异摘要：
+#   Stage 1 (新增)：Cython 编译核心算法 .py → .so
+#   Stage 2：前端构建（与标准版相同）
+#   Stage 3：运行时（替换编译产物 + 清理源码）
+#
+# 详见 docs/code-protection-plan.md §5.1.1
+# ============================================
+
+# === Stage 1: Cython 编译阶段（v1.5 新增）===
+FROM python:3.12-slim AS compiler
+WORKDIR /build
+
+# 安装编译依赖
+RUN apt-get update && apt-get install -y gcc build-essential python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir cython setuptools wheel
+
+# 目录级复制：覆盖 CORE_MODULES(P0+P1) + OPTIONAL_P2_MODULES 的全部潜在来源目录
+# 不再逐文件列出，避免与 build_cython.py 的清单脱节（Gap #3 根治）
+# 若 build_cython.py 新增了其他目录下的编译对象，需同步在此补充 COPY
+COPY deepanalyze/ /build/deepanalyze/
+COPY API/ /build/API/
+COPY build_cython.py /build/
+
+# 默认只编译 P0+P1（不加 --include-p2）
+# --yes 跳过交互确认（Docker 非交互环境必须）
+# --replace 确保 .py 被重命名为 .py.bak，编译产物留在 compiler stage
+RUN python build_cython.py --yes --replace
+
+# === Stage 2: 前端构建 ===
+FROM node:18-slim AS frontend-builder
+
+# --- Next.js 主前端 ---
+WORKDIR /build
+COPY demo/chat/package.json demo/chat/package-lock.json* ./
+RUN npm install --production=false
+COPY demo/chat/ ./
+RUN npm run build
+
+# --- LLM Manager 前端 (Vite + Tailwind CSS 完整编译) ---
+WORKDIR /build-llm
+COPY llm_manager_integrated/frontend/package.json llm_manager_integrated/frontend/package-lock.json* /build-llm/
+RUN npm install --production=false
+COPY llm_manager_integrated/frontend/ /build-llm/
+RUN chmod +x node_modules/.bin/vite node_modules/.bin/tailwindcss 2>/dev/null || true && \
+    npm run build && \
+    ./node_modules/.bin/tailwindcss \
+        -i ./styles/main.css \
+        -o /static/assets/main.css \
+        --minify && \
+    echo "main.css size:" && wc -c /static/assets/main.css && \
+    sed -i 's|<script src="https://cdn.tailwindcss.com[^"]*"></script>|<link rel="stylesheet" href="/llm-manager/assets/main.css">|' /static/assets/index.html && \
+    sed -i 's| https://cdn.tailwindcss.com||g' /static/assets/index.html && \
+    sed -i 's|http://localhost:8200 ||g' /static/assets/index.html && \
+    sed -i '/<style>/,/<\/style>/d' /static/assets/index.html && \
+    cp -r scripts /static/ && \
+    cp -r shared /static/
+
+# === Stage 3: 运行时 ===
+FROM python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    API_HOST=0.0.0.0 \
+    API_PORT=8200 \
+    DEV_MODE=false \
+    ENABLE_AUTH=true
+
+WORKDIR /app
+
+# 安装系统依赖（与标准 Dockerfile 一致）
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    fonts-wqy-zenhei \
+    libgbm1 \
+    libnss3 \
+    libnspr4 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libasound2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libxkbcommon0 \
+    libpango-1.0-0 \
+    libcups2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Python 依赖
+ARG OFFLINE_MODE=false
+COPY requirements.txt .
+COPY docker/.offline_wheels/ /tmp/offline_wheels/
+RUN pip install --upgrade pip && \
+    if [ "$OFFLINE_MODE" = "true" ] && ls /tmp/offline_wheels/*.whl >/dev/null 2>&1; then \
+        echo "==> 离线模式: 使用本地 wheels"; \
+        pip install --no-index --find-links=/tmp/offline_wheels -r requirements.txt; \
+    else \
+        pip install -r requirements.txt; \
+    fi
+
+# 复制项目代码（从构建上下文，含全部原始 .py 源码——下面会按清单删除已编译部分）
+COPY API/ ./API/
+COPY deepanalyze/ ./deepanalyze/
+COPY llm_manager_integrated/ ./llm_manager_integrated/
+COPY scripts/ ./scripts/
+COPY config/users.yaml.example ./config/users.yaml.example
+COPY build_cython.py ./
+
+# 复制编译产物（compiler 阶段基于 Linux 镜像，只产生 .so）
+COPY --from=compiler /build/deepanalyze/ /tmp/compiled/deepanalyze/
+COPY --from=compiler /build/API/ /tmp/compiled/API/
+COPY --from=compiler /build/compiled_files.txt /tmp/compiled_files.txt
+
+# 按 compiled_files.txt 清单执行"复制 .so + 删除对应 .py 源码"
+# 清单以 build_cython.py 实际编译结果为唯一真相来源，根治 Gap #3
+RUN python - <<'EOF'
+import shutil
+from pathlib import Path
+
+manifest = Path("/tmp/compiled_files.txt").read_text().strip().splitlines()
+compiled_root = Path("/tmp/compiled")
+app_root = Path("/app")
+
+for rel_path in manifest:
+    rel_path = rel_path.strip()
+    if not rel_path:
+        continue
+
+    # xxx.py -> xxx.so（同名同目录，Cython build_ext --inplace 的约定）
+    so_name = rel_path[:-3]  # strip ".py"
+    # 在 compiler stage 产物目录中查找 .so 文件
+    so_path = compiled_root / (so_name + ".so")
+    dest_py = app_root / rel_path
+    dest_so = app_root / (so_name + ".so")
+
+    if so_path.exists():
+        dest_so.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(so_path, dest_so)
+        print(f"copied .so: {dest_so}")
+    else:
+        print(
+            f"WARNING: expected .so not found for {rel_path}, "
+            f"skip copy (source will remain, protection NOT applied for this file)"
+        )
+        continue
+
+    if dest_py.exists():
+        dest_py.unlink()
+        print(f"removed source: {dest_py}")
+
+# 清理临时目录
+shutil.rmtree("/tmp/compiled", ignore_errors=True)
+Path("/tmp/compiled_files.txt").unlink(missing_ok=True)
+EOF
+
+# 防御性清理 .py.bak（源自审计 Gap B）
+# 不依赖"COPY 阶段天然隔离"这一隐式假设
+RUN find /app -name "*.py.bak" -delete
+
+# 复制前端构建产物
+COPY --from=frontend-builder /build/dist ./demo/chat/dist
+COPY --from=frontend-builder /static/ ./llm_manager_integrated/static/
+
+# 创建必要的目录
+RUN mkdir -p workspace execution_states task_results logs config
+
+# 清理编译中间文件
+RUN find /app -name "*.pyc" -delete \
+    && find /app -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true \
+    && rm -f /app/build_cython.py
+
+EXPOSE 8200 8100
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8200/health || exit 1
+
+CMD ["python", "API/main.py"]

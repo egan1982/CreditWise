@@ -188,6 +188,17 @@ def _print_bootstrap_admin_banner(cred: dict) -> None:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application"""
+
+    # === 部署审批验证（最先执行，Layer 1 默认轻量方案）===
+    # 见 docs/code-protection-plan.md §3.0、API/deploy_guard.py
+    from API.deploy_guard import check_deploy_approved
+    if not check_deploy_approved():
+        raise RuntimeError(
+            "Deploy approval failed. "
+            "DEPLOY_APPROVAL_TOKEN does not match the expected value. "
+            "Please contact the administrator for a valid deployment token."
+        )
+
     app = FastAPI(title=API_TITLE, version=API_VERSION)
 
     # Add Dynamic CORS middleware — sets Origin dynamically per request
