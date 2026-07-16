@@ -138,6 +138,7 @@ if [ "$ENABLE_AUTH" = "true" ]; then
     # v1.6+ 不再自动创建 users.yaml（含占位符哈希会阻塞自动引导机制）。
     # admin 账户由首次启动时的零配置自动引导生成（默认密码 admin123，首次登录强制改密）。
     # 若需自定义初始用户名/预置多账户，部署后参考 docs/intranet_deployment_guide.md §3.3 手动配置。
+    :
 fi
 
 # 确保运行时目录存在
