@@ -15,7 +15,7 @@
 
 ### Docker 安装指引
 
-- **Windows**：下载 [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)，安装后确保右下角 Docker 图标显示 "Engine running"
+- **Windows**：下载 [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/)，安装后启动 Docker Desktop，右下角系统托盘 Docker 图标显示 "Engine running" 即可。另需安装 [Git for Windows](https://git-scm.com/download/win)（提供 Git Bash 终端，用于执行 `.sh` 脚本）。后续所有命令在 **Git Bash** 中执行，不要使用 CMD 或 PowerShell。
 - **Mac**：下载 [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)（Apple Silicon 选 Apple Chip 版本，Intel 选 Intel Chip 版本）
 - **Linux**：
   ```bash
@@ -36,7 +36,11 @@
 
 ## 二、可联网电脑：构建 Docker 离线包
 
-> 以下步骤在**可联网电脑**上操作。本节以 Linux 为例，Windows 使用 Git Bash / WSL，Mac 使用终端。
+> 以下步骤在**可联网电脑**上操作。
+>
+> - **Windows**：安装 [Git for Windows](https://git-scm.com/download/win)（自带 Git Bash 终端），在 Git Bash 中执行以下命令
+> - **Mac**：打开「终端」应用
+> - **Linux**：打开系统终端
 
 ### 步骤 1：解压纯代码包
 
@@ -44,7 +48,7 @@
 # Linux / Mac
 tar -xzf creditwise_protected_src_GYJZ_FreeTrail.tar.gz
 
-# Windows（Git Bash / WSL）
+# Windows（Git Bash 终端）
 tar -xzf creditwise_protected_src_GYJZ_FreeTrail.tar.gz
 ```
 
