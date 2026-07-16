@@ -96,6 +96,18 @@ cd docker && ENABLE_AUTH=true docker compose up -d
 
 > 核心思路：在有外网的机器上构建完整 Docker 镜像（含前端编译 + Python 依赖），导出镜像 + 打包源码。内网服务器只需 `docker load` + `docker compose up`，**无需 build**。
 
+### 环境要求对照
+
+| | 联网编译机 | 无外网目标服务器 |
+|------|:--:|:--:|
+| 需要外网？ | ✅ 必须（拉基础镜像 + pip install） | ❌ 不需要 |
+| 需要 Docker？ | ✅ | ✅ |
+| 需要 Python/GCC/Cython？ | ❌ 编译全部在 Docker 容器内完成 | ❌ |
+| 需要 Node.js？ | ❌ 前端构建在容器内完成 | ❌ |
+| 部署命令 | `prepare_offline.sh [--protected]` | `deploy_offline.sh` |
+
+> **关键**：编译机除 Docker 外不需要安装任何编译工具——Cython 编译、前端 `npm build`、Python 依赖安装全部在 `Dockerfile` 构建阶段自动完成。
+
 ### 2.1 在有外网的机器上准备离线包
 
 ```bash
@@ -115,21 +127,42 @@ chmod +x scripts/prepare_offline.sh
 - `images/creditwise-latest.tar` — 完整构建好的 Docker 镜像（含前端 + 后端 + 所有依赖）
 - `source/` — 项目源码 + 运行配置（`docker-compose.yml`、`.env`、`config/` 等）
 
-### 2.2 传输到内网服务器
+### 2.2 传输到内网服务器并解压
+
+离线包解压后结构（假设部署到 `/opt/CreditWise`）：
 
 ```bash
-# U 盘或 SCP 传输
+# 传输（U 盘 / SCP / 内网中转）
 scp creditwise_offline_bundle.tar.gz user@intranet-server:/opt/
 
-# 在内网服务器上解压
+# 解压
 ssh user@intranet-server
-cd /opt && tar -xzf creditwise_offline_bundle.tar.gz
+mkdir -p /opt/CreditWise
+tar -xzf /opt/creditwise_offline_bundle.tar.gz -C /opt/CreditWise/
 ```
+
+解压后 `/opt/CreditWise/` 目录结构：
+
+```
+/opt/CreditWise/
+├── images/
+│   └── creditwise-latest.tar        ← 预构建的 Docker 镜像
+└── source/
+    ├── docker/
+    │   └── docker-compose.yml       ← compose 配置文件
+    ├── scripts/
+    │   └── deploy_offline.sh        ← 部署脚本（在此目录下执行）
+    ├── config/
+    │   └── users.yaml.example       ← 用户配置模板
+    └── .env                         ← 环境变量
+```
+
+> `deploy_offline.sh` 通过脚本自身路径动态发现 `images/` 和 `docker-compose.yml`，不依赖父目录名称。
 
 ### 2.3 在内网服务器上部署
 
 ```bash
-cd offline_bundle/source
+cd /opt/CreditWise/source
 chmod +x scripts/deploy_offline.sh
 ./scripts/deploy_offline.sh
 ```
