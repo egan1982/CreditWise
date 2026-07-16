@@ -1,13 +1,22 @@
 #!/bin/bash
 # =============================================================================
 # 预编译代码包 — 首次部署环境初始化
-# 用法: chmod +x scripts/setup_protected.sh && ./scripts/setup_protected.sh
+# 用法:
+#   chmod +x scripts/setup_protected.sh
+#   ./scripts/setup_protected.sh              # 仅初始化环境
+#   ./scripts/setup_protected.sh --build      # 初始化 + docker build + save镜像
+#                                              （用于目标服务器无外网场景）
 # =============================================================================
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
+
+BUILD_MODE=false
+if [ "$1" = "--build" ]; then
+    BUILD_MODE=true
+fi
 
 echo "============================================================"
 echo " CreditWise 预编译代码包 — 环境初始化"
@@ -54,9 +63,53 @@ if grep -q 'python:3.12-slim' docker/Dockerfile 2>/dev/null; then
     echo "Dockerfile Python 版本已对齐编译环境 (3.12→3.11)"
 fi
 
-echo ""
-echo "============================================================"
-echo " 环境初始化完成"
-echo "============================================================"
-echo " 下一步: docker compose up -d"
-echo "============================================================"
+# 7. --build 模式：构建 Docker 镜像 + 导出 + 生成离线部署包（用于目标服务器无外网场景）
+if [ "$BUILD_MODE" = "true" ]; then
+    echo ""
+    echo "===[--build] 构建 Docker 镜像==="
+    docker compose -f docker/docker-compose.yml build
+
+    echo ""
+    echo "===[--build] 导出镜像==="
+    mkdir -p images
+    docker save creditwise:latest -o images/creditwise-latest.tar
+    echo "镜像已导出: images/creditwise-latest.tar ($(du -sh images/creditwise-latest.tar | cut -f1))"
+
+    echo ""
+    echo "===[--build] 生成离线部署包==="
+    BUNDLE_DIR="/tmp/creditwise_offline_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$BUNDLE_DIR/images" "$BUNDLE_DIR/source/docker" \
+             "$BUNDLE_DIR/source/scripts" "$BUNDLE_DIR/source/config"
+
+    cp images/creditwise-latest.tar "$BUNDLE_DIR/images/"
+    cp docker/docker-compose.yml "$BUNDLE_DIR/source/docker/"
+    cp .env "$BUNDLE_DIR/source/" 2>/dev/null || true
+    cp config/users.yaml.example "$BUNDLE_DIR/source/config/" 2>/dev/null || true
+    cp scripts/deploy_offline.sh "$BUNDLE_DIR/source/scripts/"
+
+    ARCHIVE_NAME="creditwise_offline_$(date +%Y%m%d_%H%M%S).tar.gz"
+    tar -czf "$ARCHIVE_NAME" -C "$BUNDLE_DIR" .
+    rm -rf "$BUNDLE_DIR"
+
+    echo ""
+    echo "============================================================"
+    echo " 环境初始化 + 镜像构建 + 离线包打包完成"
+    echo "============================================================"
+    echo " 离线包: $PWD/$ARCHIVE_NAME ($(du -sh $ARCHIVE_NAME | cut -f1))"
+    echo ""
+    echo " 将此文件传输到目标无外网服务器后执行:"
+    echo "   tar -xzf $ARCHIVE_NAME"
+    echo "   cd offline_bundle/source"
+    echo "   chmod +x scripts/deploy_offline.sh"
+    echo "   ./scripts/deploy_offline.sh"
+    echo "============================================================"
+else
+    echo ""
+    echo "============================================================"
+    echo " 环境初始化完成"
+    echo "============================================================"
+    echo " 下一步: docker compose -f docker/docker-compose.yml up -d"
+    echo ""
+    echo "（若目标服务器无外网，请使用: ./scripts/setup_protected.sh --build）"
+    echo "============================================================"
+fi
