@@ -137,14 +137,23 @@ chmod +x scripts/deploy_offline.sh
 脚本自动完成：
 1. 加载 Docker 镜像（`docker load`）
 2. 交互式选择部署模式（单用户 / 内网多用户）
-3. 配置环境（`.env`、加密密钥、用户账号）
+3. 配置环境（`.env`、加密密钥）
 4. 启动服务（`docker compose up -d`，**不执行 build**）
 
-> ⚠️ **部署后必须操作**：`config/users.yaml` 中初始为占位符密码，任何人无法登录。需立即生成真实哈希替换：
-> ```bash
-> # 用容器生成（离线镜像已加载）
-> docker run --rm creditwise:latest python scripts/hash_password.py <你的密码>
-> # 将输出的哈希值替换 config/users.yaml 中的 PLACEHOLDER
+> **首次登录**：首个 admin 账户由零配置自动引导生成（默认密码 `admin123`，首次登录强制改密），无需手动编辑 yaml。可通过环境变量 `BOOTSTRAP_ADMIN_PASSWORD` 自定义初始密码。
+
+#### 预编译代码包场景（加密版本）
+
+若收到的离线包是基于预编译代码包（约 31MB）生成的，部署方先在有外网的机器上执行：
+
+```bash
+tar -xzf creditwise_protected_src.tar.gz
+cd dist_protected
+./scripts/setup_protected.sh --build   # 初始化 + docker build + docker save + 打包
+# → 产出 creditwise_offline_xxx.tar.gz
+```
+
+然后将产出文件传至目标无外网服务器，按上方常规离线部署流程操作。
 
 ---
 
