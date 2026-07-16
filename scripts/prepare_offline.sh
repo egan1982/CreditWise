@@ -128,7 +128,7 @@ if [ "$PROTECTED_MODE" = "true" ]; then
     # 当前目录固定文件名 docker-compose.yml。将 compiled 版重命名为标准名，
     # 避免改动 deploy_offline.sh 本身（改动面更小、风险更低）
     cp "$PROJECT_ROOT/docker/$COMPOSE_FILE" "$SOURCE_DIR/docker/docker-compose.yml"
-    cp -r "$PROJECT_ROOT/scripts/" "$SOURCE_DIR/scripts/"
+    cp -r "$PROJECT_ROOT/scripts/." "$SOURCE_DIR/scripts/"
     cp "$PROJECT_ROOT/config/users.yaml.example" "$SOURCE_DIR/config/" 2>/dev/null || true
     if [ -f "$PROJECT_ROOT/.env.example" ]; then
         cp "$PROJECT_ROOT/.env.example" "$SOURCE_DIR/.env"

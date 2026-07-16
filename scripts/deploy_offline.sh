@@ -159,7 +159,14 @@ echo ""
 echo -e "${GREEN}[4/4] 启动服务${NC}"
 
 cd "$PROJECT_ROOT/docker"
-ENABLE_AUTH=${ENABLE_AUTH} docker compose up -d
+
+# 将 docker-compose.yml 中的相对路径改写为绝对路径，防止 Docker Compose
+# 跨项目目录污染（不同 Compose 版本对相对路径的解析行为不一致）
+COMPOSE_TMP="$PROJECT_ROOT/docker/docker-compose.resolved.yml"
+sed "s|\.\./|${PROJECT_ROOT}/|g" docker-compose.yml > "$COMPOSE_TMP"
+echo "  compose 文件相对路径已解析为绝对路径: $COMPOSE_TMP"
+
+ENABLE_AUTH=${ENABLE_AUTH} docker compose -f "$COMPOSE_TMP" up -d
 
 echo ""
 echo "等待服务启动..."
