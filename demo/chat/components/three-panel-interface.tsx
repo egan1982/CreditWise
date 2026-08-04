@@ -2940,10 +2940,11 @@ function ThreePanelInterfaceInner() {
 
       // 从 ModelSelector 获取选中的模型配置
       const model = selectedConfig?.models?.split(",")[0]?.trim() || "deepseek-chat";
-      const apiBase = "http://localhost:8200/v1";
+      // apiBase 不再硬编码：缺省由后端使用 LLM Manager 代理（/llm-manager/api/proxy）
+      const apiBase = undefined;
       const systemPrompt = selectedConfig?.system_prompt || undefined;
       
-      console.log(`[SOP Execute] Using model: ${model}, apiBase: ${apiBase}, hasSystemPrompt: ${!!systemPrompt}`);
+      console.log(`[SOP Execute] Using model: ${model}, apiBase: ${apiBase ?? 'backend-default'}, hasSystemPrompt: ${!!systemPrompt}`);
 
       // 传递模式参数和模型配置到后端
       const response = await sopService.executeTask(

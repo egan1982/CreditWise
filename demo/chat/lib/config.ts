@@ -4,15 +4,20 @@
  * 运行时获取 API 基础 URL
  * 
  * 核心逻辑：
- * - 生产模式（同源部署，端口8200）：使用 window.location.origin
+ * - 生产模式（同源部署，任意端口如 8200/8300）：使用 window.location.origin
  * - 开发模式（Next.js dev server，端口3000）：使用 127.0.0.1:8200
  * - 非浏览器环境（SSR/构建）：回退到 127.0.0.1:8200
+ * 
+ * 2026-08-04 修复：此前以「端口 === '8200'」作为生产模式判定，若部署方因
+ * 8200 已被占用而改用其他端口（如 8300），前端会被误判为开发模式，API 请求
+ * 被发往 8200 或其他地址，报「网络异常」。改为「白名单开发端口，其余一律同源」。
  */
 function getBaseUrl(): string {
   if (typeof window !== 'undefined') {
     const port = window.location.port;
-    // 生产模式：前端和 API 同源（都在 8200）
-    if (port === '8200' || port === '') {
+    // 开发模式端口（Next.js dev 3000 / Vite dev 3001）才回退到本地 8200 后端
+    const isDevPort = port === '3000' || port === '3001';
+    if (!isDevPort) {
       return window.location.origin;
     }
     // 开发模式：前端在 3000，API 在 8200
@@ -23,8 +28,19 @@ function getBaseUrl(): string {
 
 /**
  * 运行时获取文件服务器 URL
+ *
+ * 优先级：
+ * 1. NEXT_PUBLIC_FILE_SERVER_BASE（构建时注入，见 Dockerfile/compose build args）
+ * 2. 运行时推断：生产模式（非 3000/3001 端口）→ 同 hostname:8100；开发模式 → localhost:8100
+ *
+ * 2026-08-04 修复：部署方改文件端口时（如 8100 被占用改用 8400），仅靠运行时推断
+ * 无法知道宿主端口，故支持构建时注入 NEXT_PUBLIC_FILE_SERVER_BASE 覆盖。
  */
 function getFileServerBase(): string {
+  const injected = process.env.NEXT_PUBLIC_FILE_SERVER_BASE;
+  if (injected) {
+    return injected;
+  }
   if (typeof window !== 'undefined') {
     return `${window.location.protocol}//${window.location.hostname}:8100`;
   }
@@ -40,7 +56,7 @@ function getFileServerBase(): string {
  * 导致点击后地址错误/404。
  *
  * 与 getBaseUrl() 保持同一套判断逻辑：
- * - 生产模式（同源部署，端口8200）：`${origin}/llm-manager`（同源子路径，由主API
+ * - 生产模式（同源部署，任意端口）：`${origin}/llm-manager`（同源子路径，由主API
  *   以 as_subapp 挂载）
  * - 开发模式（端口3000）：LLM Manager 有独立的 Vite dev server（端口3001），
  *   跳转到该端口根路径，而不是拼接 /llm-manager 前缀
@@ -48,7 +64,8 @@ function getFileServerBase(): string {
 export function getLlmManagerUrl(): string {
   if (typeof window !== 'undefined') {
     const port = window.location.port;
-    if (port === '8200' || port === '') {
+    const isDevPort = port === '3000' || port === '3001';
+    if (!isDevPort) {
       return `${window.location.origin}/llm-manager`;
     }
     return `${window.location.protocol}//${window.location.hostname}:3001`;
