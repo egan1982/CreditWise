@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { getApiUrl } from "@/lib/config";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 
 interface IVResult {
@@ -128,7 +129,7 @@ export function IVAnalyzer() {
 
     setLoading(true);
     try {
-      const response = await fetch("http://localhost:8200/v1/scorecard/iv", {
+      const response = await fetch(getApiUrl("/v1/scorecard/iv"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -187,7 +188,7 @@ export function IVAnalyzer() {
     
     // 调用后端API生成报告
     try {
-      const response = await fetch("http://localhost:8200/v1/export/generic-report", {
+      const response = await fetch(getApiUrl("/v1/export/generic-report"), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
