@@ -19,8 +19,6 @@ services:
       dockerfile: docker/Dockerfile.compiled   # ← 唯一差异
       args:
         - OFFLINE_MODE=${OFFLINE_MODE:-false}
-        # 文件服务地址构建时内联进前端（与 docker-compose.yml 一致）
-        - NEXT_PUBLIC_FILE_SERVER_BASE=http://${CVM_HOST:-localhost}:${HOST_FILE_PORT:-8100}
     image: creditwise:protected                # ← 镜像 tag 区分于标准版
     container_name: creditwise-api
 
@@ -29,8 +27,8 @@ services:
       - ../.env
 
     ports:
-      - "${HOST_API_PORT:-8200}:8200"   # API 服务 + 前端（宿主端口可改，容器内 8200）
-      - "${HOST_FILE_PORT:-8100}:8100"  # 文件下载服务（宿主端口可改，容器内 8100）
+      - "8200:8200"   # API 服务 + 前端
+      - "8100:8100"   # 文件下载服务
 
     volumes:
       # 持久化数据（容器重启不丢失）
