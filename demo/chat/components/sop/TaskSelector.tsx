@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Target, Loader2, ChevronRight } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { Target, Loader2, ChevronRight, RefreshCw } from "lucide-react";
 import { sopService, TaskListItem } from "@/lib/sopService";
+import { isUnauthorizedError } from "@/lib/config";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 // 任务图标映射
@@ -32,23 +34,28 @@ export function TaskSelector({
   const [error, setError] = useState<string | null>(null);
 
   // 加载可用任务列表
-  useEffect(() => {
-    const loadTasks = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const taskList = await sopService.getAvailableTasks();
-        setTasks(taskList);
-      } catch (err) {
-        console.error("Failed to load tasks:", err);
-        setError("加载任务列表失败");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadTasks();
+  const loadTasks = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const taskList = await sopService.getAvailableTasks();
+      setTasks(taskList);
+    } catch (err) {
+      console.error("Failed to load tasks:", err);
+      // 未登录（401）给出明确提示，其余显示通用错误
+      setError(
+        isUnauthorizedError(err)
+          ? "未登录，请先登录"
+          : "加载任务列表失败"
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
 
   const getTaskIcon = (iconName: string) => {
     return TASK_ICONS[iconName] || TASK_ICONS.default;
@@ -80,6 +87,17 @@ export function TaskSelector({
           </span>
         </div>
         <div className="text-center py-4 text-sm text-red-500">{error}</div>
+        <div className="flex justify-center pb-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadTasks()}
+            className="gap-1.5"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            重新加载
+          </Button>
+        </div>
       </div>
     );
   }
