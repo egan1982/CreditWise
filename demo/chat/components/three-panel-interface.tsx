@@ -15,7 +15,14 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { API_URLS, API_CONFIG, getApiUrl, authFetch } from "@/lib/config";
+import {
+  API_URLS,
+  API_CONFIG,
+  getApiUrl,
+  authFetch,
+  assertOk,
+  isUnauthorizedError,
+} from "@/lib/config";
 import {
   Dialog,
   DialogContent,
@@ -460,6 +467,9 @@ function ThreePanelInterfaceInner() {
   const [workspaceTree, setWorkspaceTree] = useState<WorkspaceNode | null>(
     null
   );
+  // 工作区加载错误（401 未登录 / 其他）：用于 Files 面板显示明确错误提示，
+  // 避免"一直 Loading"的假加载状态
+  const [filesError, setFilesError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const treeContainerRef = useRef<HTMLDivElement>(null);
   const [treeSize, setTreeSize] = useState<{ w: number; h: number }>({
@@ -821,12 +831,17 @@ function ThreePanelInterfaceInner() {
       const response = await authFetch(
         `${getApiUrl(API_URLS.WORKSPACE_FILES)}?session_id=${workspaceSessionId}`
       );
-      if (response.ok) {
-        const data = await response.json();
-        setWorkspaceFiles(data.files);
-      }
+      await assertOk(response, "加载工作区文件失败");
+      const data = await response.json();
+      setWorkspaceFiles(data.files);
+      setFilesError(null);
     } catch (error) {
       console.error("Failed to load workspace files:", error);
+      setFilesError(
+        isUnauthorizedError(error)
+          ? "未登录，请先登录"
+          : "加载工作区失败，请点击重试"
+      );
     }
   };
 
@@ -836,7 +851,8 @@ function ThreePanelInterfaceInner() {
       const res = await authFetch(
         `${getApiUrl(API_URLS.WORKSPACE_TREE)}?session_id=${workspaceSessionId}`
       );
-      if (res.ok) {
+      await assertOk(res, "加载工作区目录失败");
+      {
         const data = await res.json();
         // 标记 generated 文件夹及其内容
         const markGenerated = (
@@ -865,9 +881,15 @@ function ThreePanelInterfaceInner() {
           });
         }
         setExpanded(init);
+        setFilesError(null);
       }
     } catch (e) {
       console.error("load tree error", e);
+      setFilesError(
+        isUnauthorizedError(e)
+          ? "未登录，请先登录"
+          : "加载工作区失败，请点击重试"
+      );
     }
   };
 
@@ -3862,7 +3884,24 @@ function ThreePanelInterfaceInner() {
                     {uploadMsg}
                   </div>
                 )}
-                {workspaceTree ? (
+                {filesError ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 p-4 text-center">
+                    <div className="text-sm text-red-500">{filesError}</div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setFilesError(null);
+                        loadWorkspaceFiles();
+                        loadWorkspaceTree();
+                      }}
+                      className="gap-1.5"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      重新加载
+                    </Button>
+                  </div>
+                ) : workspaceTree ? (
                   <Tree
                     width={treeSize.w || 300}
                     height={Math.max(0, (treeSize.h || 400) - 100)}

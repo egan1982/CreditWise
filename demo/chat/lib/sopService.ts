@@ -3,7 +3,7 @@
  * 提供与后端SOP API的交互功能
  */
 
-import { getApiUrl, authFetch } from './config';
+import { getApiUrl, authFetch, assertOk } from './config';
 
 // =============================================================================
 // 缓存配置与类型
@@ -293,9 +293,7 @@ class SOPService {
    */
   async getAvailableTasks(): Promise<TaskListItem[]> {
     const response = await authFetch(getApiUrl('/sop/tasks'));
-    if (!response.ok) {
-      throw new Error(`Failed to fetch tasks: ${response.status}`);
-    }
+    await assertOk(response, '加载任务列表失败');
     return response.json();
   }
 

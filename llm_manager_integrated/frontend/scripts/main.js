@@ -27,6 +27,44 @@ function renderPermissionDenied(containerId, featureName) {
     `;
 }
 
+// 用户管理模块 批次4（2026-08-04）：401 未登录统一提示。
+//
+// 背景：401（凭证缺失/过期）此前走 showError()（浏览器 alert()），弹窗关闭后
+// 容器仍停留在"加载中"骨架，给人"一直加载中"的错觉。此处仿照上方 403 拦截，
+// 直接把目标容器替换成明确的"未登录"提示，不依赖 alert()。
+// 说明：LLM Manager 页面壳子本身需要登录后才能进入；若出现 401 通常是
+// 凭证失效/会话过期，提示用户重新登录即可。
+function renderUnauthorized(containerId, featureName) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.innerHTML = `
+        <div class="empty-state bg-white rounded-lg shadow-md p-6 mb-5 text-center">
+            <div class="text-4xl mb-2">🔑</div>
+            <div class="text-lg font-medium mb-2 text-gray-800">未登录，请先登录</div>
+            <div class="text-gray-600">当前会话已失效或未登录，请重新登录后访问${featureName}</div>
+        </div>
+    `;
+}
+
+// 统一处理 API 响应状态码：401 未登录 / 403 无权限 / 其他走 showError
+// 返回 true 表示已处理（调用方应 return），false 表示继续正常处理
+function handleApiStatus(response, containerId, featureName) {
+    if (response.status === 401) {
+        renderUnauthorized(containerId, featureName);
+        return true;
+    }
+    if (response.status === 403) {
+        renderPermissionDenied(containerId, featureName);
+        return true;
+    }
+    if (!response.ok) {
+        console.error('请求失败，状态码:', response.status);
+        showError(`请求失败，状态码: ${response.status}`);
+        return true;
+    }
+    return false;
+}
+
 // 选项卡切换
 function switchTab(event, tabName) {
     // 隐藏所有内容
@@ -72,16 +110,8 @@ async function loadChannels() {
         console.log('正在加载配置，API地址:', API_BASE + '/manage/channels');
         const response = await fetch(`${API_BASE}/manage/channels`);
         
-        if (response.status === 403) {
-            renderPermissionDenied('channels-list', 'LLM渠道管理');
-            return;
-        }
-        if (!response.ok) {
-            console.error('请求失败，状态码:', response.status);
-            showError(`请求失败，状态码: ${response.status}`);
-            return;
-        }
-        
+        if (handleApiStatus(response, 'channels-list', 'LLM渠道管理')) return;
+
         const result = await response.json();
         console.log('API响应:', result);
 
@@ -163,10 +193,7 @@ async function loadChannels() {
 async function loadLogs() {
     try {
         const response = await fetch(`${API_BASE}/logs?limit=10`);
-        if (response.status === 403) {
-            renderPermissionDenied('logs-list', 'API日志');
-            return;
-        }
+        if (handleApiStatus(response, 'logs-list', 'API日志')) return;
         const result = await response.json();
 
         if (result.code === 0) {
@@ -205,10 +232,7 @@ async function loadLogs() {
 async function loadStats() {
     try {
         const response = await fetch(`${API_BASE}/monitoring/stats`);
-        if (response.status === 403) {
-            renderPermissionDenied('stats-content', '统计信息');
-            return;
-        }
+        if (handleApiStatus(response, 'stats-content', '统计信息')) return;
         const result = await response.json();
 
         if (result.code === 0) {
@@ -238,10 +262,7 @@ async function loadStats() {
 async function loadSystemInfo() {
     try {
         const response = await fetch(`${API_BASE}/monitoring/health`);
-        if (response.status === 403) {
-            renderPermissionDenied('system-info', '系统信息');
-            return;
-        }
+        if (handleApiStatus(response, 'system-info', '系统信息')) return;
         const result = await response.json();
 
         if (result.code === 0) {

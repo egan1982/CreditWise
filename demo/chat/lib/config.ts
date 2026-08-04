@@ -146,6 +146,59 @@ export function clearAuth(): void {
   localStorage.removeItem(AUTH_STORAGE_KEY);
 }
 
+// =============================================================================
+// 统一 API 错误分类（UX 优化：错误提示按类型区分文案）
+//
+// 背景：此前各业务组件对 fetch 的非 2xx 响应处理不一——有的 catch 后只
+// console.error（一直 loading），有的显示通用错误文案（不区分 401/403/5xx）。
+// 本模块提供统一的错误分类，让组件可按类型渲染对应提示：
+//   - 401 未登录    → "未登录，请先登录" + 登录按钮
+//   - 403 无权限    → "无权限访问" 
+//   - 5xx/网络      → "服务暂不可用"
+//   - 其他业务错误  → 后端 message/detail
+// =============================================================================
+
+/** 携带 HTTP 状态码的 API 错误 */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/** 是否为未登录（401）错误 */
+export function isUnauthorizedError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
+}
+
+/** 是否为无权限（403）错误 */
+export function isForbiddenError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 403;
+}
+
+/**
+ * 校验 fetch 响应，非 2xx 时抛出携带状态码的 ApiError。
+ * 各业务调用点用它替代 `if (!response.ok) throw new Error(...)`，
+ * 使错误携带 status，供组件层区分提示文案。
+ */
+export async function assertOk(
+  response: Response,
+  fallbackMsg = '请求失败'
+): Promise<Response> {
+  if (response.ok) return response;
+  let detail = '';
+  try {
+    const body = await response.json();
+    detail = body?.detail || body?.message || body?.error || '';
+  } catch {
+    // 非 JSON 响应（如 502 HTML），忽略
+  }
+  const msg = detail ? `${fallbackMsg}: ${detail}` : `${fallbackMsg} (HTTP ${response.status})`;
+  throw new ApiError(msg, response.status);
+}
+
 // -----------------------------------------------------------------------------
 // 登录对话框回调注册
 // 允许 LoginDialog 组件注册一个异步弹窗函数，供 authFetch 调用
