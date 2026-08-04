@@ -379,8 +379,19 @@ def create_app() -> FastAPI:
         }
     
     # Health check endpoint
+    # 生产模式：额外校验 LLM Manager 是否初始化成功（db_manager 就绪），
+    # 避免容器启动但核心依赖不可用的"假健康"（历史上 db 挂载陷阱导致 500）。
     @app.get("/health")
     async def health_check():  # pyright: ignore[reportUnusedFunction]
+        _dev_mode = os.getenv("DEV_MODE", "true").lower() == "true"
+        if not _dev_mode and not getattr(app.state, "llm_manager_ready", False):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "unhealthy",
+                    "detail": "LLM Manager not initialized (db_manager missing)",
+                },
+            )
         return {"status": "healthy"}
 
     # 用户管理模块 批次1 Phase1 + 批次2 Phase10：返回当前登录用户信息
@@ -1187,6 +1198,8 @@ def create_app() -> FastAPI:
                 # 必须在 startup 事件中挂载，此时 app.state 才可写
                 @app.on_event("startup")
                 async def llm_manager_startup():
+                    # 初始化状态标记：/health 依赖它区分"真健康"与"假健康"
+                    app.state.llm_manager_ready = False
                     try:
                         from llm_manager_integrated.models.database import DatabaseManager
                         from llm_manager_integrated.core.config import settings as llm_settings
@@ -1196,9 +1209,15 @@ def create_app() -> FastAPI:
                         app.state.db_manager = db_manager
                         app.state.config = llm_settings
                         await app_startup_handler(app)
+                        app.state.llm_manager_ready = True
                         logger.info("[OK] LLM_Manager db_manager initialized on main app.state")
                     except Exception as e:
-                        logger.warning(f"[WARN] LLM_Manager startup init failed: {e}")
+                        # 不抛异常（容器仍需能启动以便诊断），但 /health 会返回 503 暴露问题
+                        logger.error(f"[ERROR] LLM_Manager startup init failed: {e}")
+                        logger.error(
+                            "提示：常见原因为 Docker volume 将宿主机不存在的 db 文件挂载成了目录。"
+                            "请预创建空文件（touch llm_manager.db task_manager.db）后重建容器。"
+                        )
                 
                 # Serve pre-built LLM Manager frontend (Vite + Tailwind, offline-ready)
                 _llm_static = Path(__file__).parent.parent / "llm_manager_integrated" / "static"
