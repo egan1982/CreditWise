@@ -13,6 +13,11 @@ WORKDIR /build
 COPY demo/chat/package.json demo/chat/package-lock.json* ./
 RUN npm install --production=false
 COPY demo/chat/ ./
+# NEXT_PUBLIC_* 变量在 npm run build 时内联进静态产物。
+# 文件服务器地址由 compose build.args 注入（部署方改文件端口时覆盖，
+# 如 8100 被占用改用 8400），供 demo/chat/lib/config.ts 的 getFileServerBase() 读取。
+ARG NEXT_PUBLIC_FILE_SERVER_BASE
+ENV NEXT_PUBLIC_FILE_SERVER_BASE=${NEXT_PUBLIC_FILE_SERVER_BASE}
 RUN npm run build
 
 # --- LLM Manager 前端 (Vite + Tailwind CSS 完整编译) ---

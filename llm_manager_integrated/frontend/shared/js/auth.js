@@ -56,9 +56,14 @@
   // -----------------------------------------------------------------------
   var _pendingResolve = null;
 
+  // 2026-08-04 修复：与 demo/chat/lib/config.ts 保持同一套判定逻辑。
+  // 此前以「端口 === '8200'」作为生产模式判定，部署方改用其他端口（如 8300）时，
+  // 登录探测（/auth/me）被发往 8200 → 跨域 CORS 拦截 → 前端报"网络异常"。
+  // 改为「白名单开发端口(3000/3001)，其余一律同源」。
   function getBackendOrigin() {
     var port = window.location.port;
-    if (port === "8200" || port === "") {
+    var isDevPort = port === "3000" || port === "3001";
+    if (!isDevPort) {
       return window.location.origin;
     }
     // 开发模式：LLM Manager 在 3001，后端在 8200
@@ -177,14 +182,35 @@
                 errorEl.style.display = "block";
               });
           }
-          // 校验通过，才真正保存凭证并关闭弹窗
-          var auth = saveAuth(username, password);
-          overlay.style.display = "none";
-          if (_pendingResolve) {
-            var resolve = _pendingResolve;
-            _pendingResolve = null;
-            resolve(auth);
-          }
+          // 校验通过：解析 /auth/me，检查是否需强制改密（must_change_password，TD4）。
+          // 2026-08-04 补充：与主界面（demo/chat）AccountSettingsDialog 的 forceMode
+          // 行为对齐——初始 admin 首次登录必须先在主界面完成改密，否则不允许进入
+          // LLM Manager 管理台（此前这里只判 res.ok，直接放行导致绕过强制改密）。
+          return res
+            .json()
+            .catch(function () {
+              return null;
+            })
+            .then(function (me) {
+              if (me && me.must_change_password) {
+                errorEl.textContent =
+                  "首次登录需先修改密码，请前往主界面（" +
+                  window.location.protocol +
+                  "//" +
+                  window.location.host +
+                  "）完成改密后再登录";
+                errorEl.style.display = "block";
+                return;
+              }
+              // 无需强制改密，才真正保存凭证并关闭弹窗
+              var auth = saveAuth(username, password);
+              overlay.style.display = "none";
+              if (_pendingResolve) {
+                var resolve = _pendingResolve;
+                _pendingResolve = null;
+                resolve(auth);
+              }
+            });
         })
         .catch(function (err) {
           errorEl.textContent = "网络异常，无法连接服务器，请重试";

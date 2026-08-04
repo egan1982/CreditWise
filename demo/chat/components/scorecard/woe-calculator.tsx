@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Spinner, Upload, Download, BarChart3, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { getApiUrl } from "@/lib/config";
 
 interface WOEResult {
   feature: string;
@@ -114,7 +115,7 @@ export function WOECalculator() {
 
     setLoading(true);
     try {
-      const response = await fetch("http://localhost:8200/v1/scorecard/woe", {
+      const response = await fetch(getApiUrl("/v1/scorecard/woe"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -174,7 +175,7 @@ export function WOECalculator() {
     
     // 调用后端API生成报告
     try {
-      const response = await fetch("http://localhost:8200/v1/export/generic-report", {
+      const response = await fetch(getApiUrl("/v1/export/generic-report"), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

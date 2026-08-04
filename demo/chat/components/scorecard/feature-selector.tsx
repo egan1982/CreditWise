@@ -35,6 +35,7 @@ import {
   Check,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { getApiUrl } from "@/lib/config";
 
 interface SelectionResult {
   target: string;
@@ -117,7 +118,7 @@ export function FeatureSelector() {
     setLoading(true);
     try {
       const response = await fetch(
-        "http://localhost:8200/v1/scorecard/feature-selection",
+        getApiUrl("/v1/scorecard/feature-selection"),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -190,7 +191,7 @@ export function FeatureSelector() {
     
     // 调用后端API生成报告
     try {
-      const response = await fetch("http://localhost:8200/v1/export/generic-report", {
+      const response = await fetch(getApiUrl("/v1/export/generic-report"), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

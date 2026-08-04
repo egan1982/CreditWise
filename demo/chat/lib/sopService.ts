@@ -339,7 +339,7 @@ class SOPService {
     params: Record<string, any>,
     interactionMode: 'auto' | 'expert' = 'auto',
     model: string = 'deepseek-chat',
-    apiBase: string = 'http://localhost:8200/v1',
+    apiBase?: string,
     systemPrompt?: string
   ): Promise<{ execution_id: string; task_id: string; status: string; message: string }> {
     const response = await authFetch(getApiUrl('/sop/execute'), {
