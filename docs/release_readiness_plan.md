@@ -2798,7 +2798,7 @@ docker-compose -f docker-compose.prod.yml down
 ##### P1-B1: .env 文件中硬编码加密密钥（严重）
 
 - **位置**: `.env` 第 2 行
-- **内容**: `LLM_MANAGER_ENCRYPTION_KEY=CVW9iGPthZUaoJYg9kTNUcIRZ-I2DTOzvwV9o7AeSmE=`
+- **内容**: `LLM_MANAGER_ENCRYPTION_KEY=<REDACTED>`（原密钥已从文档移除，见 `docs/security/加密密钥历史清理方案.md`）
 - **缓解**: `.gitignore` 已排除 `.env`
 - **风险评级**: **严重** — 若 `.env` 泄露，攻击者可解密 LLM Manager 存储的所有 API 密钥
 - **建议**: 使用密钥管理服务或确保 `.env` 文件权限 600
