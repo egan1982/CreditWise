@@ -69,6 +69,9 @@ services:
       - ENABLE_AUTH=${ENABLE_AUTH:-true}
       # CORS（生产模式同源，一般不需要配置）
       - CORS_ORIGINS=${CORS_ORIGINS:-}
+      # 时区：DB/任务时间记录使用北京时间（此前容器默认 UTC，导致 8300 页面
+      # 前端 new Date() 按本地时区解析后与北京时间相差 8 小时）
+      - TZ=Asia/Shanghai
 
     restart: unless-stopped
 
