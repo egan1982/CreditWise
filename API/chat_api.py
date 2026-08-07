@@ -218,6 +218,19 @@ async def _get_llm_client_and_model(model: str) -> Tuple[Any, str, Optional[Any]
         except Exception as e:
             logger.error(f"获取LLM Manager渠道失败: {e}，回退到默认客户端")
     
+    # 回退：优先使用 LLM Manager 激活渠道（普通模型名也能走激活渠道，
+    # 避免旧版 LLMClientManager 未配置 API key 时返回 None 导致 503）
+    if CHANNEL_FACTORY_AVAILABLE:
+        try:
+            factory = get_channel_factory()
+            channel_info = await factory.get_active_channel()
+            if channel_info:
+                client = factory.create_openai_client(channel_info)
+                logger.info(f"使用LLM Manager激活渠道兜底: {channel_info.channel_name} ({channel_info.provider})")
+                return client, channel_info.model, channel_info
+        except Exception as e:
+            logger.error(f"获取LLM Manager激活渠道失败: {e}")
+
     # 回退到原有的LLMClientManager
     llm_client = LLMClientManager.get_client(verbose=False)
     return llm_client, model, None

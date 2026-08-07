@@ -273,6 +273,25 @@ class ChannelClientFactory:
             )
         return None
     
+    async def get_active_channel(self) -> Optional[ChannelInfo]:
+        """返回第一个启用渠道（LLM Manager 配置 status=1），无则 None。
+
+        用于普通模型名调用时的 LLM Manager 渠道兜底（避免回退旧版客户端未配置导致 503）。
+        """
+        self._ensure_initialized()
+        await self._load_channels_if_needed()
+        try:
+            with self._db_manager.get_session() as db:
+                from llm_manager_integrated.core.crud import get_channels
+                channels = get_channels(db=db)
+                for ch in channels:
+                    if ch.status:
+                        return await self._get_channel_by_id(str(ch.id))
+                return None
+        except Exception as e:
+            logger.error(f"获取激活渠道失败: {e}")
+            return None
+    
     async def _select_channel_for_model(self, model: str) -> Optional[ChannelInfo]:
         """使用负载均衡器选择支持指定模型的渠道"""
         channel = await self._load_balancer.select_channel(model=model)
