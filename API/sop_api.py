@@ -4638,8 +4638,8 @@ async def build_overall_analysis_prompt(
     if request.execution_id:
         context = get_execution_context(request.execution_id)
         if context:
-            # 从执行上下文获取结果
-            results = context.result or {}
+            # 从执行上下文获取结果（ExecutionContext 结果字段为 outputs，无 result 属性）
+            results = getattr(context, "outputs", None) or {}
             # 从阶段获取数据
             for stage_id, stage in context.stages.items():
                 if stage.output_preview:
